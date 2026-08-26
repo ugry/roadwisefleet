@@ -77,7 +77,7 @@ The single source of truth is the **trip/order object**; every menu is a project
 
 | Phase | Driver | Fleet Manager | Customer |
 |---|---|---|---|
-| **MVP (P0)** — free, EU, get 10 fleets | Trips · Documents (eCMR) · Messages · Money-lite (manual settlements) · More (tacho/rest-time) | Dashboard · Dispatch · Trips · Drivers · Customers (+WhatsApp inbox) · Compliance (eCMR + driver files) · Finance-lite (manual) · Settings (i18n EN/DE/PL/TR) | WhatsApp booking/tracking · Shipments (tracking) · Documents (eCMR/POD) · Account (no payments yet) |
+| **MVP (P0)** — free, EU, get 10 fleets | Trips · **Parking (crowdsourced, P0 per field research)** · Documents (eCMR) · Messages · Money-lite (manual settlements) · More (tacho/rest-time) | Dashboard · Dispatch · Trips · Drivers · Customers (+WhatsApp inbox) · Compliance (eCMR + driver files) · Finance-lite (manual) · Settings (i18n EN/DE/PL/TR) | WhatsApp booking/tracking · Shipments (tracking) · Documents (eCMR/POD) · Account (no payments yet) |
 | **Phase 2 (P1)** — 1,000 users | Return-load offers · toll hints · safety dir · PT/ES/RO locales | Vehicles · Analytics · SEPA quick-pay (monetization starts) · eFTI prep | Portal payments (SEPA) · API access |
 | **Phase 3 (P2)** — 10,000 users | Scorecards & bonuses · marketplace loads | Factoring marketplace · multi-org groups · regional data-residency views (BR/IN modules) | ERP integrations · self-serve contracts |
 
