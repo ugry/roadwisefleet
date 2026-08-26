@@ -37,12 +37,24 @@ jobs:
         working-directory: /tmp/open-design
         run: pnpm --filter @open-design/daemon build
 
+      - name: Start OpenDesign daemon (headless, for lint API)
+        working-directory: /tmp/open-design
+        run: |
+          node apps/daemon/dist/cli.js --port 7456 --no-open > /tmp/od-daemon.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:7456/api/health > /dev/null; then
+              echo "daemon up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "daemon failed to start"; cat /tmp/od-daemon.log; exit 1
+
       - name: Lint artifacts (fail on P1+)
         run: |
           set -e
           for f in web/*.html; do
             echo "::group::lint $f"
-            node /tmp/open-design/apps/daemon/dist/cli.js lint "$f" --fail-on p1
+            node /tmp/open-design/apps/daemon/dist/cli.js lint "$f" --fail-on p1 --daemon-url http://127.0.0.1:7456
             echo "::endgroup::"
           done
 
