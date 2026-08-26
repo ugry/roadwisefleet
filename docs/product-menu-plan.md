@@ -1,6 +1,7 @@
 # RoadwiseFleet — Role Menus & Functions Plan
 
-**Status:** product draft v1 · **Basis:** market research (docs/market-research.md), the MVP recommendations in each regional report, and the backend plan (docs/backend-infrastructure-plan.md).
+**Status:** v2 — founder decisions applied (2026-08-26)
+**Basis:** market research (docs/market-research.md), regional MVP recommendations, backend plan (docs/backend-infrastructure-plan.md).
 **Personas:** Fleet Manager (web SaaS) · Truck Driver (Android) · Customer (web portal + WhatsApp).
 
 > One trip lifecycle ties the three roles together — every menu item below is a screen in that lifecycle:
@@ -76,17 +77,30 @@ The single source of truth is the **trip/order object**; every menu is a project
 
 | Phase | Driver | Fleet Manager | Customer |
 |---|---|---|---|
-| **MVP (P0)** — get 10 fleets | Trips · Documents · Messages · Money-lite | Dashboard · Dispatch · Trips · Drivers · Finance-lite · Settings | Booking · Shipments (tracking) · Documents · Invoices |
-| **Phase 2 (P1)** — 1,000 users | Return-load offers · compliance helpers (tacho/HOS) · safety dir | Compliance center · Vehicles · Analytics · WhatsApp Business bridge · quick-pay | WhatsApp booking/tracking · API access · payments online |
-| **Phase 3 (P2)** — 10,000 users | Scorecard & bonuses · marketplace loads | Factoring marketplace · multi-org/group fleets · regional data-residency views | ERP integrations · self-serve contracts |
+| **MVP (P0)** — free, EU, get 10 fleets | Trips · Documents (eCMR) · Messages · Money-lite (manual settlements) · More (tacho/rest-time) | Dashboard · Dispatch · Trips · Drivers · Customers (+WhatsApp inbox) · Compliance (eCMR + driver files) · Finance-lite (manual) · Settings (i18n EN/DE/PL/TR) | WhatsApp booking/tracking · Shipments (tracking) · Documents (eCMR/POD) · Account (no payments yet) |
+| **Phase 2 (P1)** — 1,000 users | Return-load offers · toll hints · safety dir · PT/ES/RO locales | Vehicles · Analytics · SEPA quick-pay (monetization starts) · eFTI prep | Portal payments (SEPA) · API access |
+| **Phase 3 (P2)** — 10,000 users | Scorecards & bonuses · marketplace loads | Factoring marketplace · multi-org groups · regional data-residency views (BR/IN modules) | ERP integrations · self-serve contracts |
+
+**MVP in/out (v1 scope, EU):**
+- ✅ In: trips + dispatch, eCMR documents + POD, WhatsApp bridge, i18n (EN/DE/PL/TR), manual money ledger, compliance basics, free orgs.
+- ❌ Out: payments/SEPA, marketplace, factoring, vehicles module, analytics depth, mobile FM app, BR/IN compliance modules, pricing pages.
 
 **Prioritization rule:** anything that reduces *driver workload* or *payment delay* outranks everything else — those are the two pain points every region's research ranked first.
 
 ---
 
-## 6. Open questions for the founder (answer before UI design)
+## 6. Founder decisions (locked)
 
-1. Beachhead market (BR vs IN vs EU) — decides default language, compliance module order, and payment rails of the MVP.
-2. Is "Customer" a paying role (portal fee / per-load fee) or free to attract shippers? (Plan assumes free portal, fleet pays per-truck/month.)
-3. Do fleets need a marketplace (anonymous load matching) in MVP, or only their own customers' orders? (Plan assumes: own customers first, marketplace later — this keeps the MVP honest.)
-4. WhatsApp bridge: must-have for launch or Phase 2?
+1. **Beachhead: EU.** Compliance priority = eCMR + tachograph (Smart Tacho 2 / rest-time) + eFTI readiness. CEE + Turkey cross-border SMEs are the target segment (research §2).
+2. **Multi-language from day 1.** All strings via i18n keys — never hardcoded. Launch locales: **EN, DE, PL, TR** (CEE/Turkey haulers) + **PT, ES, RO** as fast-follow. Fallback EN. (BR later = PT reuse.)
+3. **WhatsApp bridge is a launch feature (P0), not Phase 2.** Customers book and track from WhatsApp; the FM dashboard is the inbox.
+4. **Free. No pricing, no payments, no billing in the MVP.** Monetization hooks stay dormant (per-truck SaaS + payment take-rates later). Finance menu = manual settlements tracking only. SEPA quick-pay arrives in the monetization phase, not before.
+5. **Priority: a good product + small customers.** Everything else (marketplace, factoring, ERP integrations, analytics depth) waits.
+
+## 7. EU adaptations baked into the menus
+
+- **Driver · Documents:** eCMR (UN protocol — legally live in 41 countries) as the P0 document type; tachograph/rest-time assistant in "More" from day 1 (Smart Tacho 2 retrofit deadline end-2025 forces this).
+- **Driver · Trips:** toll/vignette hints (country entries) can be Phase 2 — keep MVP focused.
+- **FM · Compliance:** v1 = eCMR vault + tacho download reminders + driver-file expiry alerts (license, CPC, medicals). eFTI automation when the 2027 deadline nears.
+- **FM · Customers:** shipper portal + WhatsApp order intake are the *only* intake channels in v1 — no marketplace.
+- **Customer portal:** WhatsApp-first (booking, tracking, POD delivery as chat messages + documents), portal as the deeper view. Languages: same locale set.
