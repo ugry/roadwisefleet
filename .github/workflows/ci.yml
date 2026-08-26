@@ -52,7 +52,9 @@ jobs:
       - name: Lint artifacts (fail on P1+)
         run: |
           set -e
-          for f in web/*.html; do
+          # Only the design artifacts go through the OpenDesign linter;
+          # diagrams.html is a Mermaid viewer, not a design artifact.
+          for f in web/index.html web/dashboard.html; do
             echo "::group::lint $f"
             node /tmp/open-design/apps/daemon/dist/cli.js lint "$f" --fail-on p1 --daemon-url http://127.0.0.1:7456
             echo "::endgroup::"
