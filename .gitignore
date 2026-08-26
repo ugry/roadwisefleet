@@ -1,0 +1,16 @@
+# Local tooling & runtime data (never commit)
+vendor/
+opendesign-data/
+node_modules/
+*.log
+.DS_Store
+
+# Secrets & env
+.env
+.env.*
+.credentials*
+
+# Editor/OS noise
+.idea/
+.vscode/
+*.swp
