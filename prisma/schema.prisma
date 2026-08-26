@@ -12,17 +12,23 @@ datasource db {
 }
 
 model Org {
-  id         String   @id @default(cuid())
-  name       String
-  locale     String   @default("en") // EN/DE/PL/TR…
-  dataRegion String   @default("eu") // eu | in | br | na
-  plan       String   @default("free")
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  name        String
+  locale      String   @default("en") // EN/DE/PL/TR…
+  dataRegion  String   @default("eu") // eu | in | br | na
+  plan        String   @default("free")
+  apiKeyQuota Int      @default(3)
+  webhookQuota Int     @default(5)
+  rateTier    String   @default("default")
+  createdAt   DateTime @default(now())
 
   users     User[]
   trucks    Truck[]
   customers Customer[]
   trips     Trip[]
+  apiKeys   ApiKey[]
+  webhooks  Webhook[]
+  auditLogs AuditLog[]
 }
 
 model Role {
@@ -32,16 +38,22 @@ model Role {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  orgId     String?
-  org       Org?     @relation(fields: [orgId], references: [id])
-  roleId    String
-  role      Role     @relation(fields: [roleId], references: [id])
-  name      String
-  phone     String?
-  email     String?  @unique
-  lang      String   @default("en")
-  createdAt DateTime @default(now())
+  id               String    @id @default(cuid())
+  orgId            String?
+  org              Org?      @relation(fields: [orgId], references: [id])
+  roleId           String
+  role             Role      @relation(fields: [roleId], references: [id])
+  name             String
+  phone            String?
+  email            String?   @unique
+  lang             String    @default("en")
+  passwordHash     String?
+  emailVerifiedAt  DateTime?
+  phoneVerifiedAt  DateTime?
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  totpSecret       String?
+  createdAt        DateTime  @default(now())
 
   tripsAsDriver Trip[]
 }
@@ -169,4 +181,54 @@ model WaitlistEntry {
   source     String?
   createdAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
+}
+
+// === Public API & security (spec §5, §7) ===
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  orgId      String
+  org        Org       @relation(fields: [orgId], references: [id])
+  name       String // "SAP integration"
+  scopes     String[] // orders:read/write, trips:read, tracking:read, documents:read, webhooks:manage
+  prefix     String // first 8 chars for display; full key never stored
+  keyHash    String // argon2id
+  mode       String    @default("live") // live | sandbox
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model Webhook {
+  id         String   @id @default(cuid())
+  orgId      String
+  org        Org      @relation(fields: [orgId], references: [id])
+  url        String
+  events     String[] // order.created, trip.assigned, trip.status_changed, trip.delivered, document.uploaded, invoice.issued
+  secretHash String // HMAC-SHA256 signing
+  active     Boolean  @default(true)
+  failures   Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+model VerificationToken {
+  id         String    @id @default(cuid())
+  email      String
+  userId     String?
+  purpose    String // verify-email | reset-password | invite-driver | invite-customer
+  tokenHash  String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  orgId    String
+  org      Org      @relation(fields: [orgId], references: [id])
+  actorId  String?
+  action   String // auth.login, auth.lockout, api_key.created, webhook.updated, rate_limit.tripped…
+  target   String?
+  ip       String?
+  at       DateTime @default(now())
 }
