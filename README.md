@@ -2,6 +2,8 @@
 
 **The operating system for small trucking fleets and owner-operators.**
 
+🌐 **Live preview:** [https://ugry.github.io/roadwisefleet/](https://ugry.github.io/roadwisefleet/) (landing page, auto-deployed from `web/` by GitHub Actions)
+
 RoadwiseFleet is a phone-first fleet operations platform: an **Android app for truck drivers** and a **SaaS web dashboard for fleet owners and dispatchers**. No hardware boxes — the driver's phone is the telematics device. Built for the 1–20-truck fleets and self-employed drivers that enterprise TMS and telematics vendors ignore.
 
 This repository is the **open foundation**: the market research that shaped the product, the design artifacts generated from it, and the briefs used to produce them.
