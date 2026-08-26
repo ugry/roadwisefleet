@@ -1,0 +1,172 @@
+// RoadwiseFleet — MVP schema (mirrors docs/diagrams-data-menu-flow.md §5–6).
+// EU-first: no payments/marketplace tables until the free phase ends.
+// GPS pings go to a Timescale hypertable via SQL migration (not modeled here).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Org {
+  id         String   @id @default(cuid())
+  name       String
+  locale     String   @default("en") // EN/DE/PL/TR…
+  dataRegion String   @default("eu") // eu | in | br | na
+  plan       String   @default("free")
+  createdAt  DateTime @default(now())
+
+  users     User[]
+  trucks    Truck[]
+  customers Customer[]
+  trips     Trip[]
+}
+
+model Role {
+  id          String   @id // owner | dispatcher | accountant | driver
+  permissions String[] // capability list; RBAC per backend plan
+  users       User[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  orgId     String?
+  org       Org?     @relation(fields: [orgId], references: [id])
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id])
+  name      String
+  phone     String?
+  email     String?  @unique
+  lang      String   @default("en")
+  createdAt DateTime @default(now())
+
+  tripsAsDriver Trip[]
+}
+
+model Truck {
+  id          String   @id @default(cuid())
+  orgId       String
+  org         Org      @relation(fields: [orgId], references: [id])
+  plate       String
+  dimensions  String?
+  euroClass   String?
+  createdAt   DateTime @default(now())
+
+  trips Trip[]
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  orgId       String
+  org         Org      @relation(fields: [orgId], references: [id])
+  name        String
+  whatsappId  String?
+  email       String?
+  lang        String   @default("en")
+  createdAt   DateTime @default(now())
+
+  orders         Order[]
+  whatsappThreads WhatsappThread[]
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  origin      String
+  destination String
+  cargo       String?
+  status      String   @default("DRAFT") // DRAFT | BOOKED | DISPATCHED | COMPLETED | CANCELLED
+  createdAt   DateTime @default(now())
+
+  trips Trip[]
+}
+
+model Trip {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id])
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  driverId  String?
+  driver    User?    @relation(fields: [driverId], references: [id])
+  truckId   String?
+  truck     Truck?   @relation(fields: [truckId], references: [id])
+  status    String   @default("DRAFT") // state machine §7 of the diagrams doc
+  rateEur   Decimal? @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+
+  documents    Document[]
+  statusEvents StatusEvent[]
+  gpsPings     GpsPing[]
+  expenses     Expense[]
+  settlement   Settlement?
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id])
+  docType     String // ecmr | pod | invoice | driver_license | …
+  storageKey  String // object-storage key (MinIO presigned uploads)
+  status      String   @default("PENDING") // PENDING | UPLOADED | VERIFIED | REJECTED
+  createdAt   DateTime @default(now())
+}
+
+model StatusEvent {
+  id          String   @id @default(cuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id])
+  fromStatus  String
+  toStatus    String
+  happenedAt  DateTime @default(now())
+}
+
+model GpsPing {
+  id     String   @id @default(cuid())
+  tripId String
+  trip   Trip     @relation(fields: [tripId], references: [id])
+  at     DateTime @default(now())
+  lat    Decimal  @db.Decimal(9, 6)
+  lng    Decimal  @db.Decimal(9, 6)
+}
+
+model Expense {
+  id         String   @id @default(cuid())
+  tripId     String
+  trip       Trip     @relation(fields: [tripId], references: [id])
+  category   String // fuel | toll | food | other
+  amountEur  Decimal  @db.Decimal(12, 2)
+  receiptKey String?
+  createdAt  DateTime @default(now())
+}
+
+model Settlement {
+  id         String   @id @default(cuid())
+  tripId     String   @unique
+  trip       Trip     @relation(fields: [tripId], references: [id])
+  amountEur  Decimal  @db.Decimal(12, 2)
+  status     String   @default("PENDING") // PENDING | PAID (manual during free phase)
+  createdAt  DateTime @default(now())
+}
+
+model WhatsappThread {
+  id          String   @id @default(cuid())
+  orgId       String
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  phone       String
+  createdAt   DateTime @default(now())
+}
+
+model WaitlistEntry {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  lang       String?
+  source     String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+}

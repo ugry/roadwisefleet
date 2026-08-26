@@ -421,6 +421,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
 .waitlist-form input::placeholder{color:var(--on-dark-3)}
 .waitlist-form input:focus{outline:none;border-color:var(--on-dark);box-shadow:var(--ring-dark)}
 .waitlist-note{font-size:12.5px;color:var(--on-dark-3);margin-top:14px}
+.waitlist-error{font-size:13px;color:oklch(0.75 0.15 26);margin-top:14px;text-align:center}
 .waitlist-success{display:none;max-width:520px;margin:30px auto 0;background:oklch(1 0 0 / 0.05);border:1px solid var(--border-dark);border-radius:12px;padding:22px;color:var(--on-dark)}
 .waitlist-success .icon{width:26px;height:26px;color:var(--success);margin:0 auto 10px}
 .waitlist-success b{color:var(--on-dark)}
@@ -975,8 +976,10 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
       <form class="waitlist-form" id="waitlist-form" novalidate data-od-id="waitlist-form">
         <label for="waitlist-email" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Work email</label>
         <input type="email" id="waitlist-email" name="email" placeholder="you@yourfleet.com" autocomplete="email" required data-od-id="waitlist-email">
+        <input type="text" name="company_website" style="position:absolute;left:-9999px;width:1px;height:1px" tabindex="-1" autocomplete="off" aria-hidden="true">
         <button class="btn btn-primary" type="submit" data-od-id="waitlist-submit">Join the early-access list</button>
       </form>
+      <p class="waitlist-error" id="waitlist-error" role="alert" hidden></p>
       <p class="waitlist-note">No spam. Early-access updates and pricing only.</p>
       <div class="waitlist-success" id="waitlist-success" role="status" aria-live="polite">
         <svg class="icon"><use href="#i-check"/></svg>
@@ -1085,19 +1088,56 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
   var form = document.getElementById("waitlist-form");
   var emailInput = document.getElementById("waitlist-email");
   var success = document.getElementById("waitlist-success");
+  var errorBox = document.getElementById("waitlist-error");
+  var submitBtn = form.querySelector('button[type="submit"]');
+  var API_URL = "https://roadwisefleet.com/api/waitlist";
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     var value = emailInput.value.trim();
     var valid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
     emailInput.setAttribute("aria-invalid", String(!valid));
     emailInput.style.borderColor = valid ? "" : "oklch(0.55 0.19 26)";
+    errorBox.hidden = true;
     if (!valid) {
       emailInput.focus();
       return;
     }
-    try { localStorage.setItem("rwf-waitlist", value); } catch (err) {}
-    form.style.display = "none";
-    success.style.display = "block";
+    submitBtn.disabled = true;
+    var payload = {
+      email: value,
+      company_website: form.querySelector('[name="company_website"]').value,
+      lang: (navigator.language || "").slice(0, 10),
+      source: location.hostname
+    };
+    fetch(API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+    .then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (d) {
+        return { status: res.status, body: d };
+      });
+    })
+    .then(function (r) {
+      if (r.status === 201 || r.body.ok) {
+        try { localStorage.setItem("rwf-waitlist", value); } catch (err) {}
+        form.style.display = "none";
+        success.style.display = "block";
+      } else if (r.status === 429) {
+        errorBox.textContent = "Too many attempts — please try again later.";
+        errorBox.hidden = false;
+      } else {
+        throw new Error("bad_status");
+      }
+    })
+    .catch(function () {
+      errorBox.textContent = "Something went wrong — email hello@roadwisefleet.com and we'll add you manually.";
+      errorBox.hidden = false;
+    })
+    .finally(function () {
+      submitBtn.disabled = false;
+    });
   });
 })();
 </script>

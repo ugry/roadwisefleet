@@ -1,0 +1,20 @@
+[Unit]
+Description=RoadwiseFleet waitlist microservice
+After=network.target
+
+[Service]
+Type=simple
+User=debian
+ExecStart=/usr/bin/node /opt/roadwisefleet/waitlist/server.js
+Environment=PORT=8787
+Environment=HOST=127.0.0.1
+Environment=WAITLIST_DATA_DIR=/var/lib/roadwisefleet
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/roadwisefleet
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+# RoadwiseFleet — Phase 0 local stack (docs/backend-infrastructure-plan.md §1)
+# Usage: docker compose up -d
+services:
+  db:
+    # timescaledb-ha bundles TimescaleDB + PostGIS for pg17
+    image: timescale/timescaledb-ha:pg17-all
+    environment:
+      POSTGRES_USER: roadwisefleet
+      POSTGRES_PASSWORD: roadwisefleet
+      POSTGRES_DB: roadwisefleet
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roadwisefleet"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: roadwisefleet
+      MINIO_ROOT_PASSWORD: roadwisefleet-dev
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  miniodata:

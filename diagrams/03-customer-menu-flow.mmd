@@ -1,0 +1,11 @@
+flowchart LR
+    C([Customer — shipper]) --> WA[WhatsApp chat]
+    C --> Portal[Web portal]
+    WA --> B1[Send load request as message]
+    WA --> B2[Receive quote → confirm booking]
+    WA --> T1[Tracking messages + ETA]
+    WA --> P1[POD + documents delivery]
+    Portal --> B3[Book a load form]
+    Portal --> T2[Shipments list + live map]
+    Portal --> D1[Documents archive]
+    Portal --> A1[Account + saved routes + team]

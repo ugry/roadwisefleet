@@ -87,6 +87,16 @@ The single source of truth is the **trip/order object**; every menu is a project
 
 **Prioritization rule:** anything that reduces *driver workload* or *payment delay* outranks everything else — those are the two pain points every region's research ranked first.
 
+## 8. Definition of "the product is good" (when free ends)
+
+Free stays free until **all three** of these are true for 3 consecutive months:
+
+1. **10 fleets** actively using the product (≥1 trip/week each).
+2. **≥100 trips/month** across the platform.
+3. **≥60% weekly-active drivers** (drivers who open the app at least once per week) — the driver-first retention metric.
+
+When hit: introduce per-truck/month pricing for *new* fleets only; early fleets stay free for 6 months as a thank-you. Until then: no pricing pages, no payment code, no billing UI — only the dormant schema hooks from the backend plan.
+
 ---
 
 ## 6. Founder decisions (locked)

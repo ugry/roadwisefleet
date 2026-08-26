@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> DRAFT
+    DRAFT --> ASSIGNED: FM dispatches
+    ASSIGNED --> LOADED: driver confirms load
+    LOADED --> IN_TRANSIT: departed
+    IN_TRANSIT --> DELIVERED: arrived at destination
+    DELIVERED --> POD_UPLOADED: photo + e-signature
+    POD_UPLOADED --> INVOICED: FM bills customer
+    INVOICED --> SETTLED: customer pays
+    DRAFT --> CANCELLED
+    ASSIGNED --> CANCELLED
+    CANCELLED --> [*]
+    SETTLED --> [*]

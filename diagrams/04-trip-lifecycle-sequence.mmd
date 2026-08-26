@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant C as Customer (WhatsApp / Portal)
+    participant FM as Fleet Manager
+    participant API as RoadwiseFleet API
+    participant D as Truck Driver (Android)
+    C->>FM: Load request (WhatsApp / portal)
+    FM->>API: Create order → assign driver + truck
+    API->>D: Push trip + eCMR checklist (driver language)
+    D->>API: Status: Loaded → Departed
+    API->>C: WhatsApp: "In transit, ETA 21:15"
+    loop every 20 s while driving
+        D->>API: GPS ping (batched)
+    end
+    API->>C: Live map position in portal
+    D->>API: Detention timer logged at shipper
+    D->>API: Status: Delivered + POD photo + e-signature
+    API->>FM: POD received → invoice draft
+    API->>C: POD + documents via WhatsApp
+    FM->>API: Close trip → settlement entry
+    API->>D: Money ledger: "€860 pending — pays Friday"
