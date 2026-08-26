@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: OpenDesign lint (web artifacts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Clone OpenDesign
+        run: git clone --depth 1 https://github.com/nexu-io/open-design.git /tmp/open-design
+
+      - name: Install OpenDesign dependencies
+        working-directory: /tmp/open-design
+        run: |
+          corepack enable
+          pnpm install
+
+      - name: Build OpenDesign daemon
+        working-directory: /tmp/open-design
+        run: pnpm --filter @open-design/daemon build
+
+      - name: Lint artifacts (fail on P1+)
+        run: |
+          set -e
+          for f in web/*.html; do
+            echo "::group::lint $f"
+            node /tmp/open-design/apps/daemon/dist/cli.js lint "$f" --fail-on p1
+            echo "::endgroup::"
+          done
+
+  deploy-pages:
+    name: Deploy GitHub Pages (web/)
+    if: github.ref == 'refs/heads/main'
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload web/ artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
