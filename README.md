@@ -30,7 +30,9 @@ Beachhead ranking from the research: **Brazil first, then India, North America t
 
 ## Design artifacts
 
-Both web artifacts were generated with **OpenDesign** (open-source design agent, v0.21.1) driven by the **DeepSeek Harness** as the native agent runtime (`od agent setup deepseek-harness`), using the `frontend-design` skill and the Linear design system, then tuned to the RoadwiseFleet brand spec (deep navy + safety amber, Barlow Condensed + Inter). Both pass OpenDesign's anti-slop linter with **0 P0 / 0 P1 / 0 P2**.
+Both web artifacts were generated with **[OpenDesign](https://github.com/nexu-io/open-design)** — the open-source design product by the nexu-io community (v0.21.1, Apache-2.0) — driven by the **DeepSeek Harness** as the native agent runtime (`od agent setup deepseek-harness`), using the `frontend-design` skill and the Linear design system, then tuned to the RoadwiseFleet brand spec (deep navy + safety amber, Barlow Condensed + Inter). Both pass OpenDesign's anti-slop linter with **0 P0 / 0 P1 / 0 P2**.
+
+> This repository ships only RoadwiseFleet's own artifacts (research, briefs, generated HTML). OpenDesign itself lives at [nexu-io/open-design](https://github.com/nexu-io/open-design) — this is not a fork of it.
 
 The landing page includes: dark hero with phone + dashboard mockups, research-grounded stats strip (140-min detention, 15–20% empty miles, 60–90-day payments, 233k driver shortage), problem cards, driver-app and dashboard feature grids, regional compliance strip (eCMR/eFTI · e-way bill/FASTag · CT-e/MDF-e · ELD/HOS), how-it-works, pricing teaser, and a waitlist form (front-end stub — wire to a form service before launch).
 
