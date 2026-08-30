@@ -14,3 +14,6 @@ node_modules/
 .idea/
 .vscode/
 *.swp
+
+# Local diagram-rendering toolchain (see tools/mermaid/package.json)
+tools/mermaid/node_modules/

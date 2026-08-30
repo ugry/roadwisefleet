@@ -1,14 +1,88 @@
+%%{init: {"er": {"layoutDirection": "TB", "fontSize": 12}}}%%
 erDiagram
-    ORG { uuid id PK; string name; string locale; string data_region; string plan }
-    USER { uuid id PK; uuid org_id FK; string role; string name; string phone; string lang }
-    ROLE { string id PK; string permissions }
-    TRUCK { uuid id PK; uuid org_id FK; string plate; string dimensions }
-    CUSTOMER { uuid id PK; uuid org_id FK; string name; string whatsapp_id }
-    ORDER { uuid id PK; uuid customer_id FK; string origin; string destination; string cargo; string status }
-    TRIP { uuid id PK; uuid order_id FK; uuid driver_id FK; uuid truck_id FK; string status; decimal rate_eur }
-    DOCUMENT { uuid id PK; uuid trip_id FK; string doc_type; string storage_key; string status }
-    STATUS_EVENT { uuid id PK; uuid trip_id FK; string from_status; string to_status; timestamp happened_at }
-    GPS_PING { uuid id PK; uuid trip_id FK; timestamp at; decimal lat; decimal lng }
-    EXPENSE { uuid id PK; uuid trip_id FK; string category; decimal amount_eur }
-    SETTLEMENT { uuid id PK; uuid trip_id FK; decimal amount_eur; string status }
-    WHATSAPP_THREAD { uuid id PK; uuid org_id FK; uuid customer_id FK; string phone }
+    ORG {
+        uuid id PK
+        string name
+        string locale
+        string data_region
+        string plan
+    }
+    USER {
+        uuid id PK
+        uuid org_id FK
+        string role
+        string name
+        string phone
+        string lang
+    }
+    ROLE {
+        string id PK
+        string permissions
+    }
+    TRUCK {
+        uuid id PK
+        uuid org_id FK
+        string plate
+        string dimensions
+    }
+    CUSTOMER {
+        uuid id PK
+        uuid org_id FK
+        string name
+        string whatsapp_id
+    }
+    ORDER {
+        uuid id PK
+        uuid customer_id FK
+        string origin
+        string destination
+        string cargo
+        string status
+    }
+    TRIP {
+        uuid id PK
+        uuid order_id FK
+        uuid driver_id FK
+        uuid truck_id FK
+        string status
+        decimal rate_eur
+    }
+    DOCUMENT {
+        uuid id PK
+        uuid trip_id FK
+        string doc_type
+        string storage_key
+        string status
+    }
+    STATUS_EVENT {
+        uuid id PK
+        uuid trip_id FK
+        string from_status
+        string to_status
+        timestamp happened_at
+    }
+    GPS_PING {
+        uuid id PK
+        uuid trip_id FK
+        timestamp at
+        decimal lat
+        decimal lng
+    }
+    EXPENSE {
+        uuid id PK
+        uuid trip_id FK
+        string category
+        decimal amount_eur
+    }
+    SETTLEMENT {
+        uuid id PK
+        uuid trip_id FK
+        decimal amount_eur
+        string status
+    }
+    WHATSAPP_THREAD {
+        uuid id PK
+        uuid org_id FK
+        uuid customer_id FK
+        string phone
+    }
