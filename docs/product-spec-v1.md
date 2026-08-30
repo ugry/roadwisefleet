@@ -216,3 +216,18 @@ New models in `prisma/schema.prisma`:
 8. **Rate-limit & audit layer** — instrument from day 1, tune with the table in §7.2.
 
 *Reviewed against: the four regional research reports, the menu plan v2, and the backend infrastructure plan. Update this spec — not the chat — when decisions change.*
+
+---
+
+## 10. Amendments v1.1 (from design critique — see [design-critique.md](design-critique.md))
+
+1. **One market at launch.** Turkey-first OR EU (CEE)-first, never both. Ship **2 locales** (EN + PL, or EN + TR); i18n infrastructure ready for the rest.
+2. **FM wedge = money.** Dashboard shows a "detention recovered this month: €X" counter; CSV import + live board must work in the first 15 minutes. Landing page leads with FM ROI.
+3. **Parking = aggregated + route-embedded**, not a crowdsourced directory. Driver annotations layer on licensed/public data; rest-stop suggestions surface from the rest-time assistant along the route.
+4. **WhatsApp = explicit state machines.** Booking + ≤4 tracking templates per trip; Meta Cloud API direct, SMS/email fallback; session-message window exploited to cut cost; hard COGS cap.
+5. **Free-phase COGS ceiling: €2/truck/month.** Self-host routing (GraphHopper/OSRM), lazy OCR, MinIO, ≤4 WhatsApp templates/trip, FCM.
+6. **Scorecards are driver-visible and bonus-only.** No hidden metrics — the driver sees exactly what drives the score.
+7. **Owner-operator dual mode.** One login: driver tabs + "Fleet" tab opening the mobile dashboard.
+8. **Activation funnel instrumented from day 1:** org-created → first-driver-invited → first-trip-created → first-trip-delivered + weekly-active-drivers (makes the free-phase trigger measurable).
+9. **Waitlist → demo path:** success state offers a setup call + a clickable demo org with pre-filled data.
+10. **Schema corrections applied:** `TripStop`, `TripDriver`, `Geofence`, `RateCard`, `Document.expiresAt`; `VerificationToken` removed (stateless HMAC per §6).

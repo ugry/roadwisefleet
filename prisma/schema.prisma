@@ -116,16 +116,70 @@ model Trip {
   gpsPings     GpsPing[]
   expenses     Expense[]
   settlement   Settlement?
+  stops        TripStop[]
+  drivers      TripDriver[]
 }
 
 model Document {
-  id          String   @id @default(cuid())
-  tripId      String
-  trip        Trip     @relation(fields: [tripId], references: [id])
-  docType     String // ecmr | pod | invoice | driver_license | …
-  storageKey  String // object-storage key (MinIO presigned uploads)
-  status      String   @default("PENDING") // PENDING | UPLOADED | VERIFIED | REJECTED
-  createdAt   DateTime @default(now())
+  id               String    @id @default(cuid())
+  tripId           String
+  trip             Trip      @relation(fields: [tripId], references: [id])
+  docType          String // ecmr | pod | invoice | driver_license | cpc | medical | insurance | tacho_file | e_irsaliye
+  storageKey       String // object-storage key (MinIO presigned uploads)
+  status           String    @default("PENDING") // PENDING | UPLOADED | VERIFIED | REJECTED
+  expiresAt        DateTime? // drives compliance-vault expiry alerts
+  issuingAuthority String?
+  createdAt        DateTime  @default(now())
+}
+
+// Trip stops & multi-driver support (design critique B1)
+model TripStop {
+  id        String    @id @default(cuid())
+  tripId    String
+  trip      Trip      @relation(fields: [tripId], references: [id])
+  seq       Int
+  kind      String // pickup | delivery | checkpoint | rest
+  address   String
+  lat       Decimal?  @db.Decimal(9, 6)
+  lng       Decimal?  @db.Decimal(9, 6)
+  plannedAt DateTime?
+  arrivedAt DateTime?
+}
+
+model TripDriver {
+  id         String   @id @default(cuid())
+  tripId     String
+  trip       Trip     @relation(fields: [tripId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  role       String   @default("main") // main | relief
+  assignedAt DateTime @default(now())
+}
+
+// Detention & quote storage (design critique B2, B4)
+model Geofence {
+  id         String   @id @default(cuid())
+  orgId      String
+  customerId String?
+  name       String
+  kind       String // shipper | yard | rest
+  lat        Decimal  @db.Decimal(9, 6)
+  lng        Decimal  @db.Decimal(9, 6)
+  radiusM    Int
+  createdAt  DateTime @default(now())
+}
+
+model RateCard {
+  id                 String   @id @default(cuid())
+  customerId         String
+  customer           Customer @relation(fields: [customerId], references: [id])
+  originZone         String
+  destinationZone    String
+  pricePerKmEur      Decimal  @db.Decimal(12, 2)
+  freeDetentionMin   Int      @default(60)
+  detentionRateEurHr Decimal  @db.Decimal(12, 2)
+  fuelSurchargePct   Decimal  @default(0) @db.Decimal(6, 2)
+  createdAt          DateTime @default(now())
 }
 
 model StatusEvent {
@@ -211,16 +265,7 @@ model Webhook {
   createdAt  DateTime @default(now())
 }
 
-model VerificationToken {
-  id         String    @id @default(cuid())
-  email      String
-  userId     String?
-  purpose    String // verify-email | reset-password | invite-driver | invite-customer
-  tokenHash  String
-  expiresAt  DateTime
-  consumedAt DateTime?
-  createdAt  DateTime  @default(now())
-}
+// Verification tokens are stateless HMAC-signed (spec §6) — no table needed.
 
 model AuditLog {
   id       String   @id @default(cuid())
