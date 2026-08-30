@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RoadwiseFleet Connect — Find trucks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   RoadwiseFleet Connect — load posting + offers
+   Brand: deep navy chrome · light canvas · single safety-amber accent
+   Type: Barlow Condensed (display/kickers) · Inter (body)
+   ============================================================ */
+
+:root{
+  /* RoadwiseFleet tokens */
+  --navy:            #0b1e33;
+  --navy-2:          #142a48;
+  --ink:             #142433;
+  --ink-2:           #3b4c5e;
+  --muted:           #5c6b7f;
+  --faint:           #7e8c9c;
+  --canvas:          #f4f6f8;
+  --surface:         #ffffff;
+  --white:           #ffffff;
+  --surface-2:       #edf1f5;
+  --border:          #e3e8ee;
+  --border-strong:   #ccd6e0;
+
+  --amber:           #f5a623;
+  --amber-hover:     #e5960f;
+  --amber-active:    #c9810a;
+  --amber-soft:      #fcf3e2;
+  --amber-line:      #f0dcb4;
+
+  --success:         #16a05c;
+  --success-ink:     #0d7a42;
+  --danger:          #c02f2f;
+
+  --font-display: "Barlow Condensed", "Barlow", "Arial Narrow", sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --shadow-card: 0 1px 2px rgba(11,30,51,.05), 0 1px 1px rgba(11,30,51,.03);
+  --ease: cubic-bezier(.25,.7,.2,1);
+}
+
+[hidden]{ display: none !important; }
+
+*,*::before,*::after{ box-sizing: border-box; margin: 0; padding: 0; }
+
+html,body{ height: 100%; }
+body{
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.icon{ width: 18px; height: 18px; display: block; flex: none; }
+a{ color: inherit; }
+
+:focus-visible{ outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.sidebar :focus-visible{ outline-color: var(--white); }
+
+/* ---------- App shell ---------- */
+.app{ min-height: 100vh; }
+
+.sidebar{
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 220px;
+  background: var(--navy);
+  color: var(--white);
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+.brand{
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 20px 18px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+.brand-mark{
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  background: var(--amber);
+  color: var(--navy);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.brand-mark .icon{ width: 20px; height: 20px; }
+.brand-text{ line-height: 1.05; }
+.brand-text b{
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: .01em;
+  color: var(--white);
+}
+.brand-text span{
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: .32em;
+  color: rgba(255,255,255,.52);
+  margin-top: 3px;
+}
+
+.nav{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 12px;
+}
+.nav-item{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: rgba(255,255,255,.62);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.nav-item .icon{ width: 19px; height: 19px; opacity: .9; }
+.nav-item:hover{ background: rgba(255,255,255,.06); color: var(--white); }
+.nav-item.active{ background: rgba(255,255,255,.10); color: var(--white); }
+
+.sidebar-foot{ margin-top: auto; padding: 14px 12px 16px; }
+.company-chip{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  border-radius: 10px;
+}
+.chip-avatar{
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  color: var(--white);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+}
+.chip-text{ line-height: 1.25; min-width: 0; }
+.chip-text b{ display: block; font-size: 13px; font-weight: 600; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-text span{ display: flex; align-items: center; gap: 4px; font-size: 11px; color: rgba(255,255,255,.55); }
+.chip-text .icon{ width: 11px; height: 11px; color: var(--success); }
+
+.main{ margin-left: 220px; min-width: 0; }
+
+/* ---------- Top bar ---------- */
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 28px;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+}
+.breadcrumb{ display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); margin-bottom: 1px; }
+.breadcrumb .sep{ color: var(--faint); }
+.breadcrumb .current{ color: var(--ink-2); font-weight: 500; }
+.topbar h1{
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: .01em;
+  color: var(--ink);
+}
+.topbar-actions{ display: flex; align-items: center; gap: 10px; }
+.icon-btn{
+  position: relative;
+  width: 38px; height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  background: var(--white);
+  border-radius: 50%;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+}
+.icon-btn .icon{ width: 18px; height: 18px; }
+.icon-btn:hover{ background: var(--surface-2); border-color: var(--muted); }
+.bell-badge{
+  position: absolute;
+  top: -3px; right: -3px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--white);
+  font-size: 10.5px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--white);
+}
+.avatar-btn{
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 3px 3px 3px;
+  border: 1px solid var(--border-strong);
+  background: var(--white);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+}
+.avatar-btn:hover{ background: var(--surface-2); border-color: var(--muted); }
+.avatar{
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--white);
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.avatar-btn .icon{ width: 14px; height: 14px; color: var(--muted); }
+
+/* ---------- Content ---------- */
+.content{ padding: 24px 28px 48px; }
+
+.layout-grid{
+  display: grid;
+  grid-template-columns: minmax(0,470px) minmax(0,1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+/* ---------- Cards ---------- */
+.card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+}
+
+/* ---------- Post-load form ---------- */
+.form-card{ padding: 22px; }
+.card-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.card-head h2{
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 23px;
+  line-height: 1;
+  letter-spacing: .01em;
+  color: var(--ink);
+}
+.card-sub{ font-size: 13px; color: var(--muted); margin-top: 5px; }
+.lane-chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+}
+.lane-chip .icon{ width: 13px; height: 13px; color: var(--muted); }
+
+.form-section{ margin-top: 20px; }
+.eyebrow{
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+/* fields */
+.field label, .route-label{
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.label-row{ display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.suggest{ font-size: 12px; color: var(--muted); }
+
+.field input, .field select{
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--white);
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--ink);
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.field input::placeholder{ color: var(--faint); }
+.field input:focus, .field select:focus{
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(20,36,51,.12);
+}
+
+.field-err{ display: none; font-size: 12px; color: var(--danger); margin-top: 5px; }
+.invalid input, .invalid select{ border-color: var(--danger) !important; }
+.invalid input:focus, .invalid select:focus{ box-shadow: 0 0 0 3px rgba(192,47,47,.14); }
+.invalid .field-err{ display: block; }
+
+/* route builder */
+.route-builder{ display: flex; flex-direction: column; }
+.route-row{
+  display: grid;
+  grid-template-columns: 26px 64px minmax(0,1fr) 32px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+}
+.route-node{ position: relative; width: 26px; align-self: stretch; display: flex; justify-content: center; }
+.route-node::before, .route-node::after{
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 1px;
+  background: var(--border-strong);
+  transform: translateX(-50%);
+}
+.route-node::before{ top: 0; bottom: calc(50% + 7px); }
+.route-node::after{ top: calc(50% + 7px); bottom: 0; }
+.route-row:first-child .route-node::before, .route-row:last-child .route-node::after{ display: none; }
+
+.route-dot{
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  background: var(--navy);
+}
+.route-dot.pickup{ box-shadow: 0 0 0 3px rgba(11,30,51,.12); }
+.route-dot.delivery{ border: 2px solid var(--white); box-shadow: 0 0 0 1.5px var(--navy); }
+.route-dot.stop{ background: var(--white); border: 2px solid var(--navy); }
+
+.route-label{ margin-bottom: 0; align-self: center; }
+
+.route-field{ position: relative; }
+.route-field .field-icon{
+  position: absolute;
+  left: 12px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+.route-field .field-icon .icon{ width: 16px; height: 16px; }
+.route-field input{ padding-left: 36px; }
+
+.remove-stop{
+  width: 32px; height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.remove-stop .icon{ width: 15px; height: 15px; }
+.remove-stop:hover{ background: var(--surface-2); color: var(--ink); border-color: var(--border); }
+
+.add-stop{
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  margin-top: 8px;
+  padding: 0 14px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .04em;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.add-stop .icon{ width: 15px; height: 15px; }
+.add-stop:hover{ background: var(--surface-2); color: var(--ink); border-color: var(--ink); }
+.add-stop:disabled{ opacity: .45; cursor: not-allowed; }
+
+.cargo-grid, .field-grid-2{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.span-2{ grid-column: 1 / -1; }
+.req-note{ font-style: normal; font-weight: 400; color: var(--muted); font-size: 12px; }
+.hint{ display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.wd{ color: var(--faint); font-weight: 500; }
+
+.datetime{ display: flex; gap: 8px; }
+.datetime input{ flex: 1; min-width: 0; padding: 0 10px; }
+
+.price-input{ position: relative; }
+.price-input .cur{
+  position: absolute;
+  left: 12px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 15px;
+}
+.price-input input{ padding-left: 30px; font-weight: 600; }
+
+/* checkboxes */
+.checks{ display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.check{
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  min-height: 30px;
+}
+.check input{ position: absolute; opacity: 0; width: 1px; height: 1px; }
+.check-box{
+  width: 19px; height: 19px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--white);
+  display: grid;
+  place-items: center;
+  color: transparent;
+  flex: none;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+}
+.check-box .icon{ width: 12px; height: 12px; }
+.check input:checked + .check-box{ background: var(--navy); border-color: var(--navy); color: var(--white); }
+.check input:focus-visible + .check-box{ outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* buttons */
+.btn-primary{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  height: 46px;
+  padding: 0 20px;
+  border: 1px solid var(--amber);
+  background: var(--amber);
+  color: var(--navy);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: .05em;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease), transform .08s var(--ease);
+}
+.btn-primary .icon{ width: 16px; height: 16px; }
+.btn-primary:hover{ background: var(--amber-hover); border-color: var(--amber-hover); }
+.btn-primary:active{ background: var(--amber-active); border-color: var(--amber-active); transform: translateY(1px); }
+.btn-primary:disabled{ opacity: .6; cursor: not-allowed; }
+
+.btn-ghost, .btn-accept{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  background: var(--white);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+}
+.btn-ghost .icon{ width: 15px; height: 15px; }
+.btn-ghost:hover, .btn-accept:hover{ background: var(--surface-2); border-color: var(--muted); }
+.btn-ghost:active, .btn-accept:active{ background: var(--surface-2); }
+
+.btn-accept.primary{
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--navy);
+  font-weight: 600;
+}
+.btn-accept.primary:hover{ background: var(--amber-hover); border-color: var(--amber-hover); }
+.btn-accept.primary:active{ background: var(--amber-active); border-color: var(--amber-active); }
+
+.form-actions{ margin-top: 22px; }
+.form-actions .btn-primary{ width: 100%; }
+
+.post-success{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
+  border-radius: 10px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity .3s var(--ease), transform .3s var(--ease);
+}
+.post-success.show{ opacity: 1; transform: none; }
+.pulse{ position: relative; width: 15px; height: 15px; flex: none; }
+.pulse .core{
+  position: absolute;
+  inset: 4px;
+  background: var(--amber);
+  border-radius: 50%;
+  z-index: 1;
+}
+.pulse .ping{
+  position: absolute;
+  inset: 0;
+  background: var(--amber);
+  border-radius: 50%;
+  animation: ping 1.7s var(--ease) infinite;
+}
+@keyframes ping{
+  0%{ transform: scale(.55); opacity: .55; }
+  75%,100%{ transform: scale(2.3); opacity: 0; }
+}
+.ps-text strong{ display: block; font-size: 14px; font-weight: 600; color: var(--ink); }
+.ps-text span{ font-size: 12.5px; color: var(--ink-2); }
+
+/* stats strip */
+.stats-strip{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 0;
+  margin-top: 12px;
+  padding: 11px 14px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.stats-strip .stat{ display: inline-flex; align-items: center; gap: 6px; }
+.stats-strip strong{ color: var(--ink); font-weight: 600; }
+.stats-strip .icon{ width: 14px; height: 14px; color: var(--ink-2); }
+.stats-strip .sep{ width: 1px; height: 14px; background: var(--border); margin: 0 12px; flex: none; }
+.stat-star{ display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); }
+.stat-star .icon{ width: 13px; height: 13px; color: var(--ink); }
+
+/* ---------- Offers ---------- */
+.offers-head{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.offers-head h2{
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 23px;
+  line-height: 1;
+  letter-spacing: .01em;
+  color: var(--ink);
+}
+.offers-head p{ font-size: 13px; color: var(--muted); margin-top: 4px; }
+.offers-count{ display: flex; align-items: center; gap: 10px; flex: none; }
+.live{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.live .dot{
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(22,160,92,.14);
+}
+.count-pill{
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.count-pill.bump{ animation: bump .5s var(--ease); }
+@keyframes bump{ 0%{ transform: scale(1);} 40%{ transform: scale(1.12);} 100%{ transform: scale(1);} }
+
+.offers-list{ display: flex; flex-direction: column; gap: 14px; }
+
+.offer-card{
+  position: relative;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  perspective: 1200px;
+}
+.offer-card.is-hidden{ display: none; }
+.offer-card.revealed{ animation: cardIn .55s var(--ease) both; animation-delay: 140ms; }
+@keyframes cardIn{
+  from{ opacity: 0; transform: translateY(16px); }
+  to{ opacity: 1; transform: none; }
+}
+
+.card-inner{
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform .55s cubic-bezier(.3,.7,.25,1);
+  border-radius: 12px;
+}
+.offer-card.awarded .card-inner{ transform: rotateY(180deg); }
+
+.card-face{
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  background: var(--white);
+  border-radius: 12px;
+}
+.card-face.front{ position: relative; overflow: hidden; padding: 18px; }
+.card-face.back{
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
+  padding: 24px;
+}
+
+.best-tag{
+  position: absolute;
+  top: 0; right: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--amber);
+  color: var(--navy);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  padding: 7px 11px 6px 12px;
+  border-radius: 0 0 0 12px;
+}
+.best-tag .icon{ width: 11px; height: 11px; }
+
+.oc-head{ display: flex; align-items: flex-start; gap: 12px; }
+.oc-avatar{
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--navy);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  flex: none;
+}
+.oc-id{ flex: 1; min-width: 0; padding-top: 1px; }
+.oc-name{ display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.oc-name strong{ font-size: 15px; font-weight: 600; color: var(--ink); }
+.verified{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(22,160,92,.10);
+  color: var(--success-ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+.verified .icon{ width: 11px; height: 11px; }
+.oc-meta{ display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.rating-num{ font-weight: 600; color: var(--ink-2); }
+.dot-sep{ color: var(--faint); }
+
+.stars{ position: relative; display: inline-flex; vertical-align: middle; }
+.stars-track, .stars-fill{ display: inline-flex; }
+.stars-track .icon{ width: 14px; height: 14px; color: var(--border-strong); }
+.stars-fill{ position: absolute; left: 0; top: 0; overflow: hidden; white-space: nowrap; }
+.stars-fill .icon{ width: 14px; height: 14px; color: var(--ink); }
+
+.oc-specs{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 15px; }
+.chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--white);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.chip .icon{ width: 13px; height: 13px; color: var(--muted); }
+
+.oc-position{
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 11px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.live-dot{
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(22,160,92,.13);
+  flex: none;
+}
+.oc-position strong{ color: var(--ink-2); font-weight: 500; }
+
+.oc-footer{
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border);
+}
+.oc-note{ flex: 1; min-width: 200px; font-size: 13px; line-height: 1.45; color: var(--ink-2); font-style: italic; }
+.oc-price-box{ display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
+.oc-price{ font-family: var(--font-display); font-weight: 600; font-size: 30px; line-height: 1; letter-spacing: .01em; color: var(--ink); }
+.oc-actions{ display: flex; gap: 8px; }
+
+/* awarded back */
+.award-badge{
+  width: 50px; height: 50px;
+  border-radius: 50%;
+  border: 2px solid var(--navy);
+  color: var(--navy);
+  display: grid;
+  place-items: center;
+  background: var(--white);
+  margin-bottom: 4px;
+}
+.award-badge .icon{ width: 23px; height: 23px; }
+.award-title{ font-family: var(--font-display); font-weight: 600; font-size: 25px; line-height: 1; color: var(--ink); }
+.award-sub{ font-size: 13.5px; color: var(--ink-2); }
+.award-note{ font-size: 12px; color: var(--muted); }
+
+/* ---------- Modal ---------- */
+.modal{
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-scrim{ position: absolute; inset: 0; background: rgba(11,30,51,.55); }
+.modal-card{
+  position: relative;
+  width: 440px;
+  max-width: 100%;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(11,30,51,.28);
+  padding: 24px;
+  animation: pop .18s var(--ease);
+}
+@keyframes pop{ from{ opacity: 0; transform: scale(.97) translateY(6px);} to{ opacity: 1; transform: none;} }
+.m-driver{ display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.m-avatar{
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--white);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex: none;
+}
+.modal-card h3{ font-family: var(--font-display); font-weight: 600; font-size: 21px; line-height: 1.05; color: var(--ink); }
+.m-body{ font-size: 13.5px; color: var(--ink-2); margin-top: 3px; }
+.m-meta{ display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+.m-note{ display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); margin-bottom: 20px; }
+.m-note .icon{ width: 14px; height: 14px; color: var(--success-ink); flex: none; }
+.modal-actions{ display: flex; justify-content: flex-end; gap: 10px; }
+.modal-actions .btn-primary{ height: 42px; font-size: 15px; }
+
+/* ---------- Toast ---------- */
+.toast{
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  z-index: 70;
+  transform: translate(-50%, 14px);
+  background: var(--navy);
+  color: var(--white);
+  padding: 11px 16px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 10px 30px rgba(11,30,51,.30);
+  opacity: 0;
+  transition: opacity .25s var(--ease), transform .25s var(--ease);
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+}
+.toast.show{ opacity: 1; transform: translate(-50%, 0); }
+
+body.modal-open{ overflow: hidden; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1150px){
+  .layout-grid{ grid-template-columns: minmax(0,760px); justify-content: center; }
+}
+
+@media (max-width: 1024px){
+  .sidebar{ width: 68px; }
+  .main{ margin-left: 68px; }
+  .brand{ justify-content: center; padding: 18px 0; }
+  .brand-text, .nav-label, .chip-text{ display: none; }
+  .nav{ padding: 14px 10px; }
+  .nav-item{ justify-content: center; padding: 11px; }
+  .sidebar-foot{ padding: 14px 10px 16px; }
+  .company-chip{ justify-content: center; padding: 8px; }
+}
+
+@media (max-width: 640px){
+  .topbar{ padding: 0 14px; }
+  .content{ padding: 16px 14px 32px; }
+  .cargo-grid, .field-grid-2{ grid-template-columns: 1fr; }
+  .span-2{ grid-column: auto; }
+  .route-row{ grid-template-columns: 26px minmax(0,1fr) 32px; }
+  .route-label{ display: none; }
+  .oc-footer{ flex-direction: column; align-items: stretch; }
+  .oc-price-box{ flex-direction: row; align-items: center; justify-content: space-between; width: 100%; }
+  .form-card{ padding: 18px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Icon sprite -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-mark" viewBox="0 0 24 24">
+    <g fill="currentColor" stroke="none">
+      <circle cx="5" cy="12" r="2.3"/>
+      <circle cx="19" cy="12" r="2.3"/>
+    </g>
+    <path d="M7.5 12h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="2.6 2.6"/>
+  </symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6.5h9.5v8.5H3z"/>
+      <path d="M12.5 9h3l3.5 3v3h-6.5"/>
+      <circle cx="6.2" cy="17" r="1.8"/>
+      <circle cx="15.2" cy="17" r="1.8"/>
+    </g>
+  </symbol>
+  <symbol id="i-driver" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="7.5" r="3.2"/>
+      <path d="M5 19c.4-3.4 3.2-5 7-5s6.6 1.6 7 5"/>
+    </g>
+  </symbol>
+  <symbol id="i-orders" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="3.5" width="14" height="17" rx="2"/>
+      <path d="M8.5 8h7M8.5 12h7M8.5 16h4"/>
+    </g>
+  </symbol>
+  <symbol id="i-partners" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="9" cy="8" r="2.8"/>
+      <path d="M3.5 18.5c.3-2.8 2.6-4.2 5.5-4.2s5.2 1.4 5.5 4.2"/>
+      <circle cx="16.5" cy="9" r="2.1"/>
+      <path d="M15.7 14.2c2 .3 4 1.5 4.4 3.8"/>
+    </g>
+  </symbol>
+  <symbol id="i-payments" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2.5" y="5" width="19" height="14" rx="2"/>
+      <path d="M2.5 9.5h19"/>
+      <path d="M6 14.5h5"/>
+    </g>
+  </symbol>
+  <symbol id="i-community" viewBox="0 0 24 24">
+    <path d="M4 5.5h16v9.5h-8.2L8 18v-3H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="currentColor" stroke="none">
+      <circle cx="8.4" cy="10.2" r="1"/>
+      <circle cx="12" cy="10.2" r="1"/>
+      <circle cx="15.6" cy="10.2" r="1"/>
+    </g>
+  </symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6.5 9.5a5.5 5.5 0 0 1 11 0c0 4.5 1.5 5.8 1.5 5.8H5s1.5-1.3 1.5-5.8"/>
+      <path d="M10 18.3a2 2 0 0 0 4 0"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24">
+    <path d="M7 9.5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 21s6.2-5.3 6.2-10A6.2 6.2 0 1 0 5.8 11c0 4.7 6.2 10 6.2 10z"/>
+      <circle cx="12" cy="10.8" r="2.1"/>
+    </g>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24">
+    <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-x" viewBox="0 0 24 24">
+    <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-star" viewBox="0 0 24 24">
+    <path fill="currentColor" stroke="none" d="M12 2.9l2.85 5.8 6.4.93-4.63 4.5 1.1 6.37L12 17.6l-5.72 3 1.1-6.36-4.63-4.5 6.4-.93z"/>
+  </symbol>
+  <symbol id="i-star-o" viewBox="0 0 24 24">
+    <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M12 2.9l2.85 5.8 6.4.93-4.63 4.5 1.1 6.37L12 17.6l-5.72 3 1.1-6.36-4.63-4.5 6.4-.93z"/>
+  </symbol>
+  <symbol id="i-check" viewBox="0 0 24 24">
+    <path d="M5 12.5l4.3 4.3L19 7.2" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3l7 2.6v5.2c0 4.6-3 7.7-7 9.2-4-1.5-7-4.6-7-9.2V5.6z"/>
+      <path d="M9 11.6l2.1 2.1 4-4"/>
+    </g>
+  </symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 5.5h16V15h-8l-4 2.8V15H4z"/>
+      <path d="M8.5 9.5h7M8.5 12.5h4.5"/>
+    </g>
+  </symbol>
+  <symbol id="i-send" viewBox="0 0 24 24">
+    <path d="M21 3L10.4 13.6M21 3l-6.4 18-4.2-8-8-3.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+</svg>
+
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" data-od-id="sidebar">
+    <div class="brand">
+      <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-mark"/></svg></span>
+      <span class="brand-text"><b>RoadwiseFleet</b><span>Connect</span></span>
+    </div>
+    <nav class="nav" data-od-id="nav" aria-label="Main">
+      <a class="nav-item active" href="#" aria-current="page">
+        <svg class="icon" aria-hidden="true"><use href="#i-truck"/></svg>
+        <span class="nav-label">Find trucks</span>
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" aria-hidden="true"><use href="#i-driver"/></svg>
+        <span class="nav-label">Find drivers</span>
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" aria-hidden="true"><use href="#i-orders"/></svg>
+        <span class="nav-label">Orders</span>
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" aria-hidden="true"><use href="#i-partners"/></svg>
+        <span class="nav-label">Partners</span>
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" aria-hidden="true"><use href="#i-payments"/></svg>
+        <span class="nav-label">Payments</span>
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" aria-hidden="true"><use href="#i-community"/></svg>
+        <span class="nav-label">Community</span>
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="company-chip" title="Asif Transport LLP · Verified">
+        <span class="chip-avatar">AT</span>
+        <span class="chip-text">
+          <b>Asif Transport LLP</b>
+          <span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg> Verified</span>
+        </span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <!-- Top bar -->
+    <header class="topbar" data-od-id="topbar">
+      <div>
+        <div class="breadcrumb"><span>Connect</span><span class="sep">/</span><span class="current">Find trucks</span></div>
+        <h1 data-od-id="page-title">Find trucks</h1>
+      </div>
+      <div class="topbar-actions">
+        <button type="button" class="icon-btn" aria-label="Notifications, 2 unread">
+          <svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>
+          <span class="bell-badge">2</span>
+        </button>
+        <button type="button" class="avatar-btn" aria-label="Asif Transport LLP account">
+          <span class="avatar">AT</span>
+          <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="layout-grid">
+
+        <!-- Left column -->
+        <section class="col-left" data-od-id="section-1">
+          <div class="card form-card" data-od-id="post-load-form">
+            <div class="card-head">
+              <div>
+                <h2>Post a load</h2>
+                <p class="card-sub">Verified offers within the hour</p>
+              </div>
+              <span class="lane-chip">
+                <svg class="icon" aria-hidden="true"><use href="#i-truck"/></svg>
+                Wrocław → Berlin
+              </span>
+            </div>
+
+            <form id="post-load-form" novalidate>
+              <!-- Route -->
+              <section class="form-section" data-od-id="section-2">
+                <div class="eyebrow">Route</div>
+                <div class="route-builder" id="route-builder">
+                  <div class="route-row" data-role="pickup">
+                    <span class="route-node"><span class="route-dot pickup"></span></span>
+                    <label class="route-label" for="pickup">Pickup</label>
+                    <div class="field route-field">
+                      <span class="field-icon"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg></span>
+                      <input id="pickup" type="text" value="Wrocław, PL" data-required aria-label="Pickup location">
+                      <span class="field-err">Required</span>
+                    </div>
+                    <span></span>
+                  </div>
+                  <div class="route-row" data-role="delivery">
+                    <span class="route-node"><span class="route-dot delivery"></span></span>
+                    <label class="route-label" for="delivery">Delivery</label>
+                    <div class="field route-field">
+                      <span class="field-icon"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg></span>
+                      <input id="delivery" type="text" value="Berlin, DE" data-required aria-label="Delivery location">
+                      <span class="field-err">Required</span>
+                    </div>
+                    <span></span>
+                  </div>
+                </div>
+                <button type="button" class="add-stop" id="add-stop-btn" data-od-id="add-stop">
+                  <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+                  Add stop
+                </button>
+              </section>
+
+              <!-- Cargo -->
+              <section class="form-section" data-od-id="section-3">
+                <div class="eyebrow">Cargo</div>
+                <div class="cargo-grid">
+                  <div class="field">
+                    <label for="pallets">Pallets</label>
+                    <select id="pallets" data-required>
+                      <option>22 pallets</option>
+                      <option>26 pallets</option>
+                      <option>33 pallets</option>
+                    </select>
+                    <span class="field-err">Required</span>
+                  </div>
+                  <div class="field">
+                    <label for="weight">Weight</label>
+                    <select id="weight" data-required>
+                      <option>18 t</option>
+                      <option>24 t</option>
+                      <option>12 t</option>
+                    </select>
+                    <span class="field-err">Required</span>
+                  </div>
+                  <div class="field span-2">
+                    <label for="trailer">Trailer type <em class="req-note">· curtainsider required</em></label>
+                    <select id="trailer" data-required>
+                      <option>Curtainsider</option>
+                      <option>Box</option>
+                      <option>Refrigerated</option>
+                    </select>
+                    <span class="field-err">Required</span>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Schedule -->
+              <section class="form-section" data-od-id="section-4">
+                <div class="eyebrow">Schedule</div>
+                <div class="field-grid-2">
+                  <div class="field">
+                    <label>Load ready <span class="wd" id="load-wd"></span></label>
+                    <div class="datetime">
+                      <input type="date" id="load-date" data-required aria-label="Load ready date">
+                      <input type="time" id="load-time" value="08:00" data-required aria-label="Load ready time">
+                    </div>
+                    <span class="field-err">Required</span>
+                  </div>
+                  <div class="field">
+                    <label>Deliver by <span class="wd" id="deliver-wd"></span></label>
+                    <div class="datetime">
+                      <input type="date" id="deliver-date" data-required aria-label="Deliver by date">
+                      <input type="time" id="deliver-time" value="20:00" data-required aria-label="Deliver by time">
+                    </div>
+                    <span class="field-err">Required</span>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Price -->
+              <section class="form-section" data-od-id="section-5">
+                <div class="eyebrow">Price</div>
+                <div class="field">
+                  <div class="label-row">
+                    <label for="price">Your price</label>
+                    <span class="suggest">Suggested €760 · rate card</span>
+                  </div>
+                  <div class="price-input">
+                    <span class="cur">€</span>
+                    <input id="price" type="text" inputmode="decimal" value="760" data-required data-type="price" aria-label="Your price in euros">
+                  </div>
+                  <span class="hint">Rate card for the Wrocław → Berlin lane</span>
+                  <span class="field-err">Enter a valid amount</span>
+                </div>
+              </section>
+
+              <!-- Documents -->
+              <section class="form-section" data-od-id="section-6">
+                <div class="eyebrow">Documents required</div>
+                <div class="checks">
+                  <label class="check">
+                    <input type="checkbox" checked>
+                    <span class="check-box"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                    <span>eCMR</span>
+                  </label>
+                  <label class="check">
+                    <input type="checkbox" checked>
+                    <span class="check-box"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                    <span>POD photo</span>
+                  </label>
+                  <label class="check">
+                    <input type="checkbox">
+                    <span class="check-box"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                    <span>Customs T1</span>
+                  </label>
+                </div>
+              </section>
+
+              <div class="form-actions">
+                <button type="submit" class="btn-primary" id="post-load-btn" data-od-id="post-load-btn">
+                  Post load
+                  <svg class="icon" aria-hidden="true"><use href="#i-send"/></svg>
+                </button>
+                <div class="post-success" id="post-success" hidden>
+                  <span class="pulse" aria-hidden="true"><span class="ping"></span><span class="core"></span></span>
+                  <div class="ps-text">
+                    <strong>Posted · Broadcasting to 214 verified drivers</strong>
+                    <span>Verified offers typically arrive within the hour</span>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <!-- Stats strip -->
+          <div class="stats-strip" data-od-id="stats-strip">
+            <span class="stat"><strong>Your last 10 loads</strong></span>
+            <span class="sep"></span>
+            <span class="stat"><span class="stat-star"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>4.6 avg rating</span></span>
+            <span class="sep"></span>
+            <span class="stat">First offer in 42 min</span>
+            <span class="sep"></span>
+            <span class="stat"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>100% payment-guaranteed</span>
+          </div>
+        </section>
+
+        <!-- Right column -->
+        <section class="col-right" data-od-id="section-7">
+          <header class="offers-head">
+            <div>
+              <h2>Offers received</h2>
+              <p>Ranked by match · live position</p>
+            </div>
+            <div class="offers-count">
+              <span class="live"><span class="dot"></span>Live</span>
+              <span class="count-pill" id="offer-count">2 offers</span>
+            </div>
+          </header>
+
+          <div class="offers-list" id="offers-list" data-od-id="offers-list">
+            <!-- Best match -->
+            <article class="offer-card" id="offer-marta" data-od-id="offer-card-marta" data-driver="Marta D." data-price="780">
+              <div class="card-inner">
+                <div class="card-face front">
+                  <span class="best-tag"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Best match</span>
+                  <div class="oc-head">
+                    <span class="oc-avatar">MD</span>
+                    <div class="oc-id">
+                      <div class="oc-name">
+                        <strong>Marta D.</strong>
+                        <span class="verified"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Verified</span>
+                      </div>
+                      <div class="oc-meta">
+                        <span class="stars" data-value="4.9" role="img" aria-label="4.9 out of 5 stars"></span>
+                        <span class="rating-num">4.9</span>
+                        <span class="dot-sep">·</span>
+                        <span>128 trips</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="oc-specs">
+                    <span class="chip"><svg class="icon" aria-hidden="true"><use href="#i-truck"/></svg>Curtainsider 24t</span>
+                    <span class="chip">Euro 6</span>
+                    <span class="chip">2 drivers</span>
+                  </div>
+                  <div class="oc-position">
+                    <span class="live-dot"></span>
+                    <span>Now in <strong>Poznań</strong> · 2h away</span>
+                  </div>
+                  <div class="oc-footer">
+                    <p class="oc-note">“Can load Thu evening — deadheading back to Berlin.”</p>
+                    <div class="oc-price-box">
+                      <div class="oc-price">€780</div>
+                      <div class="oc-actions">
+                        <button type="button" class="btn-accept primary" data-od-id="accept-marta">Accept</button>
+                        <button type="button" class="btn-ghost"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Message</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="card-face back">
+                  <span class="award-badge"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                  <div class="award-title">Awarded</div>
+                  <p class="award-sub">Marta D. · €780 · Driver notified</p>
+                  <p class="award-note">Awaiting driver confirmation</p>
+                </div>
+              </div>
+            </article>
+
+            <!-- Second offer -->
+            <article class="offer-card" id="offer-tomasz" data-od-id="offer-card-tomasz" data-driver="Tomasz K." data-price="755">
+              <div class="card-inner">
+                <div class="card-face front">
+                  <div class="oc-head">
+                    <span class="oc-avatar">TK</span>
+                    <div class="oc-id">
+                      <div class="oc-name">
+                        <strong>Tomasz K.</strong>
+                        <span class="verified"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Verified</span>
+                      </div>
+                      <div class="oc-meta">
+                        <span class="stars" data-value="4.7" role="img" aria-label="4.7 out of 5 stars"></span>
+                        <span class="rating-num">4.7</span>
+                        <span class="dot-sep">·</span>
+                        <span>86 trips</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="oc-specs">
+                    <span class="chip"><svg class="icon" aria-hidden="true"><use href="#i-truck"/></svg>Curtainsider 18t</span>
+                    <span class="chip">Euro 6</span>
+                  </div>
+                  <div class="oc-position">
+                    <span class="live-dot"></span>
+                    <span>Now in <strong>Łódź</strong> · 3h away</span>
+                  </div>
+                  <div class="oc-footer">
+                    <p class="oc-note">“Flexible on timing — full eCMR and POD kit on board.”</p>
+                    <div class="oc-price-box">
+                      <div class="oc-price">€755</div>
+                      <div class="oc-actions">
+                        <button type="button" class="btn-accept" data-od-id="accept-tomasz">Accept</button>
+                        <button type="button" class="btn-ghost"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Message</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="card-face back">
+                  <span class="award-badge"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                  <div class="award-title">Awarded</div>
+                  <p class="award-sub">Tomasz K. · €755 · Driver notified</p>
+                  <p class="award-note">Awaiting driver confirmation</p>
+                </div>
+              </div>
+            </article>
+
+            <!-- Third offer (revealed after posting) -->
+            <article class="offer-card is-hidden" id="offer-elena" data-od-id="offer-card-elena" data-driver="Elena V." data-price="795">
+              <div class="card-inner">
+                <div class="card-face front">
+                  <div class="oc-head">
+                    <span class="oc-avatar">EV</span>
+                    <div class="oc-id">
+                      <div class="oc-name">
+                        <strong>Elena V.</strong>
+                        <span class="verified"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Verified</span>
+                      </div>
+                      <div class="oc-meta">
+                        <span class="stars" data-value="4.8" role="img" aria-label="4.8 out of 5 stars"></span>
+                        <span class="rating-num">4.8</span>
+                        <span class="dot-sep">·</span>
+                        <span>61 trips</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="oc-specs">
+                    <span class="chip"><svg class="icon" aria-hidden="true"><use href="#i-truck"/></svg>Curtainsider 24t</span>
+                    <span class="chip">Euro 6</span>
+                    <span class="chip">1 driver</span>
+                  </div>
+                  <div class="oc-position">
+                    <span class="live-dot"></span>
+                    <span>Now in <strong>Katowice</strong> · 2.5h away</span>
+                  </div>
+                  <div class="oc-footer">
+                    <p class="oc-note">“Newer truck — can take the Friday morning slot.”</p>
+                    <div class="oc-price-box">
+                      <div class="oc-price">€795</div>
+                      <div class="oc-actions">
+                        <button type="button" class="btn-accept" data-od-id="accept-elena">Accept</button>
+                        <button type="button" class="btn-ghost"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Message</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="card-face back">
+                  <span class="award-badge"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+                  <div class="award-title">Awarded</div>
+                  <p class="award-sub">Elena V. · €795 · Driver notified</p>
+                  <p class="award-note">Awaiting driver confirmation</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Award confirm dialog -->
+<div class="modal" id="award-modal" hidden role="dialog" aria-modal="true" aria-labelledby="award-title">
+  <div class="modal-scrim" data-close></div>
+  <div class="modal-card">
+    <div class="m-driver">
+      <span class="m-avatar" id="modal-avatar">MD</span>
+      <div>
+        <h3 id="award-title">Award load to Marta D.?</h3>
+        <p class="m-body">Lock the load and notify the driver instantly.</p>
+      </div>
+    </div>
+    <div class="m-meta">
+      <span class="chip" id="modal-price-chip">€780</span>
+      <span class="chip">Wrocław → Berlin</span>
+      <span class="chip">Friday · 08:00</span>
+    </div>
+    <p class="m-note">
+      <svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>
+      Payment guarantee applies once delivery is confirmed.
+    </p>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="cancel-award">Cancel</button>
+      <button type="button" class="btn-primary" id="confirm-award">Confirm award</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var form = document.getElementById('post-load-form');
+  var routeBuilder = document.getElementById('route-builder');
+  var deliveryRow = routeBuilder.querySelector('[data-role="delivery"]');
+  var addStopBtn = document.getElementById('add-stop-btn');
+  var postBtn = document.getElementById('post-load-btn');
+  var postSuccess = document.getElementById('post-success');
+  var offerCount = document.getElementById('offer-count');
+  var elena = document.getElementById('offer-elena');
+  var awardModal = document.getElementById('award-modal');
+  var confirmAwardBtn = document.getElementById('confirm-award');
+  var cancelAwardBtn = document.getElementById('cancel-award');
+  var MAX_STOPS = 3;
+  var stopCount = 0;
+
+  /* ----- dates: next Friday ----- */
+  function nextFriday(){
+    var d = new Date();
+    var diff = (5 - d.getDay() + 7) % 7;
+    if (diff === 0 && d.getHours() >= 20) diff = 7;
+    d.setDate(d.getDate() + diff);
+    return d;
+  }
+  (function setDates(){
+    var f = nextFriday();
+    var iso = f.toISOString().slice(0, 10);
+    var wd = f.toLocaleDateString('en-GB', { weekday: 'short' });
+    var loadDate = document.getElementById('load-date');
+    var deliverDate = document.getElementById('deliver-date');
+    if (loadDate) loadDate.value = iso;
+    if (deliverDate) deliverDate.value = iso;
+    document.getElementById('load-wd').textContent = '· ' + wd;
+    document.getElementById('deliver-wd').textContent = '· ' + wd;
+  })();
+
+  /* ----- rating stars ----- */
+  document.querySelectorAll('.stars').forEach(function(el){
+    var v = parseFloat(el.dataset.value || '5');
+    var pct = Math.max(0, Math.min(100, (v / 5) * 100));
+    var track = '', fill = '';
+    for (var i = 0; i < 5; i++){
+      track += '<svg class="icon" aria-hidden="true"><use href="#i-star-o"/></svg>';
+      fill  += '<svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>';
+    }
+    el.innerHTML = '<span class="stars-track">' + track + '</span><span class="stars-fill" style="width:' + pct + '%">' + fill + '</span>';
+  });
+
+  /* ----- add / remove stops ----- */
+  function fieldIcon(name){
+    return '<svg class="icon" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
+  }
+
+  function relabelStops(){
+    var stops = routeBuilder.querySelectorAll('[data-role="stop"]');
+    stops.forEach(function(el, i){
+      el.querySelector('.route-label').textContent = 'Stop ' + (i + 1);
+      var input = el.querySelector('input');
+      input.setAttribute('aria-label', 'Stop ' + (i + 1) + ' location');
+      input.id = 'stop-' + (i + 1);
+    });
+  }
+
+  function addStop(){
+    if (stopCount >= MAX_STOPS) return;
+    stopCount++;
+    var n = stopCount;
+    var row = document.createElement('div');
+    row.className = 'route-row stop-row';
+    row.dataset.role = 'stop';
+    row.innerHTML =
+      '<span class="route-node"><span class="route-dot stop"></span></span>' +
+      '<label class="route-label" for="stop-' + n + '">Stop ' + n + '</label>' +
+      '<div class="field route-field">' +
+        '<span class="field-icon">' + fieldIcon('pin') + '</span>' +
+        '<input id="stop-' + n + '" type="text" placeholder="City, country" data-required aria-label="Stop ' + n + ' location">' +
+        '<span class="field-err">Required</span>' +
+      '</div>' +
+      '<button type="button" class="remove-stop" aria-label="Remove stop">' + fieldIcon('x') + '</button>';
+    deliveryRow.parentNode.insertBefore(row, deliveryRow);
+    if (stopCount >= MAX_STOPS){
+      addStopBtn.disabled = true;
+      addStopBtn.title = 'Maximum 3 stops';
+    }
+    row.querySelector('.remove-stop').addEventListener('click', function(){ removeStop(row); });
+    row.querySelector('input').focus();
+  }
+
+  function removeStop(row){
+    row.parentNode.removeChild(row);
+    stopCount = routeBuilder.querySelectorAll('[data-role="stop"]').length;
+    addStopBtn.disabled = false;
+    relabelStops();
+  }
+
+  addStopBtn.addEventListener('click', addStop);
+
+  /* ----- validation ----- */
+  function validate(){
+    var ok = true, first = null;
+    form.querySelectorAll('[data-required]').forEach(function(el){
+      var wrap = el.closest('.field, .route-field');
+      var v = (el.value || '').trim();
+      var bad = v === '';
+      if (el.dataset.type === 'price'){
+        bad = v === '' || !isFinite(parseFloat(v)) || parseFloat(v) <= 0;
+      }
+      if (bad){
+        wrap.classList.add('invalid');
+        el.setAttribute('aria-invalid', 'true');
+        if (!first) first = el;
+        ok = false;
+      } else {
+        wrap.classList.remove('invalid');
+        el.removeAttribute('aria-invalid');
+      }
+    });
+    return { ok: ok, first: first };
+  }
+
+  form.addEventListener('input', function(e){
+    var el = e.target;
+    if (el.hasAttribute && el.hasAttribute('data-required')){
+      var wrap = el.closest('.field, .route-field');
+      wrap.classList.remove('invalid');
+      el.removeAttribute('aria-invalid');
+    }
+  });
+
+  /* ----- toast ----- */
+  function showToast(msg){
+    var t = document.createElement('div');
+    t.className = 'toast';
+    t.setAttribute('role', 'status');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(function(){ t.classList.add('show'); });
+    setTimeout(function(){
+      t.classList.remove('show');
+      setTimeout(function(){ t.remove(); }, 300);
+    }, 4200);
+  }
+
+  /* ----- post load ----- */
+  function revealElena(){
+    elena.classList.remove('is-hidden');
+    requestAnimationFrame(function(){ elena.classList.add('revealed'); });
+    offerCount.textContent = '3 offers';
+    offerCount.classList.add('bump');
+    setTimeout(function(){ offerCount.classList.remove('bump'); }, 600);
+    setTimeout(function(){ showToast('New offer from Elena V. · €795'); }, 520);
+  }
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var res = validate();
+    if (!res.ok){
+      if (res.first) res.first.focus();
+      showToast('Please complete the highlighted fields');
+      return;
+    }
+    postBtn.hidden = true;
+    postSuccess.hidden = false;
+    requestAnimationFrame(function(){ postSuccess.classList.add('show'); });
+    setTimeout(revealElena, 340);
+  });
+
+  /* ----- accept → award ----- */
+  var activeCard = null;
+  var activeAcceptBtn = null;
+
+  function initials(name){
+    return name.split(/\s+/).map(function(w){ return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+  }
+
+  function openAward(card, btn){
+    activeCard = card;
+    activeAcceptBtn = btn;
+    var name = card.dataset.driver;
+    var price = card.dataset.price;
+    document.getElementById('award-title').textContent = 'Award load to ' + name + '?';
+    document.getElementById('modal-avatar').textContent = initials(name);
+    document.getElementById('modal-price-chip').textContent = '€' + price;
+    awardModal.hidden = false;
+    document.body.classList.add('modal-open');
+    confirmAwardBtn.focus();
+  }
+
+  function closeAward(){
+    awardModal.hidden = true;
+    document.body.classList.remove('modal-open');
+    if (activeAcceptBtn) activeAcceptBtn.focus();
+    activeCard = null;
+    activeAcceptBtn = null;
+  }
+
+  document.querySelectorAll('.btn-accept').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      openAward(btn.closest('.offer-card'), btn);
+    });
+  });
+
+  confirmAwardBtn.addEventListener('click', function(){
+    var card = activeCard;
+    var name = card ? card.dataset.driver : '';
+    if (!card) return;
+    card.classList.add('awarded');
+    card.setAttribute('tabindex', '-1');
+    activeAcceptBtn = null;
+    closeAward();
+    card.focus();
+    showToast('Load awarded to ' + name + ' · driver notified');
+  });
+
+  cancelAwardBtn.addEventListener('click', closeAward);
+  awardModal.addEventListener('click', function(e){
+    if (e.target.hasAttribute('data-close')) closeAward();
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !awardModal.hidden) closeAward();
+  });
+})();
+</script>
+</body>
+</html>

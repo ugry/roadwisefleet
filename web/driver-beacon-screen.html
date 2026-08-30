@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RoadwiseFleet Connect — Driver Beacon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ═══════════════════════════════════════════════════════════════════════
+   RoadwiseFleet Connect — Driver Beacon
+   Brand: deep navy base + single safety-amber accent.
+   Amber = one primary action + one status marker. Never decorative.
+   Flat cards · hairline borders · no gradients · amber fills carry navy text.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Brand core */
+  --navy:        #0b1f33;   /* deep navy base */
+  --navy-2:      #12283f;   /* navy surface on navy */
+  --navy-3:      #26405b;   /* elevated navy (shield, mark) */
+  --amber:       #f5a623;   /* safety amber — the only accent */
+  --amber-on:    #0b1f33;   /* text that sits on amber fills */
+
+  /* Text */
+  --ink:    #10263a;
+  --ink-2:  #40566a;
+  --muted:  #5d6f7f;
+
+  /* Surfaces */
+  --canvas:    #f2f5f8;   /* cool-neutral in-app canvas */
+  --surface:   #ffffff;   /* cards */
+  --surface-2: #e8edf3;   /* light track / stat bar */
+  --surface-3: #eef2f6;   /* chip background */
+
+  /* Solid & on-navy neutrals */
+  --white:     #ffffff;
+  --on-navy:   #f7f8f8;   /* text/icon on navy chrome */
+  --camera:    #000000;
+  --side-btn:  #151b23;
+
+  /* Lines */
+  --line:        #e2e8ef;
+  --line-strong: #c8d3de;
+
+  /* Map */
+  --map-bg:   #eef3f8;
+  --map-grid: #d9e2ea;
+  --map-road: #e2eaf1;
+  --map-route:#2f5573;
+
+  /* Semantic */
+  --success: #14803f;
+  --off-fill:#c7d1dc;   /* muted "not available" fill */
+
+  /* Type */
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body:    "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  /* Frame & elevation */
+  --page-bg: #e6ebf0;
+  --bezel:   #0b0f14;
+  --elev: 0 12px 32px rgba(11,31,51,0.16), 0 3px 10px rgba(11,31,51,0.10);
+
+  /* Focus */
+  --ring: var(--amber);
+
+  /* Motion */
+  --motion-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { min-height: 100%; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--page-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px 16px 40px;
+  overflow-x: hidden;
+}
+
+/* ── Stage ─────────────────────────────────────────────────────────── */
+.stage-head { text-align: center; }
+.stage-kicker {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stage-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.01em;
+  margin-top: 2px;
+}
+.stage-hint {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  text-align: center;
+  max-width: 420px;
+  line-height: 1.55;
+}
+
+/* ── Phone frame ───────────────────────────────────────────────────── */
+.phone {
+  width: min(410px, calc(100vw - 28px));
+  padding: 10px;
+  border-radius: 56px;
+  background: var(--bezel);
+  box-shadow: var(--elev);
+  position: relative;
+}
+.phone-side {
+  position: absolute;
+  background: var(--side-btn);
+  border-radius: 4px;
+}
+.phone-side.power { right: -2.5px; top: 168px; width: 3px; height: 74px; }
+.phone-side.vol-up { left: -2.5px; top: 150px; width: 3px; height: 40px; }
+.phone-side.vol-dn { left: -2.5px; top: 198px; width: 3px; height: 40px; }
+
+.phone-screen {
+  width: 100%;
+  aspect-ratio: 390 / 844;
+  background: var(--canvas);
+  border-radius: 46px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ── Status bar ────────────────────────────────────────────────────── */
+.statusbar {
+  flex: none;
+  height: 26px;
+  background: var(--navy);
+  color: var(--on-navy);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  position: relative;
+  z-index: 3;
+}
+.sb-time { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.sb-icons { display: flex; align-items: center; gap: 6px; color: var(--on-navy); }
+.sb-ic { width: 15px; height: 12px; display: block; }
+.camera {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--camera);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14);
+}
+
+/* ── App bar ───────────────────────────────────────────────────────── */
+.appbar {
+  flex: none;
+  background: var(--navy);
+  color: var(--on-navy);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 16px 9px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  z-index: 3;
+}
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--navy-3);
+  color: var(--white);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.012em;
+  white-space: nowrap;
+}
+.wordmark .sub { font-weight: 500; color: rgba(255,255,255,0.6); }
+.driver { display: flex; align-items: center; gap: 8px; flex: none; }
+.driver-name { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,0.94); white-space: nowrap; }
+.avatar-wrap { position: relative; display: block; }
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--navy-3);
+  color: var(--white);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(255,255,255,0.16);
+}
+.shield {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--navy);
+}
+.shield .sh-fill { fill: var(--navy-3); }
+.shield .sh-check { stroke: var(--amber); }
+
+/* ── Scrollable content ────────────────────────────────────────────── */
+.screen-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 14px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.screen-scroll::-webkit-scrollbar { display: none; }
+
+/* ── Cards ─────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+/* ── Beacon card ───────────────────────────────────────────────────── */
+.beacon-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.beacon-head { display: flex; align-items: center; justify-content: space-between; }
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+}
+.pill-text {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.pill.off .pill-dot { background: var(--muted); }
+.pill.off .pill-text { color: var(--muted); }
+
+/* Availability toggle */
+.toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px;
+}
+.toggle-seg {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 10px 8px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color var(--motion-base) var(--ease-standard), color var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
+}
+.beacon-card[data-beacon="on"] .toggle {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--amber) 55%, transparent),
+              0 8px 28px color-mix(in oklab, var(--amber) 28%, transparent);
+}
+.beacon-card[data-beacon="on"] .toggle-seg.is-active {
+  background: var(--amber);
+  color: var(--amber-on);
+}
+.beacon-card[data-beacon="off"] .toggle-seg.is-active {
+  background: var(--off-fill);
+  color: var(--ink-2);
+}
+
+.status-line { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.live-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+.beacon-card[data-beacon="on"] .live-dot {
+  animation: ping 2s ease-out infinite;
+}
+@keyframes ping {
+  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--amber) 42%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Chips */
+.chip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chip {
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 60px;
+  justify-content: center;
+}
+.chip-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.chip-label .ci { width: 13px; height: 13px; color: var(--ink-2); }
+.chip-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+}
+.chip-value .sub { font-size: 11px; font-weight: 500; color: var(--muted); }
+
+.chip-input {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  width: 100%;
+}
+.chip-input:focus { outline: none; }
+.chip.chip-field:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--amber) 45%, transparent);
+  border-color: color-mix(in oklab, var(--amber) 55%, var(--line));
+}
+
+/* Live mini-map */
+.map {
+  position: relative;
+  height: 128px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--map-bg);
+  transition: opacity 250ms ease, filter 250ms ease;
+}
+.map svg { display: block; width: 100%; height: 100%; }
+.map-bg   { fill: var(--map-bg); }
+.map-grid { fill: url(#mapDots); }
+.map-road { fill: none; stroke: var(--map-road); stroke-width: 1.2; }
+.map-route {
+  fill: none;
+  stroke: var(--map-route);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 6;
+}
+.map-waypoint { fill: var(--muted); }
+.map-waylabel { font-family: var(--font-body); font-size: 9px; fill: var(--muted); }
+.map-city-dot { fill: var(--navy); }
+.map-city-core { fill: var(--white); }
+.map-city-label { font-family: var(--font-body); font-size: 10px; font-weight: 600; fill: var(--ink); }
+.map-distance { font-family: var(--font-display); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; fill: var(--muted); }
+.map-pulse {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.beacon-card[data-beacon="on"] .map-pulse {
+  animation: mapPing 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.beacon-card[data-beacon="on"] .map-pulse.p2 { animation-delay: 1.2s; }
+@keyframes mapPing {
+  0%      { transform: scale(0.45); opacity: 0.85; }
+  75%,100%{ transform: scale(1.65); opacity: 0; }
+}
+.truck-pin { fill: var(--amber); }
+.truck-glyph { fill: var(--navy); }
+
+.beacon-card[data-beacon="off"] .chip,
+.beacon-card[data-beacon="off"] .map { opacity: 0.6; }
+.beacon-card[data-beacon="off"] .map { filter: grayscale(1); }
+
+/* ── Offers ────────────────────────────────────────────────────────── */
+.offers { display: flex; flex-direction: column; gap: 10px; }
+.section-head { display: flex; align-items: center; gap: 9px; }
+.section-title {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.01em;
+}
+.count-badge {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  min-width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0 7px;
+}
+.section-sub { font-size: 12.5px; color: var(--muted); margin-top: -4px; }
+.section-sub b { color: var(--ink-2); font-weight: 600; }
+
+.offer-card { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.offer-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.route { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.route-city {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.route-arrow { width: 14px; height: 14px; color: var(--muted); flex: none; }
+.price {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.01em;
+  flex: none;
+}
+.offer-meta { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+.offer-meta .mi { width: 13px; height: 13px; flex: none; color: var(--muted); }
+.best-tag {
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.offer-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.company { min-width: 0; }
+.company-name { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rating { display: flex; align-items: center; gap: 4px; margin-top: 3px; }
+.stars { display: inline-flex; gap: 1.5px; color: var(--ink); }
+.star { width: 11px; height: 11px; }
+.rating-num { font-size: 12px; font-weight: 500; color: var(--muted); }
+
+/* Buttons */
+.btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  min-height: 40px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: none;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+.btn-accept { background: var(--amber); color: var(--amber-on); }
+.btn-accept:hover { background: color-mix(in oklab, var(--amber) 90%, white); }
+.btn-accept:active { background: color-mix(in oklab, var(--amber) 86%, black); }
+.btn-accept.accepted { background: var(--success); color: var(--white); pointer-events: none; }
+.btn-check { width: 15px; height: 15px; }
+.btn-ghost { background: transparent; border: 1px solid var(--line-strong); color: var(--ink-2); }
+.btn-ghost:hover { border-color: var(--ink-2); color: var(--ink); }
+.btn-ghost:active { background: var(--surface-2); }
+
+/* ── Quick stats ───────────────────────────────────────────────────── */
+.stats {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.stat { padding: 13px 8px; text-align: center; display: flex; flex-direction: column; gap: 2px; }
+.stat + .stat { border-left: 1px solid var(--line-strong); }
+.stat-num {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1;
+}
+.stat-label {
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* ── Bottom nav ────────────────────────────────────────────────────── */
+.bottomnav {
+  flex: none;
+  background: var(--navy);
+  color: var(--white);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 7px 4px 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  position: relative;
+  z-index: 3;
+}
+.nav-item {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: rgba(255,255,255,0.58);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 2px;
+  cursor: pointer;
+  position: relative;
+}
+.nav-item:hover { color: var(--white); }
+.nav-item.is-active { color: var(--white); }
+.nav-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+  margin-bottom: 1px;
+}
+.nav-item.is-active .nav-dot { background: var(--amber); }
+.nav-item.is-active .nav-dot:not(.muted) { animation: ping 2s ease-out infinite; }
+.nav-dot.muted { background: rgba(255,255,255,0.35); }
+.nav-ic { width: 21px; height: 21px; }
+.nav-label { font-size: 10px; font-weight: 500; letter-spacing: 0.02em; }
+
+.home-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.35);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────── */
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translate(-50%, 14px);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--elev);
+  padding: 11px 15px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms ease, transform 250ms ease;
+  z-index: 20;
+  width: max-content;
+  max-width: 86%;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast-check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--success);
+  color: var(--white);
+  display: grid;
+  place-items: center;
+}
+.toast-check svg { width: 12px; height: 12px; }
+
+/* ── Focus ─────────────────────────────────────────────────────────── */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.toggle-seg:focus-visible,
+.btn:focus-visible,
+.nav-item:focus-visible { outline-offset: 1px; }
+
+/* ── Reduced motion ────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .map-pulse, .live-dot, .nav-item.is-active .nav-dot { animation: none !important; }
+  .toast { transition: none; }
+}
+
+/* ── Small viewports ───────────────────────────────────────────────── */
+@media (max-width: 460px) {
+  body { padding: 20px 10px 32px; gap: 16px; }
+  .stage-title { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+
+<main class="stage" data-od-id="driver-beacon-screen">
+  <header class="stage-head">
+    <p class="stage-kicker">RoadwiseFleet Connect</p>
+    <h1 class="stage-title">Driver Beacon</h1>
+  </header>
+
+  <div class="phone">
+    <span class="phone-side power" aria-hidden="true"></span>
+    <span class="phone-side vol-up" aria-hidden="true"></span>
+    <span class="phone-side vol-dn" aria-hidden="true"></span>
+
+    <div class="phone-screen" id="phoneScreen">
+      <!-- Status bar -->
+      <div class="statusbar" aria-hidden="true">
+        <span class="sb-time">17:42</span>
+        <div class="sb-icons">
+          <svg viewBox="0 0 16 12" class="sb-ic"><rect x="0" y="7" width="2.6" height="5" rx="0.6" fill="currentColor"/><rect x="4.2" y="4.5" width="2.6" height="7.5" rx="0.6" fill="currentColor"/><rect x="8.4" y="2" width="2.6" height="10" rx="0.6" fill="currentColor"/><rect x="12.6" y="0" width="2.6" height="12" rx="0.6" fill="currentColor"/></svg>
+          <svg viewBox="0 0 16 12" class="sb-ic"><path d="M1.5 4.5a9.5 9.5 0 0 1 13 0M3.9 7a6.5 6.5 0 0 1 8.2 0M6.4 9.4a3.3 3.3 0 0 1 3.2 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="10.8" r="1" fill="currentColor"/></svg>
+          <svg viewBox="0 0 24 12" class="sb-ic"><rect x="0.5" y="0.5" width="19" height="11" rx="2.5" fill="none" stroke="currentColor"/><rect x="21.5" y="3.5" width="2" height="5" rx="1" fill="currentColor"/><rect x="2.5" y="2.5" width="12" height="7" rx="1.2" fill="currentColor"/></svg>
+        </div>
+        <span class="camera"></span>
+      </div>
+
+      <!-- App bar -->
+      <header class="appbar" data-od-id="app-bar">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">RF</span>
+          <span class="wordmark">RoadwiseFleet <span class="sub">Connect</span></span>
+        </div>
+        <div class="driver">
+          <span class="driver-name">Asif K.</span>
+          <span class="avatar-wrap">
+            <span class="avatar" aria-hidden="true">AK</span>
+            <svg class="shield" viewBox="0 0 24 24" aria-label="Verified driver">
+              <path class="sh-fill" d="M12 2.5l7.5 2.8v5.6c0 4.7-3.2 8-7.5 10.6-4.3-2.6-7.5-5.9-7.5-10.6V5.3z"/>
+              <path class="sh-check" d="M8.6 11.8l2.2 2.2 4.7-4.9" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </div>
+      </header>
+
+      <!-- Scrollable content -->
+      <div class="screen-scroll">
+        <!-- Beacon hero -->
+        <section class="card beacon-card" id="beaconCard" data-beacon="on" data-od-id="beacon-card">
+          <div class="beacon-head">
+            <span class="eyebrow">Beacon status</span>
+            <span class="pill" id="livePill">
+              <span class="pill-dot" aria-hidden="true"></span>
+              <span class="pill-text">Live</span>
+            </span>
+          </div>
+
+          <div class="toggle" role="group" aria-label="Availability" data-od-id="availability-toggle">
+            <button type="button" class="toggle-seg is-active" id="segOn" aria-pressed="true">Empty &amp; available</button>
+            <button type="button" class="toggle-seg" id="segOff" aria-pressed="false">Not available</button>
+          </div>
+
+          <p class="status-line" id="statusText">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span id="statusCopy">Visible to companies on the Lyon–Warsaw corridor</span>
+          </p>
+
+          <div class="chip-grid">
+            <div class="chip" data-od-id="location-chip">
+              <span class="chip-label">
+                <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21c-4-3.6-7-6.8-7-11a7 7 0 1 1 14 0c0 4.2-3 7.4-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+                Now in
+              </span>
+              <span class="chip-value">Lyon, FR</span>
+            </div>
+
+            <div class="chip chip-field" data-od-id="destination-chip">
+              <label class="chip-label" for="destInput">
+                <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1.2-4.2L16.8 4.2a2 2 0 0 1 2.8 0l.2.2a2 2 0 0 1 0 2.8L8.2 18.8 4 20z"/><path d="M14.5 6.5l3 3"/></svg>
+                Heading to
+              </label>
+              <input class="chip-input" id="destInput" value="Warsaw, PL" autocomplete="off" spellcheck="false" aria-label="Destination" />
+            </div>
+
+            <div class="chip" data-od-id="time-chip">
+              <span class="chip-label">
+                <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+                Available from
+              </span>
+              <span class="chip-value">Today 18:00</span>
+            </div>
+
+            <div class="chip" data-od-id="truck-chip">
+              <span class="chip-label">
+                <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.5h11v9h-11z"/><path d="M13.5 9h3l3 3v3.5h-6z"/><circle cx="5.8" cy="16.2" r="1.7"/><circle cx="15.8" cy="16.2" r="1.7"/></svg>
+                Truck
+              </span>
+              <span class="chip-value">Curtainsider · 24t <span class="sub">ADR no</span></span>
+            </div>
+          </div>
+
+          <div class="map" role="img" aria-label="Live route from Lyon, France to Warsaw, Poland" data-od-id="live-map">
+            <svg viewBox="0 0 358 128" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <defs>
+                <pattern id="mapDots" width="16" height="16" patternUnits="userSpaceOnUse">
+                  <circle cx="2" cy="2" r="1.2" style="fill: var(--map-grid)"/>
+                </pattern>
+              </defs>
+              <rect class="map-bg" x="0" y="0" width="358" height="128"/>
+              <rect class="map-grid" x="0" y="0" width="358" height="128"/>
+              <path class="map-road" d="M8 22 C 120 46 240 26 350 62"/>
+              <path class="map-road" d="M40 128 C 120 96 260 110 350 86"/>
+              <path class="map-road" d="M92 0 C 122 40 184 60 232 128"/>
+              <path class="map-route" d="M36 92 C130 92 190 59 205 78 C250 54 285 46 322 42"/>
+              <circle class="map-waypoint" cx="205" cy="78" r="2.4"/>
+              <text class="map-waylabel" x="205" y="94" text-anchor="middle">Frankfurt</text>
+              <circle class="map-waypoint" cx="266" cy="52" r="2.4"/>
+              <text class="map-waylabel" x="266" y="40" text-anchor="middle">Berlin</text>
+              <circle class="map-city-dot" cx="36" cy="92" r="4.6"/>
+              <circle class="map-city-core" cx="36" cy="92" r="1.7"/>
+              <text class="map-city-label" x="36" y="116">Lyon, FR</text>
+              <circle class="map-city-dot" cx="322" cy="42" r="4.6"/>
+              <circle class="map-city-core" cx="322" cy="42" r="1.7"/>
+              <text class="map-city-label" id="mapDest" x="322" y="30" text-anchor="end">Warsaw, PL</text>
+              <text class="map-distance" x="16" y="18">1,482 km</text>
+              <g class="truck">
+                <circle class="map-pulse p1" cx="72" cy="89" r="11"/>
+                <circle class="map-pulse p2" cx="72" cy="89" r="11"/>
+                <rect class="truck-pin" x="57" y="78" width="30" height="21" rx="8"/>
+                <g class="truck-glyph">
+                  <rect x="62" y="83" width="8" height="7.5" rx="1"/>
+                  <path d="M70 84h2.4l3.2 2.4v4.1H70z"/>
+                  <circle cx="64.4" cy="92.6" r="1.5"/>
+                  <circle cx="74.4" cy="92.6" r="1.5"/>
+                </g>
+              </g>
+            </svg>
+          </div>
+        </section>
+
+        <!-- Matching offers -->
+        <section class="offers" data-od-id="matching-offers">
+          <div class="section-head">
+            <h2 class="section-title">Matched for you</h2>
+            <span class="count-badge">3</span>
+          </div>
+          <p class="section-sub">Loads matching your Lyon → <b id="subDest">Warsaw</b> heading</p>
+
+          <article class="card offer-card" data-od-id="offer-card-lyon-warsaw">
+            <div class="offer-top">
+              <div class="route">
+                <span class="route-city">Lyon</span>
+                <svg class="route-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                <span class="route-city">Warsaw</span>
+              </div>
+              <span class="price">€880</span>
+            </div>
+            <div class="offer-meta">
+              <svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21c-4-3.6-7-6.8-7-11a7 7 0 1 1 14 0c0 4.2-3 7.4-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+              Pickup 6 km · 15 min
+              <span class="best-tag">Best match</span>
+            </div>
+            <div class="offer-foot">
+              <div class="company">
+                <div class="company-name">Vistula Logistics</div>
+                <div class="rating">
+                  <span class="stars" aria-hidden="true">
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                  </span>
+                  <span class="rating-num">4.9</span>
+                </div>
+              </div>
+              <button type="button" class="btn btn-accept" id="acceptBtn" data-od-id="accept-offer">Accept</button>
+            </div>
+          </article>
+
+          <article class="card offer-card" data-od-id="offer-card-wroclaw-warsaw">
+            <div class="offer-top">
+              <div class="route">
+                <span class="route-city">Wrocław</span>
+                <svg class="route-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                <span class="route-city">Warsaw</span>
+              </div>
+              <span class="price">€620</span>
+            </div>
+            <div class="offer-meta">
+              <svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21c-4-3.6-7-6.8-7-11a7 7 0 1 1 14 0c0 4.2-3 7.4-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+              Pickup 1,190 km · 10h 45m
+            </div>
+            <div class="offer-foot">
+              <div class="company">
+                <div class="company-name">Nord Cargo Sp. z o.o.</div>
+                <div class="rating">
+                  <span class="stars" aria-hidden="true">
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                  </span>
+                  <span class="rating-num">4.8</span>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost">Details</button>
+            </div>
+          </article>
+
+          <article class="card offer-card" data-od-id="offer-card-geneva-poznan">
+            <div class="offer-top">
+              <div class="route">
+                <span class="route-city">Geneva</span>
+                <svg class="route-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+                <span class="route-city">Poznań</span>
+              </div>
+              <span class="price">€740</span>
+            </div>
+            <div class="offer-meta">
+              <svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21c-4-3.6-7-6.8-7-11a7 7 0 1 1 14 0c0 4.2-3 7.4-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+              Pickup 150 km · 1h 50m
+            </div>
+            <div class="offer-foot">
+              <div class="company">
+                <div class="company-name">Alpine Freight GmbH</div>
+                <div class="rating">
+                  <span class="stars" aria-hidden="true">
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                    <svg class="star"><use href="#i-star"/></svg>
+                  </span>
+                  <span class="rating-num">4.7</span>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost">Details</button>
+            </div>
+          </article>
+        </section>
+
+        <!-- Quick stats -->
+        <section class="stats" data-od-id="quick-stats" aria-label="Beacon statistics">
+          <div class="stat">
+            <span class="stat-num">14</span>
+            <span class="stat-label">Beacon views</span>
+          </div>
+          <div class="stat">
+            <span class="stat-num">3</span>
+            <span class="stat-label">Offers</span>
+          </div>
+          <div class="stat">
+            <span class="stat-num">4.8</span>
+            <span class="stat-label">Rating</span>
+          </div>
+        </section>
+      </div>
+
+      <!-- Bottom nav -->
+      <nav class="bottomnav" data-od-id="bottom-nav" aria-label="Main navigation">
+        <button type="button" class="nav-item">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.2v9.6L12 21l-8-4.2V7.2z"/><path d="M4.2 7.3l7.8 4.1 7.8-4.1M12 11.4V20.6"/></svg>
+          <span class="nav-label">Loads</span>
+        </button>
+        <button type="button" class="nav-item is-active" id="navBeacon" aria-current="page">
+          <span class="nav-dot" id="navDot" aria-hidden="true"></span>
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><path d="M8.4 8.4a5.1 5.1 0 0 0 0 7.2M15.6 8.4a5.1 5.1 0 0 1 0 7.2M5.9 5.9a8.6 8.6 0 0 0 0 12.2M18.1 5.9a8.6 8.6 0 0 1 0 12.2"/></svg>
+          <span class="nav-label">Beacon</span>
+        </button>
+        <button type="button" class="nav-item">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
+          <span class="nav-label">Chat</span>
+        </button>
+        <button type="button" class="nav-item">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 9.5h18M16.5 14.5h2"/></svg>
+          <span class="nav-label">Wallet</span>
+        </button>
+        <button type="button" class="nav-item">
+          <svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2"/><circle cx="17" cy="9.5" r="2.3"/><path d="M16.4 15.4c2.4.4 4.1 2.1 4.1 4.6"/></svg>
+          <span class="nav-label">Community</span>
+        </button>
+        <span class="home-indicator" aria-hidden="true"></span>
+      </nav>
+
+      <!-- Toast -->
+      <div class="toast" id="toast" role="status" aria-live="polite">
+        <span class="toast-check" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.2 4.2L19 7"/></svg>
+        </span>
+        Offer accepted — chat opened
+      </div>
+    </div>
+  </div>
+
+  <p class="stage-hint">Tap the availability toggle, edit your destination, or accept an offer to preview the states.</p>
+</main>
+
+<!-- Shared icon symbols -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-star" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.6l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.4 6.3-.9z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 12h15M13 6l6 6-6 6"/></symbol>
+</svg>
+
+<script>
+(function () {
+  "use strict";
+
+  var card = document.getElementById("beaconCard");
+  var segOn = document.getElementById("segOn");
+  var segOff = document.getElementById("segOff");
+  var livePill = document.getElementById("livePill");
+  var navDot = document.getElementById("navDot");
+
+  function setBeacon(on) {
+    card.setAttribute("data-beacon", on ? "on" : "off");
+    segOn.classList.toggle("is-active", on);
+    segOff.classList.toggle("is-active", !on);
+    segOn.setAttribute("aria-pressed", String(on));
+    segOff.setAttribute("aria-pressed", String(!on));
+
+    var statusCopy = on
+      ? "Visible to companies on the Lyon–Warsaw corridor"
+      : "Hidden from companies";
+    document.getElementById("statusCopy").textContent = statusCopy;
+
+    livePill.classList.toggle("off", !on);
+    livePill.querySelector(".pill-text").textContent = on ? "Live" : "Hidden";
+    navDot.classList.toggle("muted", !on);
+  }
+
+  segOn.addEventListener("click", function () { setBeacon(true); });
+  segOff.addEventListener("click", function () { setBeacon(false); });
+
+  /* Editable destination — keeps map + subtitle in sync */
+  var destInput = document.getElementById("destInput");
+  var mapDest = document.getElementById("mapDest");
+  var subDest = document.getElementById("subDest");
+
+  function cityOf(value) {
+    var clean = (value || "").trim();
+    if (!clean) return "Warsaw";
+    return clean.split(",")[0].trim() || "Warsaw";
+  }
+
+  function syncDestination(value) {
+    var clean = (value || "").trim();
+    var label = clean || "Warsaw, PL";
+    mapDest.textContent = label;
+    subDest.textContent = cityOf(clean);
+  }
+
+  destInput.addEventListener("input", function () { syncDestination(destInput.value); });
+  destInput.addEventListener("blur", function () {
+    if (!destInput.value.trim()) {
+      destInput.value = "Warsaw, PL";
+      syncDestination(destInput.value);
+    }
+  });
+
+  /* Accept offer → confirmation toast */
+  var acceptBtn = document.getElementById("acceptBtn");
+  var toast = document.getElementById("toast");
+  var toastTimer = null;
+
+  acceptBtn.addEventListener("click", function () {
+    if (acceptBtn.classList.contains("accepted")) return;
+    acceptBtn.classList.add("accepted");
+    acceptBtn.setAttribute("aria-disabled", "true");
+    acceptBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" class="btn-check" aria-hidden="true">' +
+      '<path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>Accepted';
+
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 3200);
+  });
+})();
+</script>
+</body>
+</html>
