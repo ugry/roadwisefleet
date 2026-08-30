@@ -1,0 +1,7 @@
+[Unit]
+Description=RoadwiseFleet nightly backup (waitlist data)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/roadwisefleet/waitlist/backup.sh
