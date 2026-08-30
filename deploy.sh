@@ -8,7 +8,7 @@ KEY="${RWF_DEPLOY_KEY:-/home/semyaza/roadsidefleet/vps-c196d9d6_51.222.139.227/k
 VPS="${RWF_VPS:-debian@51.222.139.227}"
 REMOTE_WEB=/tmp/rwf-web
 
-ssh -i "$KEY" -o BatchMode=yes "$VPS" "mkdir -p $REMOTE_WEB"
+ssh -i "$KEY" -o BatchMode=yes "$VPS" "sudo rm -rf $REMOTE_WEB && sudo mkdir -p $REMOTE_WEB && sudo chown debian:debian $REMOTE_WEB"
 scp -q -i "$KEY" -o BatchMode=yes web/*.html "$VPS:$REMOTE_WEB/"
 scp -q -i "$KEY" -o BatchMode=yes services/waitlist/server.js "$VPS:/tmp/rwf-waitlist-server.js"
 
