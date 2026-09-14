@@ -1,0 +1,24 @@
+# Reference copy — RoadwiseFleet pilot Postgres unit on elilavps2.
+#
+# Mirror of the live /etc/systemd/system/roadwise-pg.service
+# (mode 0600, root:root). This is a value-free reference template for review
+# and restore; it is NOT applied by CI and changing it does not change the
+# running unit.
+#
+# No credential values appear here. Postgres secrets are supplied by
+# `--env-file=/root/roadwisefleet-pg.env` (mode 0600, root:root) — never inline
+# on the podman command line.
+#
+# Authoritative copy: the host file. Transcribed from the verified unit facts
+# and live `systemctl status` output (the sandbox cannot read /etc directly);
+# only fields observable read-only are reproduced, so the host file may carry
+# additional ordering/restart directives.
+
+[Unit]
+Description=RoadwiseFleet Postgres (pilot)
+
+[Service]
+ExecStart=/usr/bin/podman run --rm --name roadwise-pg --env-file=/root/roadwisefleet-pg.env -p 127.0.0.1:5432:5432 -v roadwise-pgdata:/var/lib/postgresql/data docker.io/library/postgres:17-alpine
+
+[Install]
+WantedBy=multi-user.target

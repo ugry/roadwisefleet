@@ -103,13 +103,23 @@ Run from elilavps2 and expect the values below:
 
 ## 7. Hardening / known issues
 
-- The pilot `roadwise-pg.service` currently passes the Postgres password via
-  `-e POSTGRES_PASSWORD=...` on the `podman run` command line, so the value is
-  visible in `systemctl status` output and the process table to any local user
-  who can read it. **Recommendation:** move it to an `EnvironmentFile=`
-  (mode `0600`, owned by root, outside the repo) and reference the variable in
-  the unit, then restart. Track as a hardening follow-up; requires owner
-  approval to change the running unit.
+**Credential handling — verified current reality (2026-09-14).** No credential
+value appears inline in any roadwise unit or on any podman command line:
+
+- `roadwise-pg.service` supplies Postgres secrets via
+  `--env-file=/root/roadwisefleet-pg.env` (mode `0600`, owned `root:root`). The
+  earlier `-e POSTGRES_PASSWORD=...` inline form is gone; `systemctl status
+  roadwise-pg` no longer exposes a password in the process table.
+- `roadwise-api.service` reads its settings from
+  `EnvironmentFile=/opt/roadwisefleet/api/.env` (mode `0600`, owned
+  `debian:debian`) — see [`pilot-api.md`](./pilot-api.md).
+- `roadwise-redis.service` takes no credential.
+- The nightly `/usr/local/bin/roadwise-pg-backup.sh` contains no credential
+  (`pg_dump` runs inside the container over the unix socket).
+
+Keep it this way: never put a secret on a command line, in a unit directive, or
+in this repo. Reference unit mirrors are in [`systemd/`](./systemd/).
+
 - Both containers run under **rootful** podman. That is acceptable for the
   pilot; revisit (rootless podman or a dedicated service user) before
   production.
