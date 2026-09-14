@@ -1,0 +1,3 @@
+# Everything requires approval from the repo owner.
+# Agents (developer/tester/devops) work via PRs and can never approve their own changes.
+* @ugry
