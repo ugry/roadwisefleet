@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "test": "node --test src/",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate"
   },
