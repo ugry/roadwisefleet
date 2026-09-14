@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @roadwisefleet/api dev",
+    "test": "pnpm --filter @roadwisefleet/api test",
     "db:migrate": "pnpm --filter @roadwisefleet/api db:migrate",
     "deploy": "./deploy.sh"
   }

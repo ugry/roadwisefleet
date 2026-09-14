@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
+import { canTransition, isTripStatus } from '../trip-status.js';
 
 /*
  * Trips CRUD — skeleton implementing the ER model from
@@ -50,10 +51,14 @@ export async function tripRoutes(app: FastifyInstance) {
     const from = await prisma.trip.findFirst({ where: { id, orgId } });
     if (!from) return reply.code(404).send({ error: 'not_found' });
     const to = String(body.status ?? '');
-    // State machine: DRAFT → ASSIGNED → LOADED → IN_TRANSIT → DELIVERED →
-    // POD_UPLOADED → INVOICED → SETTLED, with CANCELLED exits.
-    const allowed = ['ASSIGNED', 'LOADED', 'IN_TRANSIT', 'DELIVERED', 'POD_UPLOADED', 'INVOICED', 'SETTLED', 'CANCELLED'];
-    if (!allowed.includes(to)) return reply.code(400).send({ error: 'invalid_status' });
+    // The target must be a known status *and* a legal move from the current
+    // one — validating only the target allowed illegal jumps such as
+    // DRAFT -> SETTLED. The state machine is the single source of truth
+    // (docs/diagrams-data-menu-flow.md §7).
+    if (!isTripStatus(to)) return reply.code(400).send({ error: 'invalid_status' });
+    if (!canTransition(from.status, to)) {
+      return reply.code(400).send({ error: 'invalid_transition', from: from.status, to });
+    }
     const [trip] = await prisma.$transaction([
       prisma.trip.update({ where: { id }, data: { status: to } }),
       prisma.statusEvent.create({
