@@ -13,6 +13,9 @@ pilot seed, minimal token auth and the core trip loop are wired.
   auto-loading `.env`, which also avoids the "conflict between env vars" error
   from having both `apps/api/.env` and `prisma/.env` on disk.
 - `scripts/seed-pilot.ts`, `scripts/smoke-pilot.ts` — pilot seed and end-to-end smoke.
+- `scripts/waitlist-handoff.ts` — manual waitlist → account handoff (see below).
+- `../../pilot/` — the pilot-only web surface served by this API under `/pilot/`
+  (repo-root dir, separate from the production `web/`).
 
 ## Run
 ```bash
@@ -55,6 +58,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
+| `GET /pilot/*` | — | pilot-only web surface from `<repo>/pilot` (same origin, no build step) |
 | `POST /api/waitlist` | — | landing-page waitlist (honeypot + validation) |
 | `GET /api/waitlist` | `X-Admin-Token` | admin list |
 
@@ -62,6 +66,42 @@ Tenancy comes from the signed token's `org` claim — the old `x-org-id` header
 stub is gone. Capabilities come from the token's `roleId` resolved against the
 seeded `Role.permissions` (`auth/permissions.js`); a denied action returns
 `403 forbidden`.
+
+## Pilot web surface (`/pilot/`)
+The API serves the static pilot pages from the repo-root `pilot/` directory via
+`@fastify/static` (`src/app.ts`, prefix `/pilot/`), so the pages are same-origin
+with `/api/*` — no new port and no nginx. Production `web/` is untouched.
+
+- `pilot/index.html` — landing linking to the two pages.
+- `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
+  form and status-transition controls.
+- `pilot/driver.html` — driver login, assigned trips and the next legal status.
+
+Open `http://127.0.0.1:8080/pilot/` after `pnpm dev`. The pages use vanilla
+`fetch` and keep the bearer token in `sessionStorage`; no build step and no
+external CDN.
+
+## Waitlist → account handoff
+`scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the
+waitlist JSONL, upserts every lead into `WaitlistEntry` (dedupe by email), and
+for the named leads ensures an `Org` and an `owner` `User` exist. Re-running is
+idempotent and never resets a password unless `--password=` is passed. No email
+is sent.
+
+```bash
+# preview only
+pnpm --filter @roadwisefleet/api handoff -- --all --dry-run
+
+# create accounts for named leads (prints a generated password once)
+pnpm --filter @roadwisefleet/api handoff -- \
+  --email=ops@acme.test --org="Acme Logistics"
+
+# options: --file=<path> (default /var/lib/roadwisefleet/waitlist.jsonl),
+#          --email=<addr> (repeatable), --all, --org=<name>, --password=<value>
+```
+
+The pure parsing/planning logic lives in `src/waitlist-handoff.js` and is
+covered by `src/waitlist-handoff.test.js`.
 
 ## Deliberately missing (until the right phase)
 - signup, email verification, password reset (email is not live) ·
