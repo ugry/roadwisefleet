@@ -1,14 +1,7 @@
-import Fastify from 'fastify';
 import { env } from './env.js';
-import { healthRoutes } from './routes/health.js';
-import { waitlistRoutes } from './routes/waitlist.js';
-import { tripRoutes } from './routes/trips.js';
+import { buildServer } from './app.js';
 
-const app = Fastify({ logger: true });
-
-app.register(healthRoutes);
-app.register(waitlistRoutes, { prefix: '/api' });
-app.register(tripRoutes, { prefix: '/api' });
+const app = buildServer();
 
 app
   .listen({ port: env.PORT, host: env.HOST })

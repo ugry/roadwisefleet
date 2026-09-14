@@ -1,70 +1,56 @@
 import type { FastifyInstance } from 'fastify';
+import { env } from '../env.js';
 import { prisma } from '../db.js';
-import { canTransition, isTripStatus } from '../trip-status.js';
+import { requireAuth } from '../auth/guard.js';
+import { createTrip, listDriverTrips, listOrgTrips, transitionTrip } from '../trips-core.js';
 
 /*
- * Trips CRUD — skeleton implementing the ER model from
- * docs/diagrams-data-menu-flow.md. Tenancy: every write is scoped to the
- * org in the x-org-id header; the real auth middleware (JWT + RBAC) replaces
- * this trust-the-header stub before anything ships.
+ * Trips API — real auth (signed bearer token) replaces the former `x-org-id`
+ * trust-the-header stub. Tenancy comes from the token's `org` claim, so a
+ * client can never choose its own org. Status legality lives in the merged
+ * state machine (`trip-status.js`); persistence lives in `trips-core.js`.
  */
-
-function orgIdOf(req: { headers: Record<string, unknown> }): string | null {
-  const v = req.headers['x-org-id'];
-  return typeof v === 'string' && v.length > 0 ? v : null;
-}
-
 export async function tripRoutes(app: FastifyInstance) {
-  app.get('/trips', async (req, reply) => {
-    const orgId = orgIdOf(req);
-    if (!orgId) return reply.code(401).send({ error: 'missing_org' });
-    const trips = await prisma.trip.findMany({
-      where: { orgId },
-      include: { driver: true, truck: true, order: true },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    return reply.send({ trips });
+  const auth = requireAuth(env.AUTH_SECRET);
+
+  app.get('/trips', { preHandler: auth }, async (req, reply) => {
+    const orgId = req.user?.orgId;
+    if (!orgId) return reply.code(403).send({ error: 'no_org' });
+    return reply.send({ trips: await listOrgTrips(prisma, { orgId }) });
   });
 
-  app.post('/trips', async (req, reply) => {
-    const orgId = orgIdOf(req);
-    if (!orgId) return reply.code(401).send({ error: 'missing_org' });
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const trip = await prisma.trip.create({
-      data: {
-        orgId,
-        orderId: String(body.orderId ?? ''),
-        driverId: body.driverId ? String(body.driverId) : null,
-        truckId: body.truckId ? String(body.truckId) : null,
-        status: 'DRAFT',
-      },
-    });
-    return reply.code(201).send({ trip });
+  app.post('/trips', { preHandler: auth }, async (req, reply) => {
+    const orgId = req.user?.orgId;
+    if (!orgId) return reply.code(403).send({ error: 'no_org' });
+    const result = await createTrip(prisma, { orgId, body: req.body });
+    if (!result.ok) {
+      const code = result.error === 'order_not_found' ? 404 : 400;
+      return reply.code(code).send({ error: result.error });
+    }
+    return reply.code(201).send({ trip: result.trip });
   });
 
-  app.post('/trips/:id/status', async (req, reply) => {
-    const orgId = orgIdOf(req);
-    if (!orgId) return reply.code(401).send({ error: 'missing_org' });
+  app.post('/trips/:id/status', { preHandler: auth }, async (req, reply) => {
+    const orgId = req.user?.orgId;
+    if (!orgId) return reply.code(403).send({ error: 'no_org' });
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const from = await prisma.trip.findFirst({ where: { id, orgId } });
-    if (!from) return reply.code(404).send({ error: 'not_found' });
-    const to = String(body.status ?? '');
-    // The target must be a known status *and* a legal move from the current
-    // one — validating only the target allowed illegal jumps such as
-    // DRAFT -> SETTLED. The state machine is the single source of truth
-    // (docs/diagrams-data-menu-flow.md §7).
-    if (!isTripStatus(to)) return reply.code(400).send({ error: 'invalid_status' });
-    if (!canTransition(from.status, to)) {
-      return reply.code(400).send({ error: 'invalid_transition', from: from.status, to });
+    const result = await transitionTrip(prisma, { orgId, tripId: id, to: body.status });
+    if (!result.ok) {
+      if (result.error === 'not_found') return reply.code(404).send({ error: 'not_found' });
+      if (result.error === 'invalid_transition') {
+        return reply.code(400).send({ error: 'invalid_transition', from: result.from, to: result.to });
+      }
+      return reply.code(400).send({ error: result.error });
     }
-    const [trip] = await prisma.$transaction([
-      prisma.trip.update({ where: { id }, data: { status: to } }),
-      prisma.statusEvent.create({
-        data: { tripId: id, fromStatus: from.status, toStatus: to },
-      }),
-    ]);
-    return reply.send({ trip });
+    return reply.send({ trip: result.trip });
+  });
+
+  // Driver view: live trip state for the logged-in driver only.
+  app.get('/driver/trips', { preHandler: auth }, async (req, reply) => {
+    const user = req.user;
+    if (!user?.orgId) return reply.code(403).send({ error: 'no_org' });
+    const trips = await listDriverTrips(prisma, { orgId: user.orgId, driverId: user.id });
+    return reply.send({ trips });
   });
 }

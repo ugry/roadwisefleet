@@ -7,8 +7,12 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "test": "node --test src/",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:generate": "prisma generate"
+    "db:status": "prisma migrate status",
+    "db:seed": "tsx scripts/seed-pilot.ts",
+    "smoke": "tsx scripts/smoke-pilot.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
