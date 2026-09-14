@@ -60,6 +60,21 @@ jobs:
             echo "::endgroup::"
           done
 
+  api-tests:
+    name: API tests (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Native Node test runner, no install step: the trip-status suite
+      # (apps/api/src/trip-status.test.js, 10 tests) has no dependencies.
+      - name: Run API tests
+        run: node --test apps/api/src/
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'
