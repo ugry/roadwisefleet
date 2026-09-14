@@ -11,8 +11,15 @@
  * `PrismaClient` and the test fake both satisfy the small surface used here:
  * `trip.findFirst/findMany/create/update`, `order.findFirst`,
  * `user.findFirst`, `truck.findFirst`, `statusEvent.create`, `$transaction`.
+ *
+ * Mutating functions also take an `actor` (`{ userId, permissions }`) and
+ * enforce RBAC here, next to the tenancy check, so a caller cannot persist a
+ * trip change without passing an authorization decision. `permissions` is the
+ * capability list resolved from the token's role by
+ * `auth/permissions.js#loadRolePermissions`.
  */
 
+import { canCreateTrip, canTransitionTrip } from './auth/permissions.js';
 import { canTransition, isTripStatus } from './trip-status.js';
 
 /**
@@ -54,14 +61,16 @@ export function normalizeCreateTripInput(body) {
 }
 
 /**
- * Create a DRAFT trip owned by `orgId`, after confirming the referenced
- * order/driver/truck all belong to that org (tenancy is never trusted from
- * the client).
+ * Create a DRAFT trip owned by `orgId`, after checking the actor's role has
+ * `trip:create`/`trip:*` and confirming the referenced order/driver/truck all
+ * belong to that org (tenancy is never trusted from the client).
  * @param {TripsClient} prisma
- * @param {{ orgId: string, body: unknown }} args
+ * @param {{ orgId: string, body: unknown, actor?: { userId?: string | null, permissions?: unknown } }} args
  * @returns {Promise<{ ok: true, trip: any } | { ok: false, error: string }>}
  */
-export async function createTrip(prisma, { orgId, body }) {
+export async function createTrip(prisma, { orgId, body, actor }) {
+  if (!actor || !canCreateTrip(actor.permissions)) return { ok: false, error: 'forbidden' };
+
   const normalized = normalizeCreateTripInput(body);
   if (!normalized.ok) return { ok: false, error: normalized.error };
 
@@ -93,19 +102,28 @@ export async function createTrip(prisma, { orgId, body }) {
 }
 
 /**
- * Persist a status change, enforcing the state machine and recording a
- * StatusEvent in the same transaction.
+ * Persist a status change, enforcing RBAC (the actor must hold `trip:*` or be
+ * the trip's assigned driver with `trip:status`), the state machine, and
+ * recording a StatusEvent in the same transaction.
  * @param {TripsClient} prisma
- * @param {{ orgId: string, tripId: string, to: unknown }} args
+ * @param {{ orgId: string, tripId: string, to: unknown, actor?: { userId?: string | null, permissions?: unknown } }} args
  * @returns {Promise<
  *   { ok: true, trip: any } |
+ *   { ok: false, error: 'forbidden' } |
  *   { ok: false, error: 'not_found' | 'invalid_status' } |
  *   { ok: false, error: 'invalid_transition', from: string, to: string }
  * >}
  */
-export async function transitionTrip(prisma, { orgId, tripId, to }) {
+export async function transitionTrip(prisma, { orgId, tripId, to, actor }) {
   const current = await prisma.trip.findFirst({ where: { id: tripId, orgId } });
   if (!current) return { ok: false, error: 'not_found' };
+
+  const authorized = canTransitionTrip({
+    granted: actor?.permissions,
+    userId: actor?.userId,
+    tripDriverId: current.driverId,
+  });
+  if (!authorized) return { ok: false, error: 'forbidden' };
 
   const target = String(to ?? '');
   const from = current.status;

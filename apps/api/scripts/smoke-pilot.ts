@@ -12,6 +12,7 @@ import { prisma } from '../src/db.js';
 
 const ADMIN_EMAIL = process.env.SMOKE_ADMIN_EMAIL || 'admin@pilot.roadwisefleet.test';
 const DRIVER_EMAIL = process.env.SMOKE_DRIVER_EMAIL || 'driver2@pilot.roadwisefleet.test';
+const OTHER_DRIVER_EMAIL = process.env.SMOKE_OTHER_DRIVER_EMAIL || 'driver1@pilot.roadwisefleet.test';
 const PASSWORD_ARG = process.argv.find((a) => a.startsWith('--password='))?.slice('--password='.length);
 const password = PASSWORD_ARG || process.env.SEED_PASSWORD || '';
 
@@ -67,12 +68,50 @@ async function main() {
   const unauth = await call(base, 'GET', '/api/trips');
   results.unauthenticated = { status: unauth.status, body: unauth.json };
 
+  // RBAC (issue #6): a driver token must not create trips or move another
+  // driver's trip; the assigned driver may still advance their own trip.
+  const otherDriverLogin = await call(base, 'POST', '/api/auth/login', undefined, {
+    email: OTHER_DRIVER_EMAIL,
+    password,
+  });
+  const otherDriverToken = otherDriverLogin.json?.token as string;
+  results.otherDriverLogin = {
+    status: otherDriverLogin.status,
+    role: otherDriverLogin.json?.user?.roleId,
+  };
+
+  const driverCreate = await call(base, 'POST', '/api/trips', otherDriverToken, {
+    orderId: 'pilot-order-1',
+    rateEur: 1,
+  });
+  results.driverCreateTrip = { expected: 403, status: driverCreate.status, body: driverCreate.json };
+
+  const driverOtherTrip = await call(base, 'POST', `/api/trips/${tripId}/status`, otherDriverToken, {
+    status: 'DELIVERED',
+  });
+  results.driverTransitionOtherTrip = {
+    expected: 403,
+    status: driverOtherTrip.status,
+    body: driverOtherTrip.json,
+  };
+
   const driverLogin = await call(base, 'POST', '/api/auth/login', undefined, {
     email: DRIVER_EMAIL,
     password,
   });
   results.driverLogin = { status: driverLogin.status, role: driverLogin.json?.user?.roleId };
-  const driverTrips = await call(base, 'GET', '/api/driver/trips', driverLogin.json?.token as string);
+  const driverToken = driverLogin.json?.token as string;
+
+  const driverOwnTrip = await call(base, 'POST', `/api/trips/${tripId}/status`, driverToken, {
+    status: 'DELIVERED',
+  });
+  results.driverTransitionOwnTrip = {
+    expected: 200,
+    status: driverOwnTrip.status,
+    tripStatus: driverOwnTrip.json?.trip?.status,
+  };
+
+  const driverTrips = await call(base, 'GET', '/api/driver/trips', driverToken);
   results.driverView = {
     status: driverTrips.status,
     count: driverTrips.json?.trips?.length,
