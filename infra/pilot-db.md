@@ -70,6 +70,10 @@ The API reads its connection settings from environment variables:
 
 - `DATABASE_URL` — Postgres connection string
 - `REDIS_URL` — Redis connection string
+- `AUTH_SECRET` — **required** HMAC key for pilot session tokens; there is no
+  committed fallback. The API fails fast at startup if it is unset. Generate a
+  strong random value (e.g. `openssl rand -base64 48`) into the host `.env` and
+  restart the API. Rotating it invalidates all issued pilot tokens.
 
 On the pilot host these are supplied from a **gitignored `.env`** file
 (`.env` / `.env.*` are ignored in this repo). Rules:
