@@ -14,6 +14,7 @@
     "db:status": "pnpm --filter @roadwisefleet/api db:status",
     "db:seed": "pnpm --filter @roadwisefleet/api db:seed",
     "smoke": "pnpm --filter @roadwisefleet/api smoke",
+    "handoff": "pnpm --filter @roadwisefleet/api handoff",
     "deploy": "./deploy.sh"
   },
   "pnpm": {

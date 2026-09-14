@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoadwiseFleet — Pilot Dashboard</title>
+<style>
+  :root{
+    --navy-950: oklch(0.20 0.04 258);
+    --navy-800: oklch(0.30 0.045 258);
+    --bg: oklch(0.985 0.003 250);
+    --surface: oklch(1 0 0);
+    --ink: oklch(0.24 0.05 258);
+    --muted: oklch(0.48 0.02 255);
+    --border: oklch(0.90 0.006 255);
+    --accent: oklch(0.80 0.165 82);
+    --accent-deep: oklch(0.47 0.130 62);
+    --on-accent: oklch(0.20 0.040 258);
+    --on-dark: oklch(0.985 0.002 250);
+    --success: oklch(0.56 0.130 158);
+    --danger: oklch(0.55 0.190 26);
+    --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --shadow-card: 0 1px 2px oklch(0.2 0.04 258 / .05), 0 10px 30px oklch(0.2 0.04 258 / .06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45}
+  a{color:var(--accent-deep)}
+  header.top{background:var(--navy-950);color:var(--on-dark);padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header.top .brand{font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:.02em;text-transform:uppercase}
+  header.top .tag{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+  header.top .spacer{flex:1}
+  header.top nav a{color:var(--on-dark);opacity:.85;margin-left:14px;text-decoration:none;font-size:13px}
+  header.top nav a:hover{opacity:1;text-decoration:underline}
+  main{max-width:1100px;margin:0 auto;padding:26px 20px 60px}
+  h1{font-family:var(--font-display);font-weight:600;font-size:28px;letter-spacing:.01em;margin:0 0 4px}
+  .muted{color:var(--muted);font-size:13px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-card);padding:18px;margin:18px 0}
+  .card h2{font-family:var(--font-display);font-weight:600;font-size:18px;margin:0 0 12px;letter-spacing:.01em}
+  label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 0 4px}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+  input:focus,select:focus{outline:none;box-shadow:0 0 0 3px oklch(0.80 0.165 82 / .55);border-color:var(--accent)}
+  button{font-family:inherit;font-size:14px;font-weight:600;border:1px solid transparent;border-radius:7px;padding:9px 14px;cursor:pointer}
+  button.primary{background:var(--accent);color:var(--on-accent)}
+  button.primary:hover{filter:brightness(1.05)}
+  button.ghost{background:transparent;border-color:var(--border);color:var(--ink)}
+  button.small{padding:5px 9px;font-size:12px}
+  button:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:160px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+  .status{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;background:var(--bg);border:1px solid var(--border);color:var(--ink);text-transform:uppercase}
+  .status.s-DELIVERED,.status.s-POD_UPLOADED,.status.s-INVOICED,.status.s-SETTLED{color:var(--success);border-color:var(--success)}
+  .status.s-CANCELLED{color:var(--danger);border-color:var(--danger)}
+  .status.s-IN_TRANSIT,.status.s-LOADED{color:var(--accent-deep);border-color:var(--accent-deep)}
+  .actions{display:flex;gap:6px;flex-wrap:wrap}
+  .msg{padding:10px 12px;border-radius:7px;margin:12px 0;font-size:13px;display:none;white-space:pre-wrap}
+  .msg.show{display:block}
+  .msg.err{background:oklch(0.55 0.19 26 / .08);border:1px solid var(--danger);color:var(--danger)}
+  .msg.ok{background:oklch(0.56 0.13 158 / .10);border:1px solid var(--success);color:oklch(0.40 0.12 158)}
+  .hidden{display:none !important}
+  .who{font-size:13px;color:var(--muted)}
+  @media (max-width:640px){ table,thead,tbody,th,td,tr{display:block} thead{display:none} td{border:none;padding:3px 0} tr{border-bottom:1px solid var(--border);padding:8px 0} }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="brand">RoadwiseFleet</span>
+  <span class="tag">Pilot</span>
+  <span class="spacer"></span>
+  <nav>
+    <a href="driver.html">Driver view</a>
+    <a href="index.html">Pilot home</a>
+  </nav>
+</header>
+<main>
+  <h1>Dispatch dashboard</h1>
+  <p class="muted">Live against the pilot API. Sessions are kept in this tab only.</p>
+
+  <div id="globalMsg" class="msg"></div>
+
+  <section id="loginCard" class="card">
+    <h2>Sign in</h2>
+    <form id="loginForm" autocomplete="on">
+      <div class="row">
+        <div>
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required autocomplete="username" placeholder="admin@pilot.roadwisefleet.test">
+        </div>
+        <div>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password">
+        </div>
+      </div>
+      <div style="margin-top:14px"><button class="primary" type="submit">Sign in</button></div>
+    </form>
+  </section>
+
+  <section id="app" class="hidden">
+    <p class="who">Signed in as <strong id="whoName">—</strong> <span id="whoRole"></span> · <a href="#" id="logout">Sign out</a></p>
+
+    <div class="card">
+      <h2>Create trip</h2>
+      <form id="createForm">
+        <div class="row">
+          <div>
+            <label for="orderId">Order ID (required)</label>
+            <input id="orderId" name="orderId" required placeholder="pilot-order-1">
+          </div>
+          <div>
+            <label for="driverId">Driver ID (optional)</label>
+            <input id="driverId" name="driverId" placeholder="pilot-driver-1">
+          </div>
+          <div>
+            <label for="rateEur">Rate EUR (optional)</label>
+            <input id="rateEur" name="rateEur" type="number" min="0" step="0.01" placeholder="1200">
+          </div>
+        </div>
+        <div style="margin-top:14px"><button class="primary" type="submit">Create trip</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Trips</h2>
+      <div style="margin-bottom:10px"><button class="ghost small" id="refresh" type="button">Refresh</button></div>
+      <table>
+        <thead>
+          <tr><th>Route</th><th>Driver</th><th>Status</th><th>Rate</th><th>Transition</th></tr>
+        </thead>
+        <tbody id="tripRows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var TOKEN_KEY = 'rwf_token';
+  var USER_KEY = 'rwf_user';
+  // Mirror of apps/api/src/trip-status.js — UI convenience only; the API is authoritative.
+  var TRANSITIONS = {
+    DRAFT: ['ASSIGNED', 'CANCELLED'],
+    ASSIGNED: ['LOADED', 'CANCELLED'],
+    LOADED: ['IN_TRANSIT'],
+    IN_TRANSIT: ['DELIVERED'],
+    DELIVERED: ['POD_UPLOADED'],
+    POD_UPLOADED: ['INVOICED'],
+    INVOICED: ['SETTLED'],
+    SETTLED: [],
+    CANCELLED: []
+  };
+
+  function $(id) { return document.getElementById(id); }
+  function token() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+  function setMsg(text, kind) {
+    var el = $('globalMsg');
+    el.className = 'msg show ' + (kind || 'err');
+    el.textContent = text;
+  }
+  function clearMsg() { var el = $('globalMsg'); el.className = 'msg'; el.textContent = ''; }
+
+  function errorText(status, data) {
+    if (status === 401) return 'Not authorised (401): please sign in again.';
+    if (status === 403) return 'Forbidden (403): your role may not perform this action.';
+    var code = (data && data.error) || ('http_' + status);
+    if (code === 'invalid_transition') return 'Illegal transition (400): ' + data.from + ' -> ' + data.to + '.';
+    if (code === 'invalid_status') return 'Unknown status (400).';
+    return code + ' (' + status + ')';
+  }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = {};
+    if (opts.body) headers['content-type'] = 'application/json';
+    if (opts.token) headers['authorization'] = 'Bearer ' + opts.token;
+    return fetch(path, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (data) {
+        return { status: res.status, data: data };
+      });
+    });
+  }
+
+  function money(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    var n = Number(v);
+    return Number.isFinite(n) ? '€' + n.toFixed(2) : '—';
+  }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function showApp() {
+    var user = null;
+    try { user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); } catch (e) { user = null; }
+    if (user) {
+      $('whoName').textContent = user.name || user.email || 'user';
+      $('whoRole').textContent = user.roleId ? '(' + user.roleId + ')' : '';
+    }
+    $('loginCard').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    loadTrips();
+  }
+
+  function showLogin() {
+    $('app').classList.add('hidden');
+    $('loginCard').classList.remove('hidden');
+  }
+
+  function loadTrips() {
+    return api('/api/trips', { token: token() }).then(function (r) {
+      if (r.status === 401) { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(USER_KEY); showLogin(); setMsg(errorText(r.status, r.data), 'err'); return; }
+      if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
+      renderTrips(r.data && r.data.trips ? r.data.trips : []);
+    });
+  }
+
+  function renderTrips(trips) {
+    var body = $('tripRows');
+    if (!trips.length) {
+      body.innerHTML = '<tr><td colspan="5" class="muted">No trips yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = trips.map(function (t) {
+      var order = t.order || {};
+      var route = esc(order.origin || '?') + ' → ' + esc(order.destination || '?');
+      var driver = t.driver ? esc(t.driver.name || t.driver.email || t.driverId) : (t.driverId ? esc(t.driverId) : '—');
+      var next = TRANSITIONS[t.status] || [];
+      var buttons = next.map(function (s) {
+        return '<button class="ghost small" data-trip="' + esc(t.id) + '" data-to="' + esc(s) + '">' + esc(s) + '</button>';
+      }).join('');
+      return '<tr>' +
+        '<td>' + route + '</td>' +
+        '<td>' + driver + '</td>' +
+        '<td><span class="status s-' + esc(t.status) + '">' + esc(t.status) + '</span></td>' +
+        '<td>' + money(t.rateEur) + '</td>' +
+        '<td><div class="actions">' + (buttons || '<span class="muted">terminal</span>') + '</div></td>' +
+      '</tr>';
+    }).join('');
+    Array.prototype.forEach.call(body.querySelectorAll('button[data-trip]'), function (btn) {
+      btn.addEventListener('click', function () {
+        transition(btn.getAttribute('data-trip'), btn.getAttribute('data-to'), btn);
+      });
+    });
+  }
+
+  function transition(id, to, btn) {
+    clearMsg();
+    btn.disabled = true;
+    api('/api/trips/' + encodeURIComponent(id) + '/status', { method: 'POST', token: token(), body: { status: to } })
+      .then(function (r) {
+        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return loadTrips(); }
+        setMsg('Trip ' + id + ' -> ' + to + '.', 'ok');
+        return loadTrips();
+      })
+      .catch(function (err) { setMsg('Network error: ' + err.message, 'err'); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  $('loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    clearMsg();
+    api('/api/auth/login', { method: 'POST', body: { email: $('email').value.trim(), password: $('password').value } })
+      .then(function (r) {
+        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
+        sessionStorage.setItem(TOKEN_KEY, r.data.token);
+        sessionStorage.setItem(USER_KEY, JSON.stringify(r.data.user || null));
+        $('password').value = '';
+        showApp();
+        setMsg('Signed in.', 'ok');
+      })
+      .catch(function (err) { setMsg('Network error: ' + err.message, 'err'); });
+  });
+
+  $('createForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    clearMsg();
+    var body = { orderId: $('orderId').value.trim() };
+    var driverId = $('driverId').value.trim();
+    var rate = $('rateEur').value.trim();
+    if (driverId) body.driverId = driverId;
+    if (rate !== '') body.rateEur = Number(rate);
+    api('/api/trips', { method: 'POST', token: token(), body: body }).then(function (r) {
+      if (r.status !== 201) { setMsg(errorText(r.status, r.data), 'err'); return; }
+      setMsg('Trip created (' + (r.data.trip && r.data.trip.id) + ').', 'ok');
+      $('createForm').reset();
+      loadTrips();
+    }).catch(function (err) { setMsg('Network error: ' + err.message, 'err'); });
+  });
+
+  $('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
+  $('logout').addEventListener('click', function (e) {
+    e.preventDefault();
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    clearMsg();
+    showLogin();
+  });
+
+  if (token()) showApp(); else showLogin();
+})();
+</script>
+</body>
+</html>
