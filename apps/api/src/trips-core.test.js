@@ -9,6 +9,13 @@ import {
   transitionTrip,
 } from './trips-core.js';
 
+/** Actors mirror the seeded roles (owner/dispatcher `trip:*`, driver limited). */
+const OWNER = { userId: 'admin', permissions: ['org:manage', 'trip:*'] };
+const DISPATCHER = { userId: 'disp', permissions: ['trip:*', 'user:read'] };
+const DRIVER1 = { userId: 'd1', permissions: ['trip:read', 'trip:status', 'pod:upload'] };
+const DRIVER2 = { userId: 'd2', permissions: ['trip:read', 'trip:status'] };
+
+
 /**
  * Minimal in-memory fake of the Prisma surface trips-core.js uses, so the
  * core loop can be tested without a database.
@@ -89,7 +96,11 @@ test('normalizeCreateTripInput requires an orderId and validates rateEur', () =>
 
 test('createTrip persists a DRAFT trip scoped to the org', async () => {
   const prisma = makeFakePrisma();
-  const result = await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1', driverId: 'd1' } });
+  const result = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
   assert.equal(result.ok, true);
   assert.equal(result.trip.status, 'DRAFT');
   assert.equal(result.trip.orgId, 'org1');
@@ -99,20 +110,27 @@ test('createTrip persists a DRAFT trip scoped to the org', async () => {
 
 test('createTrip rejects unknown order, cross-org order and cross-org driver', async () => {
   const prisma = makeFakePrisma();
-  assert.equal((await createTrip(prisma, { orgId: 'org1', body: { orderId: 'nope' } })).error, 'order_not_found');
-  assert.equal((await createTrip(prisma, { orgId: 'org2', body: { orderId: 'o1' } })).error, 'order_not_found');
   assert.equal(
-    (await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1', driverId: 'x1' } })).error,
+    (await createTrip(prisma, { orgId: 'org1', body: { orderId: 'nope' }, actor: OWNER })).error,
+    'order_not_found',
+  );
+  assert.equal(
+    (await createTrip(prisma, { orgId: 'org2', body: { orderId: 'o1' }, actor: OWNER })).error,
+    'order_not_found',
+  );
+  assert.equal(
+    (await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1', driverId: 'x1' }, actor: OWNER }))
+      .error,
     'driver_not_found',
   );
 });
 
 test('transitionTrip enforces the state machine and records a StatusEvent', async () => {
   const prisma = makeFakePrisma();
-  const created = await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' } });
+  const created = await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' }, actor: OWNER });
   const id = created.trip.id;
 
-  const assigned = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED' });
+  const assigned = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: OWNER });
   assert.equal(assigned.ok, true);
   assert.equal(assigned.trip.status, 'ASSIGNED');
   assert.deepEqual(prisma.state.events, [{ tripId: id, fromStatus: 'DRAFT', toStatus: 'ASSIGNED' }]);
@@ -120,25 +138,127 @@ test('transitionTrip enforces the state machine and records a StatusEvent', asyn
 
 test('transitionTrip rejects unknown trips, unknown statuses and illegal moves', async () => {
   const prisma = makeFakePrisma();
-  const created = await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' } });
+  const created = await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' }, actor: OWNER });
   const id = created.trip.id;
 
-  assert.equal((await transitionTrip(prisma, { orgId: 'org1', tripId: 'ghost', to: 'ASSIGNED' })).error, 'not_found');
-  assert.equal((await transitionTrip(prisma, { orgId: 'org2', tripId: id, to: 'ASSIGNED' })).error, 'not_found');
-  assert.equal((await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'BOOKED' })).error, 'invalid_status');
-  const illegal = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'SETTLED' });
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: 'ghost', to: 'ASSIGNED', actor: OWNER })).error,
+    'not_found',
+  );
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org2', tripId: id, to: 'ASSIGNED', actor: OWNER })).error,
+    'not_found',
+  );
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'BOOKED', actor: OWNER })).error,
+    'invalid_status',
+  );
+  const illegal = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'SETTLED', actor: OWNER });
   assert.deepEqual(illegal, { ok: false, error: 'invalid_transition', from: 'DRAFT', to: 'SETTLED' });
   assert.equal(prisma.state.events.length, 0, 'no event is written for a rejected transition');
 });
 
 test('listOrgTrips returns org trips and listDriverTrips narrows to the driver', async () => {
   const prisma = makeFakePrisma();
-  await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1', driverId: 'd1' } });
-  await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' } });
+  await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1', driverId: 'd1' }, actor: OWNER });
+  await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' }, actor: OWNER });
 
   assert.equal((await listOrgTrips(prisma, { orgId: 'org1' })).length, 2);
   assert.equal((await listOrgTrips(prisma, { orgId: 'org2' })).length, 0);
   const driverTrips = await listDriverTrips(prisma, { orgId: 'org1', driverId: 'd1' });
   assert.equal(driverTrips.length, 1);
   assert.equal(driverTrips[0].driverId, 'd1');
+});
+
+// --- RBAC (issues #6): driver tokens must not create trips or move others' trips ---
+
+test('a driver cannot create a trip (trip:create denied)', async () => {
+  const prisma = makeFakePrisma();
+  const result = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: DRIVER1,
+  });
+  assert.deepEqual(result, { ok: false, error: 'forbidden' });
+  assert.equal(prisma.state.trips.length, 0, 'no trip is persisted on a denied create');
+});
+
+test('a driver cannot transition a trip that is not assigned to them', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+
+  const denied = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: DRIVER2 });
+  assert.deepEqual(denied, { ok: false, error: 'forbidden' });
+  assert.equal((await prisma.trip.findFirst({ where: { id } })).status, 'DRAFT');
+  assert.equal(prisma.state.events.length, 0, 'no StatusEvent is written on a denied transition');
+});
+
+test('the assigned driver can run a legal transition', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+
+  const ok = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: DRIVER1 });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.trip.status, 'ASSIGNED');
+  assert.deepEqual(prisma.state.events, [{ tripId: id, fromStatus: 'DRAFT', toStatus: 'ASSIGNED' }]);
+});
+
+test('a driver cannot transition an unassigned trip even with trip:status', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' }, actor: OWNER });
+  const denied = await transitionTrip(prisma, {
+    orgId: 'org1',
+    tripId: created.trip.id,
+    to: 'ASSIGNED',
+    actor: DRIVER2,
+  });
+  assert.deepEqual(denied, { ok: false, error: 'forbidden' });
+});
+
+test('dispatcher and owner can create and transition any trip in the org', async () => {
+  for (const actor of [OWNER, DISPATCHER]) {
+    const prisma = makeFakePrisma();
+    const created = await createTrip(prisma, {
+      orgId: 'org1',
+      body: { orderId: 'o1', driverId: 'd1' },
+      actor,
+    });
+    assert.equal(created.ok, true);
+    const moved = await transitionTrip(prisma, {
+      orgId: 'org1',
+      tripId: created.trip.id,
+      to: 'ASSIGNED',
+      actor,
+    });
+    assert.equal(moved.ok, true);
+    assert.equal(moved.trip.status, 'ASSIGNED');
+  }
+});
+
+test('an actor with no permissions is denied by default', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' }, actor: OWNER });
+  assert.deepEqual(
+    await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' } }),
+    { ok: false, error: 'forbidden' },
+    'no actor is denied',
+  );
+  assert.deepEqual(
+    await createTrip(prisma, { orgId: 'org1', body: { orderId: 'o1' }, actor: { permissions: [] } }),
+    { ok: false, error: 'forbidden' },
+  );
+  assert.deepEqual(
+    await transitionTrip(prisma, { orgId: 'org1', tripId: created.trip.id, to: 'ASSIGNED' }),
+    { ok: false, error: 'forbidden' },
+  );
 });
