@@ -13,12 +13,28 @@
 # and live `systemctl status` output (the sandbox cannot read /etc directly);
 # only fields observable read-only are reproduced, so the host file may carry
 # additional ordering/restart directives.
+#
+# Provenance of the ordering/restart directives (After=, Wants=, ExecStartPre=,
+# Restart=, RestartSec=): the live unit was read by the overseer over SSH `sudo`
+# (2026-09-14, ref 12). This sandbox cannot read /etc, so those directives are
+# reproduced from that read, not independently re-read here. Independently
+# confirmed read-only this run: unit is `enabled`, service `active (running)`,
+# and the running podman command matches ExecStart below (no inline credential).
 
 [Unit]
 Description=RoadwiseFleet Postgres (pilot)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/podman run --rm --name roadwise-pg --env-file=/root/roadwisefleet-pg.env -p 127.0.0.1:5432:5432 -v roadwise-pgdata:/var/lib/postgresql/data docker.io/library/postgres:17-alpine
+ExecStartPre=-/usr/bin/podman rm -f roadwise-pg
+ExecStart=/usr/bin/podman run --rm --name roadwise-pg \
+  --env-file=/root/roadwisefleet-pg.env \
+  -p 127.0.0.1:5432:5432 \
+  -v roadwise-pgdata:/var/lib/postgresql/data \
+  docker.io/library/postgres:17-alpine
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
