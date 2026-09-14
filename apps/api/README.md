@@ -17,18 +17,24 @@ pilot seed, minimal token auth and the core trip loop are wired.
 ## Run
 ```bash
 pnpm install                          # from repo root; postinstall generates the Prisma client
+# set AUTH_SECRET in apps/api/.env (required — see below)
 pnpm --filter @roadwisefleet/api db:migrate
 pnpm --filter @roadwisefleet/api db:seed -- --password=...
 pnpm dev                              # API on 127.0.0.1:8080
 ```
 `DATABASE_URL` is read from `apps/api/.env` (or the repo-root `.env`); Node 20
-`process.loadEnvFile` loads it, no dotenv dependency. `AUTH_SECRET` signs pilot
-session tokens and should be overridden outside the local pilot.
+`process.loadEnvFile` loads it, no dotenv dependency.
+
+`AUTH_SECRET` signs pilot session tokens and is **required** — there is no
+committed fallback. The operator sets a strong value in the environment or
+`apps/api/.env`; the API fails fast at startup when it is missing. For local
+development and tests only, `ALLOW_INSECURE_AUTH_SECRET=1` (or `NODE_ENV=test`)
+uses an ephemeral random secret for that process. Never commit a secret.
 
 ## Test
 Pure logic (state machine, scrypt password hashing, token signing/verification,
-trip-loop core against a fake Prisma client) runs on the Node.js native test
-runner with no install:
+RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
+Prisma client) runs on the Node.js native test runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -45,18 +51,20 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /health` | — | liveness |
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token |
 | `GET /api/auth/me` | bearer | the current principal |
-| `GET /api/trips` | bearer | dashboard trip list for the token's org |
-| `POST /api/trips` | bearer | create a `DRAFT` trip (`orderId` required) |
-| `POST /api/trips/:id/status` | bearer | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7) |
-| `GET /api/driver/trips` | bearer | live trip state for the logged-in driver |
+| `GET /api/trips` | bearer, `trip:read` | dashboard trip list for the token's org |
+| `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
+| `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
+| `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
 | `POST /api/waitlist` | — | landing-page waitlist (honeypot + validation) |
 | `GET /api/waitlist` | `X-Admin-Token` | admin list |
 
 Tenancy comes from the signed token's `org` claim — the old `x-org-id` header
-stub is gone.
+stub is gone. Capabilities come from the token's `roleId` resolved against the
+seeded `Role.permissions` (`auth/permissions.js`); a denied action returns
+`403 forbidden`.
 
 ## Deliberately missing (until the right phase)
 - signup, email verification, password reset (email is not live) ·
-- RBAC enforcement beyond org scoping · server-side session revocation ·
+- server-side session revocation ·
 - GPS ingest pipeline (Redis stream → Timescale) · document presigned uploads ·
 - WhatsApp bridge · payments (post-free-phase)

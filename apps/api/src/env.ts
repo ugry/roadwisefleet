@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveAuthSecret } from './auth/secret.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const envFile = [resolve(here, '../.env'), resolve(here, '../../../.env')].find((p) =>
@@ -21,9 +22,11 @@ export const env = {
   DATABASE_URL:
     process.env.DATABASE_URL ||
     'postgresql://roadwisefleet:roadwisefleet@127.0.0.1:5432/roadwisefleet',
-  // HMAC key for pilot session tokens. Override in real deployments; the
-  // pilot is bound to 127.0.0.1 and has no signup flow.
-  AUTH_SECRET: process.env.AUTH_SECRET || 'pilot-dev-secret-change-me',
+  // HMAC key for pilot session tokens. Required: there is no committed
+  // fallback. The operator sets AUTH_SECRET in the environment (or apps/api/.env);
+  // startup fails fast when it is missing. Local dev/test can opt into an
+  // ephemeral random secret with ALLOW_INSECURE_AUTH_SECRET=1 (or NODE_ENV=test).
+  AUTH_SECRET: resolveAuthSecret(),
   TOKEN_TTL_SECONDS: Number(process.env.TOKEN_TTL_SECONDS || 12 * 60 * 60),
   ADMIN_TOKEN: process.env.ADMIN_TOKEN || '',
 };
