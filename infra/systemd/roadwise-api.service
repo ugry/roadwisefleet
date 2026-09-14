@@ -1,0 +1,30 @@
+# Reference copy — RoadwiseFleet pilot API unit on elilavps2.
+#
+# Mirror of the live /etc/systemd/system/roadwise-api.service
+# (mode 0644, root:root). This is a value-free reference template for review
+# and restore; it is NOT applied by CI and changing it does not change the
+# running unit.
+#
+# No credential values appear here. The service reads secrets from the
+# EnvironmentFile below (mode 0600, debian:debian, outside the repo).
+#
+# Authoritative copy: the host file. Transcribed from the verified unit facts
+# and live `systemctl status` output (the sandbox cannot read /etc directly).
+
+[Unit]
+Description=RoadwiseFleet pilot API (elilavps2)
+Requires=roadwise-pg.service
+After=roadwise-pg.service roadwise-redis.service
+
+[Service]
+User=debian
+Group=debian
+WorkingDirectory=/opt/roadwisefleet/api
+EnvironmentFile=/opt/roadwisefleet/api/.env
+ExecStart=/usr/local/bin/pnpm --filter @roadwisefleet/api start
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
