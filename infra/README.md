@@ -17,3 +17,10 @@ ssh -i <key> debian@51.222.139.227 'sudo mv /tmp/rwf-nginx.conf /etc/nginx/sites
 ```
 
 Known drift risk: certbot rewrites this file on renewal/creation — pull it back into the repo after any certbot change.
+
+## Host runbooks
+
+| Runbook | Covers |
+|---|---|
+| [`host-exposure.md`](./host-exposure.md) | Public-listener inventory (3000, 9000/9001, 9200, 5355), no-host-firewall finding, closure plan. |
+| [`pilot-observability.md`](./pilot-observability.md) | Current observability (metrics/alerting gaps), verified backup state, restore-drill procedure. |
