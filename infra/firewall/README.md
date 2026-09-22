@@ -2,14 +2,18 @@
 
 Task `eila/tasks#9` (findings H1/H2/H4 in [`../host-exposure.md`](../host-exposure.md)).
 
-The host currently runs **no active packet filter** (`ufw` is enabled at boot but
-`inactive (dead)`; `nftables` disabled; no `firewalld`), so every `0.0.0.0`/`[::]`
-binding is reachable from the internet — including the unexpected listeners
-**3000, 9000, 9001, 9200** and **5355** (LLMNR).
+**Live state (2026-09-22 18:05 UTC): `ufw` is `active (exited)` + enabled** — the
+2026-09-22 16:25:38 UTC operator reboot started the ruleset that had been dormant
+since 2026-08-26. The intended policy (default-deny incoming; 22/80/443 + ICMP;
+node_exporter 9100 from elilavps1 only) matches this file, so treat the script as
+a **conformance re-assert, not an activation step**: run `status` and diff against
+the live rules before any `apply`. The listeners **3000, 9000, 9001, 9200, 5355**
+are still *bound* `0.0.0.0` and are only dropped at the packet level — a firewall
+drop is not a loopback rebind (that residual keeps task #9 open).
 
 | File | Purpose |
 |---|---|
-| [`ufw-pilot.sh`](./ufw-pilot.sh) | Idempotent, reviewed rule set: default-deny inbound, allow only 22/80/443 (+ICMP). `apply` / `status` / `rollback`. |
+| [`ufw-pilot.sh`](./ufw-pilot.sh) | Reviewed rule set: default-deny inbound, allow 22/80/443 (+ICMP) and node_exporter 9100 from elilavps1 only. `apply` (idempotent re-assert) / `status` / `rollback` (break-glass). |
 
 ## Why config-as-code
 
@@ -30,19 +34,29 @@ ssh -i <key> debian@51.222.139.227 'sudo install -m 0755 /tmp/ufw-pilot.sh /opt/
 ssh -i <key> debian@51.222.139.227 'sudo /opt/roadwisefleet/firewall/ufw-pilot.sh rollback'
 ```
 
+> **Do not run `apply` as a "fix".** The live ruleset is already active and was
+> modified at 17:45 UTC; I could not read `/etc/ufw/user.rules` (root-only) to diff
+> it. `apply` is idempotent and will warn that ufw is already active, but the
+> correct first step is always `status`. `rollback` disables the host's only
+> packet filter — break-glass only.
+
 ## Order of operations (do not skip step 0)
 
-0. **Identify the owners first** — `sudo ss -ltnp`, `sudo podman ps`. Closing a
-   listener owned by another team is an outage. (H3, still open.)
-1. Firewall default-deny (this script).
+0. **Identify the owners first** — **DONE 2026-09-22** (overseer `sudo ss -ltnp`):
+   :3000 gitea, :9000/:9001 browseros CDP, :9200 browseros_server MCP, :5355
+   systemd-resolve (LLMNR), :9100 node_exporter. See `../host-exposure.md` §3.
+1. Firewall default-deny (this script) — **LIVE since 2026-09-22 16:25 UTC**
+   (activated by the operator reboot; re-assert only via `status` + reviewed diff).
 2. Rebind the identified services to `127.0.0.1` — defence in depth, survives a
-   flushed firewall.
+   flushed firewall. **Still open** (keeps task #9 open).
 3. `LLMNR=no` in `/etc/systemd/resolved.conf` for port 5355.
-4. Verify externally (the commands `apply` prints) and record the final inventory.
+4. Verify externally (from elilavps1, never from elilavps2 itself) and record the
+   final inventory.
 
 ## Status
 
-**Not applied.** Applying this is a production change; it needs owner approval
-(access request [`eila/requests#6`](https://gitea.elilaltd.com/eila/requests/issues/6)
-covers nginx/units, and the same change window is the natural place for this) and
-host access this agent does not hold.
+**Live at the packet level since 2026-09-22 16:25 UTC; reconciled with this
+artifact 2026-09-22 18:05 UTC.** The remaining work (step 2 rebind, step 3 LLMNR)
+is a production change needing owner approval (access request
+[`eila/requests#6`](https://gitea.elilaltd.com/eila/requests/issues/6)) and host
+access this agent does not hold. I did not re-apply the script.

@@ -4,8 +4,9 @@
 to verify it, and the current *verified* state of the backups. Read-only; this
 document makes no host change. **No credential values appear here.**
 
-**Host:** elilavps2 (`51.222.139.227`). **Verified:** 2026-09-22 ~15:45 UTC and
-re-verified 2026-09-22 ~16:20 UTC (task `eila/tasks#10`).
+**Host:** elilavps2 (`51.222.139.227`). **Verified:** 2026-09-22 ~15:45 UTC,
+re-verified ~16:20 UTC, and re-verified **18:04 UTC** after the 16:25 UTC operator
+reboot (task `eila/tasks#10`).
 
 **Related:** [`pilot-exposure.md`](./pilot-exposure.md) (health checks, logs),
 [`pilot-db.md`](./pilot-db.md) (Postgres/Redis/backups),
@@ -35,13 +36,34 @@ probe only — it returns `200 {"ok":true}` even when Postgres/Redis are
 unreachable, so it cannot gate a deploy or an alert. A readiness endpoint is
 **app code** (developer's area).
 
-**Finding O3 — host memory pressure (new, 2026-09-22 16:20 UTC).** `free -m`
-reports 3826 MB total, 1746 MB used, **205 MB free**, and **swap 1805 MB of
-2047 MB used (88%)**. `browseros.service` alone is ~198 MB RSS with ~183 MB
-swapped out. There is no alerting on this, so the first symptom would be a slow
-or OOM-killed service. This is a capacity watch item, not yet an outage; add a
-swap/available-memory threshold to §3 item 4 and consider a `MemoryMax=` on
-`browseros.service`.
+**Finding O3 — host memory pressure — RESOLVED 2026-09-22 18:05 UTC.** The 16:25
+UTC operator reboot cleared it: `free` now reports swap **0 / 2047 MB used** and
+**8.7 GB available** (was 88 % swap used, 205 MB free). Keep the proposed
+swap/available-memory threshold in §3 item 4 anyway — it is what would have caught
+this before it became a user-visible symptom.
+
+### 1.1 Monitoring stack deployed by the orchestrator (2026-09-22) — verified from here
+
+Owner directive (ugur, board #10): dedicated `#eila-alerts` Matrix room, monitoring
+stack on elilavps1 (Gatus + VictoriaMetrics + node_exporter + Grafana + alert
+relay). I re-verified the reachable surface read-only at 18:04 UTC:
+
+| Check | Result |
+|---|---|
+| `https://status.elilaltd.com/` (Gatus) | `200`, `server: nginx` |
+| `https://grafana.elilaltd.com/` (Grafana) | `302 → /login`, `x-frame-options: deny`, `x-content-type-options: nosniff` |
+| `127.0.0.1:9100/metrics` (node_exporter) | `200`, `text/plain; version=0.0.4` |
+| `127.0.0.1:9100/` | `200 text/html` (node_exporter landing page) — corroborates the port-owner map in `host-exposure.md` §3 |
+| `https://gitea.elilaltd.com/` | `200` — Gitea unaffected by the firewall activation |
+| `https://roadwisefleet.com/`, `/pilot/` | `200`; `/pilot/` still `X-Robots-Tag: noindex, nofollow` |
+
+**What I could NOT verify from here:** the alert round-trip (needs the relay + the
+Matrix bot token — not my credential, I did not touch it), the Gatus check list,
+and the VictoriaMetrics/Grafana provisioning (configs live on elilavps1).
+**Follow-ups assigned to me on board #10 — pending, not done:** move the configs
+into `infra/monitoring/`, own the thresholds/checks (certbot renewal, pg_dump
+heartbeat, elilavps2 disk-growth watch), and document the runbook
+(silence/extend a check, rotate the Matrix bot token, restore VM from a dump).
 
 ## 2. Backup verification (read-only, 2026-09-22)
 
@@ -151,9 +173,9 @@ being found during a real incident.)
 
 | ID | Item | State | Owner |
 |---|---|---|---|
-| O1 | No metrics / alerting / uptime check for the pilot | **artifacts ready (§3b), not installed** | ops + owner approval |
+| O1 | No metrics / alerting / uptime check for the pilot | **partly resolved externally** — orchestrator deployed Gatus/VictoriaMetrics/node_exporter/Grafana + `#eila-alerts` relay on elilavps1 (§1.1); my in-host artifacts (§3b) still **not installed** | ops + owner approval |
 | O2 | `/health` is liveness-only; add `/health/ready` | open | **developer** (app code) |
-| O3 | Host swap 88% used, 205 MB RAM free; no memory alerting | **open — watch** | ops (thresholds) + owner |
+| O3 | Host swap 88% used, 205 MB RAM free; no memory alerting | **RESOLVED 2026-09-22 16:25 UTC** (reboot: swap 0 used, 8.7 GB available); threshold still worth adding | ops (thresholds) + owner |
 | B1 | Backups scheduled + last run `status=0`, but no restore test / artifact check | **artifacts ready (§3b), not installed; no drill run** | ops (needs root) + owner approval |
 | B2 | Backup freshness + integrity alert | **scripted (§3b)** | ops |
 | B3 | Quarterly restore drill recorded in this file | **scripted (§3b)**, first drill pending host access | ops |
@@ -168,7 +190,9 @@ being found during a real incident.)
 `Permission denied`), so the backup remains *green by exit code only* until the
 drill in §4 runs.
 
-**Resource baseline (2026-09-22 ~16:20 UTC):** `/` 14G/40G (38% used);
-RAM 3826 MB total / 205 MB free; swap 2047 MB total / **1805 MB used (88%)**.
+**Resource baseline (2026-09-22 18:05 UTC, post-reboot):** RAM 11.4 GB total /
+8.7 GB available; swap **0 / 2047 MB used** (was 1805 MB used at 16:20). Backup
+timers survived the reboot: `roadwise-pg-backup.timer` next 2026-09-23 03:15 UTC,
+`roadwisefleet-backup.timer` next 2026-09-23 03:30 UTC.
 
 *This runbook made no production change and changed no unit or timer.*
