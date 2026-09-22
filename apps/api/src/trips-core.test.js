@@ -133,7 +133,9 @@ test('transitionTrip enforces the state machine and records a StatusEvent', asyn
   const assigned = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: OWNER });
   assert.equal(assigned.ok, true);
   assert.equal(assigned.trip.status, 'ASSIGNED');
-  assert.deepEqual(prisma.state.events, [{ tripId: id, fromStatus: 'DRAFT', toStatus: 'ASSIGNED' }]);
+  assert.deepEqual(prisma.state.events, [
+    { tripId: id, fromStatus: 'DRAFT', toStatus: 'ASSIGNED', actorId: 'admin' },
+  ]);
 });
 
 test('transitionTrip rejects unknown trips, unknown statuses and illegal moves', async () => {
@@ -210,7 +212,9 @@ test('the assigned driver can run a legal transition', async () => {
   const ok = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: DRIVER1 });
   assert.equal(ok.ok, true);
   assert.equal(ok.trip.status, 'ASSIGNED');
-  assert.deepEqual(prisma.state.events, [{ tripId: id, fromStatus: 'DRAFT', toStatus: 'ASSIGNED' }]);
+  assert.deepEqual(prisma.state.events, [
+    { tripId: id, fromStatus: 'DRAFT', toStatus: 'ASSIGNED', actorId: 'd1' },
+  ]);
 });
 
 test('a driver cannot transition an unassigned trip even with trip:status', async () => {

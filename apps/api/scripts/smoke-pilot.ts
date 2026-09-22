@@ -65,6 +65,24 @@ async function main() {
   transitions['IN_TRANSIT->SETTLED (must be 400)'] = { status: illegal.status, body: illegal.json };
   results.transitions = transitions;
 
+  // Trip detail (board task #2): the drawer payload. Auth is required, the org
+  // comes from the token, and an unknown/foreign id is a 404 (never a leak).
+  const detail = await call(base, 'GET', `/api/trips/${tripId}`, adminToken);
+  results.tripDetail = {
+    expected: 200,
+    status: detail.status,
+    hasOrder: Boolean(detail.json?.trip?.order),
+    events: detail.json?.trip?.statusEvents?.length,
+    actors: detail.json?.trip?.statusEvents?.map((e: { actor: { name: string } | null }) => e.actor?.name ?? null),
+    pnlEur: detail.json?.trip?.totals?.pnlEur,
+  };
+
+  const detailUnauth = await call(base, 'GET', `/api/trips/${tripId}`);
+  results.tripDetailUnauthenticated = { expected: 401, status: detailUnauth.status };
+
+  const detailMissing = await call(base, 'GET', '/api/trips/does-not-exist', adminToken);
+  results.tripDetailMissing = { expected: 404, status: detailMissing.status, body: detailMissing.json };
+
   const unauth = await call(base, 'GET', '/api/trips');
   results.unauthenticated = { status: unauth.status, body: unauth.json };
 

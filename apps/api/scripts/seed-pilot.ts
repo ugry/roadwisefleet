@@ -140,7 +140,19 @@ async function main() {
   const events = await prisma.statusEvent.count({ where: { tripId: 'pilot-trip-2' } });
   if (events === 0) {
     await prisma.statusEvent.create({
-      data: { tripId: 'pilot-trip-2', fromStatus: 'DRAFT', toStatus: 'ASSIGNED' },
+      data: {
+        tripId: 'pilot-trip-2',
+        fromStatus: 'DRAFT',
+        toStatus: 'ASSIGNED',
+        actorId: 'pilot-admin',
+      },
+    });
+  } else {
+    // Backfill the actor on history written before the column existed, so the
+    // trip-detail timeline shows who moved it (board task #2).
+    await prisma.statusEvent.updateMany({
+      where: { tripId: 'pilot-trip-2', actorId: null },
+      data: { actorId: 'pilot-admin' },
     });
   }
 
