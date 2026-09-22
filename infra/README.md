@@ -9,6 +9,13 @@ Files here mirror what runs on the production VPS (51.222.139.227).
 | `../services/waitlist/backup.sh` | `/opt/roadwisefleet/waitlist/backup.sh` | Nightly waitlist backup (tar.gz to `/var/backups/roadwisefleet`, 14-day retention), run by the `roadwisefleet-backup.timer` systemd unit. |
 | `systemd/roadwise-api.service` | `/etc/systemd/system/roadwise-api.service` | Value-free reference mirror of the pilot API unit. Runbook: [`pilot-api.md`](./pilot-api.md). |
 | `systemd/roadwise-pg.service` | `/etc/systemd/system/roadwise-pg.service` | Value-free reference mirror of the pilot Postgres unit. Runbook: [`pilot-db.md`](./pilot-db.md). |
+| `systemd/pilot-uptime-check.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply 5-minute uptime check for the pilot public surface + loopback liveness. Runbook: [`pilot-observability.md`](./pilot-observability.md). |
+| `systemd/pilot-backup-verify.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply nightly backup freshness + artifact-integrity check. |
+| `scripts/pilot-uptime-check.sh` | `/usr/local/bin/` | Probes `/`, `/pilot/`, `/api/trips`, `/api/waitlist`, `/health`; mails `ugur@` on failure. |
+| `scripts/pilot-backup-verify.sh` | `/usr/local/bin/` | `pg_restore --list` / gzip / tar integrity + freshness; mails `ugur@` on failure. |
+| `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container (live volume untouched). |
+| `logrotate/roadwisefleet` | `/etc/logrotate.d/roadwisefleet` | Logrotate drop-in for pilot log files. |
+| `firewall/ufw-pilot.sh` | `/opt/roadwisefleet/firewall/` | Reviewed, idempotent firewall rule set (default-deny inbound; 22/80/443 only). `apply` / `status` / `rollback`. |
 
 Apply after editing:
 ```bash
@@ -24,3 +31,8 @@ Known drift risk: certbot rewrites this file on renewal/creation — pull it bac
 |---|---|
 | [`host-exposure.md`](./host-exposure.md) | Public-listener inventory (3000, 9000/9001, 9200, 5355), no-host-firewall finding, closure plan. |
 | [`pilot-observability.md`](./pilot-observability.md) | Current observability (metrics/alerting gaps), verified backup state, restore-drill procedure. |
+| [`firewall/README.md`](./firewall/README.md) | Host firewall config-as-code: reviewed `ufw` rules, apply/rollback, order of operations. |
+
+> The `scripts/`, `logrotate/` and `firewall/` files are **ready-to-apply
+> artifacts**: they are reviewed here but not installed on the host. Installing
+> any of them is a production change needing owner approval and host access.

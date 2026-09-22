@@ -1,0 +1,29 @@
+# Ready-to-apply artifact — RoadwiseFleet pilot uptime check (task eila/tasks#10).
+#
+# NOT installed by CI. Installing this on elilavps2 is a host change that needs
+# owner approval + host access; see infra/pilot-observability.md §3.
+#
+# Install to /etc/systemd/system/pilot-uptime-check.service (mode 0644).
+# No credential values appear here.
+
+[Unit]
+Description=RoadwiseFleet pilot uptime check (public surface + loopback liveness)
+Documentation=https://github.com/ugry/roadwisefleet/blob/main/infra/pilot-observability.md
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pilot-uptime-check.sh
+# Alert routing. Override with an EnvironmentFile (0600, root) if the ops
+# mailbox changes; no secrets are required by this check.
+Environment=ALERT_MAIL=ugur@elilaltd.com
+Environment=ALERT_COOLDOWN_MIN=60
+StateDirectory=pilot-uptime
+# A failed check is a signal, not a crash loop: do not restart, let the timer
+# schedule the next attempt.
+Restart=no
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target

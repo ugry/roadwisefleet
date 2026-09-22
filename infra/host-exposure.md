@@ -5,7 +5,8 @@
 ones that should not be public. **No host change is made by this document** — it
 is the reviewed plan for a change that needs owner approval and host access.
 
-**Host:** elilavps2 (`51.222.139.227`). **Verified:** 2026-09-22 ~15:45 UTC, read-only.
+**Host:** elilavps2 (`51.222.139.227`). **Verified:** 2026-09-22 ~15:45 UTC, read-only;
+re-verified 2026-09-22 ~16:20 UTC (task `eila/tasks#9`).
 
 **Related:** [`pilot-exposure.md`](./pilot-exposure.md) (public HTTP surface),
 [`pilot-db.md`](./pilot-db.md) (Postgres/Redis), [`pilot-observability.md`](./pilot-observability.md).
@@ -109,9 +110,11 @@ curl -sI http://<public-ip>:3000/   # expect timeout/refused
 curl -sI https://roadwisefleet.com/ && curl -sI https://roadwisefleet.com/pilot/  # still 200
 ```
 
-**Step 5 — make it permanent:** record the firewall rules in this repo (e.g. an
-`infra/firewall/` drop-in) so the state is owned configuration, not a hand edit —
-the same treatment the nginx stopgap got.
+**Step 5 — make it permanent:** the reviewed rule set is now
+[`firewall/ufw-pilot.sh`](./firewall/ufw-pilot.sh) (`apply` / `status` /
+`rollback`) with its own [`firewall/README.md`](./firewall/README.md) — owned
+configuration instead of a hand edit, the same treatment the nginx stopgap got.
+Still **not applied**.
 
 ## 5. Status
 
@@ -120,7 +123,15 @@ the same treatment the nginx stopgap got.
 | H1 | Close public listeners 3000, 9000/9001, 9200, 5355 | **open — not applied** | ops + owner approval (host access) |
 | H2 | No host firewall active | **open — not applied** | ops + owner approval |
 | H3 | Identify owners of the four HTTP ports before closing | **open** | ops (needs `sudo` on host) |
-| H4 | Persist firewall rules as reviewed config in `infra/` | proposed | ops |
+| H4 | Persist firewall rules as reviewed config in `infra/` | **artifact ready** — [`firewall/ufw-pilot.sh`](./firewall/ufw-pilot.sh); not applied | ops + owner approval |
+
+**Re-verification (2026-09-22 ~16:20 UTC, read-only):** `ss -ltn` is unchanged —
+`3000` (`*`), `9000`, `9001`, `9200`, `5355` (v4+v6) still bound to public
+addresses; `8080`, `8787`, `5432`, `6379`, `8877`, `9101`, `25`, `53` loopback-only;
+`22`, `80`, `443` public as intended. `systemctl status ufw.service` →
+**`inactive (dead)`**, so the finding stands. No external probe was possible from
+this agent (no second vantage point); `apply` prints the exact `nc`/`curl`
+commands for the orchestrator to run from outside.
 
 *This runbook made no production change. Applying §4 is a production change and
 requires explicit owner approval plus host access, which this agent does not
