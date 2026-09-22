@@ -1,3 +1,8 @@
-# Everything requires approval from the repo owner.
-# Agents (developer/tester/devops) work via PRs and can never approve their own changes.
-* @ugry
+# Everything requires approval from the repo owner or the team lead.
+#
+# Agents (developer / tester / devops) work via PRs and must never approve their
+# own changes. All agent PATs authenticate as @ugry, so a PR they open is
+# authored by @ugry and GitHub refuses self-approval. @victornolan is a SECOND,
+# separate identity (Team Lead / Overseer) whose approval satisfies the required
+# review gate.
+* @ugry @victornolan
