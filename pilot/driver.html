@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>RoadwiseFleet — Driver</title>
-<meta name="description" content="RoadwiseFleet driver app: your current trip, one-thumb status updates and photo proof of delivery, online or offline.">
+<title data-i18n="driver.title"></title>
+<meta name="description" data-i18n-content="driver.description">
 <meta name="theme-color" content="#0b1f3a">
 <meta name="color-scheme" content="light">
 <link rel="manifest" href="manifest.webmanifest">
@@ -52,6 +52,9 @@
   .brand .tag{display:block;font-family:var(--font-body);font-size:11px;letter-spacing:.10em;color:var(--accent);font-weight:600}
   .appbar .spacer{flex:1}
   .appbar a.ghost-link{color:var(--on-dark);font-size:13px;text-decoration:none;opacity:.9;padding:8px 2px}
+  .appbar .lang-slot label.lang{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.85}
+  .appbar select.lang-switcher{font-family:inherit;font-size:13px;padding:6px 7px;border-radius:8px;border:1px solid var(--navy-950);
+    min-height:36px;background:var(--on-dark);color:var(--ink)}
   .syncbar{display:flex;align-items:center;gap:8px;margin:10px 0 0;padding:8px 2px 10px;font-size:13px;border-top:1px solid oklch(1 0 0 / .12)}
   .syncbar .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:0 0 auto}
   .syncbar.state-synced .dot{background:var(--success)}
@@ -144,15 +147,16 @@
 <header class="appbar">
   <div class="appbar-row">
     <span class="mark" aria-hidden="true"></span>
-    <span class="brand">RoadwiseFleet<span class="tag">Driver</span></span>
+    <span class="brand"><span data-i18n="brand.name"></span><span class="tag" data-i18n="driver.tag"></span></span>
     <span class="spacer"></span>
-    <button id="installBtn" class="ghost small hidden" type="button">Install</button>
-    <a class="ghost-link" href="index.html">Pilot home</a>
+    <span class="lang-slot" id="langSlot"></span>
+    <button id="installBtn" class="ghost small hidden" type="button" data-i18n="driver.install"></button>
+    <a class="ghost-link" href="index.html" data-i18n="nav.pilotHome"></a>
   </div>
   <div id="syncBar" class="syncbar state-synced" role="status" aria-live="polite">
     <span class="dot" aria-hidden="true"></span>
-    <span id="syncLabel" class="sync-label">Checking sync…</span>
-    <button id="syncNow" class="ghost small hidden" type="button">Sync now</button>
+    <span id="syncLabel" class="sync-label" data-i18n="driver.syncChecking"></span>
+    <button id="syncNow" class="ghost small hidden" type="button" data-i18n="driver.syncNow"></button>
   </div>
 </header>
 
@@ -160,41 +164,43 @@
   <div id="globalMsg" class="msg" role="alert"></div>
 
   <section id="loginCard" class="card">
-    <h1>Driver sign in</h1>
-    <p class="muted">Your trips only. Works offline once loaded.</p>
+    <h1 data-i18n="driver.signIn"></h1>
+    <p class="muted" data-i18n="driver.signInHint"></p>
     <form id="loginForm" autocomplete="on">
-      <label for="email">Email</label>
+      <label for="email" data-i18n="common.email"></label>
       <input id="email" name="email" type="email" required autocomplete="username" inputmode="email"
-             placeholder="driver1@pilot.roadwisefleet.test">
-      <label for="password">Password</label>
+             data-i18n-placeholder="login.driverEmailPlaceholder">
+      <label for="password" data-i18n="common.password"></label>
       <input id="password" name="password" type="password" required autocomplete="current-password">
-      <div style="margin-top:16px"><button class="primary" type="submit" style="width:100%">Sign in</button></div>
+      <div style="margin-top:16px"><button class="primary" type="submit" style="width:100%" data-i18n="common.signIn"></button></div>
     </form>
   </section>
 
   <section id="app" class="hidden">
     <p class="who">
-      <span>Signed in as <strong id="whoName">—</strong></span>
+      <span><span data-i18n="common.signedInAs"></span> <strong id="whoName"></strong></span>
       <span class="spacer"></span>
-      <button id="refresh" class="ghost small" type="button">Refresh</button>
-      <a href="#" id="logout">Sign out</a>
+      <button id="refresh" class="ghost small" type="button" data-i18n="common.refresh"></button>
+      <a href="#" id="logout" data-i18n="common.signOut"></a>
     </p>
 
     <div id="tripPickerWrap" class="hidden card" style="padding:12px 14px">
-      <label for="tripPicker">Trip</label>
+      <label for="tripPicker" data-i18n="driver.tripPickerLabel"></label>
       <select id="tripPicker" class="trip-pick"></select>
     </div>
 
-    <div id="tripHost"><p class="muted">Loading your trips…</p></div>
+    <div id="tripHost"><p class="muted" data-i18n="driver.loadingTrips"></p></div>
 
     <section id="queueCard" class="card hidden">
-      <h2>Waiting to sync</h2>
-      <p class="muted" id="queueHint">Captured while offline — these send themselves when you are back online.</p>
+      <h2 data-i18n="driver.queueTitle"></h2>
+      <p class="muted" id="queueHint" data-i18n="driver.queueHint"></p>
       <ul id="queueList" class="queue"></ul>
     </section>
   </section>
 </main>
 
+<script src="lib/i18n.js"></script>
+<script src="lib/i18n-ui.js"></script>
 <script src="lib/driver-core.js"></script>
 <script>
 (function () {
@@ -212,19 +218,36 @@
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
     heic: 'image/heic', heif: 'image/heif', pdf: 'application/pdf'
   };
-  var ACTION_LABELS = {
-    ASSIGNED: 'Accept trip',
-    LOADED: 'Mark loaded',
-    IN_TRANSIT: 'Start driving',
-    DELIVERED: 'Mark delivered',
-    POD_UPLOADED: 'Confirm POD uploaded',
-    INVOICED: 'Mark invoiced',
-    SETTLED: 'Mark settled',
-    CANCELLED: 'Cancel trip'
-  };
-  var CHECKLIST_OPTIONS = core.CHECKLIST.map(function (row) {
-    return '<option value="' + esc(row.docType) + '">' + esc(row.label) + '</option>';
-  }).join('');
+
+  // Board task #6: every string comes from the locale catalogues
+  // (pilot/locales/*.json) — the boot below runs before anything renders, so a
+  // key never reaches the screen.
+  var i18n = null;
+  function t(key, params) { return i18n ? i18n.t(key, params) : key; }
+  function statusLabel(status) { return t('status.' + status); }
+  function actionLabel(status) {
+    var key = 'driver.action.' + status;
+    var label = t(key);
+    return label === key ? status : label;
+  }
+  function docTypeLabel(docType) {
+    var key = 'doctype.' + docType;
+    var label = t(key);
+    return label === key ? docType : label;
+  }
+  function docStatusLabel(status) {
+    var key = 'docstatus.' + status;
+    var label = t(key);
+    return label === key ? status : label;
+  }
+  function money(value) {
+    var formatted = i18n ? i18n.currency(value, 'EUR') : null;
+    return formatted === null ? t('common.none') : formatted;
+  }
+  function fmtDateTime(value) {
+    if (value === null || value === undefined || value === '') return t('common.none');
+    return i18n ? i18n.dateTime(value) : String(value);
+  }
 
   var state = {
     trips: [],
@@ -245,6 +268,9 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
   function token() { return localStorage.getItem(TOKEN_KEY) || ''; }
+  function storedUser() {
+    try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; }
+  }
 
   function setMsg(text, kind) {
     var el = byId('globalMsg');
@@ -254,21 +280,21 @@
   function clearMsg() { var el = byId('globalMsg'); el.className = 'msg'; el.textContent = ''; }
 
   function errorText(status, data) {
-    if (status === 0) return 'No connection — saved on the phone and sent when you are back online.';
-    if (status === 401) return 'Session expired (401). Please sign in again.';
-    if (status === 403) return 'Forbidden (403): that trip is not assigned to you.';
+    if (status === 0) return t('driver.offlineSaved');
+    if (status === 401) return t('error.sessionExpired');
+    if (status === 403) return t('error.tripForbidden403');
     var code = (data && data.error) || ('http_' + status);
-    if (code === 'invalid_transition') return 'Rejected transition (400): ' + (data && data.from) + ' -> ' + (data && data.to) + '.';
-    if (code === 'invalid_status') return 'Unknown status (400).';
-    if (code === 'pod_required') return 'Attach a POD or eCMR before marking the trip POD_UPLOADED.';
-    if (code === 'unsupported_type') return 'Unsupported file type (400). Use JPEG, PNG, WebP, HEIC or PDF.';
-    if (code === 'file_too_large') return 'File too large (400). The maximum is 10 MiB.';
-    if (code === 'invalid_size') return 'That file is empty (400).';
-    if (code === 'invalid_capture') return 'The photo details were rejected (400): ' + ((data && data.detail) || 'bad capture metadata');
-    if (code === 'invalid_doc_type') return 'Unknown document type (400).';
-    if (code === 'invalid_upload') return 'The upload payload was rejected (400).';
-    if (code === 'invalid_filename') return 'The filename was rejected (400).';
-    return code + ' (' + status + ')';
+    if (code === 'invalid_transition') return t('error.rejectedTransition', { from: statusLabel(data && data.from), to: statusLabel(data && data.to) });
+    if (code === 'invalid_status') return t('error.invalidStatus');
+    if (code === 'pod_required') return t('error.podRequired');
+    if (code === 'unsupported_type') return t('error.unsupportedType400');
+    if (code === 'file_too_large') return t('error.fileTooLarge400');
+    if (code === 'invalid_size') return t('error.invalidSize');
+    if (code === 'invalid_capture') return t('error.invalidCapture', { detail: (data && data.detail) || '' });
+    if (code === 'invalid_doc_type') return t('error.invalidDocType');
+    if (code === 'invalid_upload') return t('error.invalidUpload');
+    if (code === 'invalid_filename') return t('error.invalidFilename');
+    return t('error.http', { code: code, status: status });
   }
 
   function api(path, opts) {
@@ -374,15 +400,17 @@
     });
     var bar = byId('syncBar');
     bar.className = 'syncbar state-' + indicator.state;
-    byId('syncLabel').textContent = indicator.label;
+    byId('syncLabel').textContent = t(indicator.labelKey, { count: indicator.pending });
     byId('syncNow').classList.toggle('hidden', !(state.queue.length && navigator.onLine && !state.syncing));
     renderQueue();
   }
 
   function itemLabel(item) {
-    if (item.kind === 'status') return 'Status → ' + ((item.payload && item.payload.status) || '?');
-    var docType = (item.payload && item.payload.docType) || 'document';
-    return (item.photo ? 'POD photo (' : 'Document (') + docType + ')';
+    if (item.kind === 'status') {
+      return t('driver.item.status', { status: statusLabel((item.payload && item.payload.status) || '?') });
+    }
+    var docType = docTypeLabel((item.payload && item.payload.docType) || 'document');
+    return item.photo ? t('driver.item.photo', { docType: docType }) : t('driver.item.file', { docType: docType });
   }
 
   function renderQueue() {
@@ -392,9 +420,9 @@
     card.classList.remove('hidden');
     list.innerHTML = state.queue.map(function (item) {
       return '<li>' +
-        '<span class="what">' + esc(itemLabel(item)) + '<br><span class="muted">' + esc(new Date(item.at).toLocaleString()) +
-        (item.attempts ? ' · retried ' + esc(item.attempts) + '×' : '') + '</span></span>' +
-        '<button class="ghost small" data-discard="' + esc(item.id) + '" type="button">Discard</button>' +
+        '<span class="what">' + esc(itemLabel(item)) + '<br><span class="muted">' + esc(fmtDateTime(item.at)) +
+        (item.attempts ? esc(t('driver.itemRetried', { count: item.attempts })) : '') + '</span></span>' +
+        '<button class="ghost small" data-discard="' + esc(item.id) + '" type="button">' + esc(t('driver.discard')) + '</button>' +
       '</li>';
     }).join('');
     Array.prototype.forEach.call(list.querySelectorAll('button[data-discard]'), function (btn) {
@@ -411,9 +439,8 @@
 
   /* --- auth ------------------------------------------------------------- */
   function showApp() {
-    var user = null;
-    try { user = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { user = null; }
-    if (user) byId('whoName').textContent = user.name || user.email || 'driver';
+    var user = storedUser();
+    if (user) byId('whoName').textContent = user.name || user.email || '';
     byId('loginCard').classList.add('hidden');
     byId('app').classList.remove('hidden');
     queueLoad().then(function () {
@@ -441,12 +468,12 @@
       state.trips = (r.data && r.data.trips) || [];
       if (!state.trips.length) {
         state.currentId = null;
-        byId('tripHost').innerHTML = '<p class="muted">No trips assigned to you.</p>';
+        byId('tripHost').innerHTML = '<p class="muted">' + esc(t('driver.noTrips')) + '</p>';
         byId('tripPickerWrap').classList.add('hidden');
         renderSync();
         return;
       }
-      var known = state.trips.some(function (t) { return t.id === state.currentId; });
+      var known = state.trips.some(function (trip) { return trip.id === state.currentId; });
       if (!known) {
         var current = core.pickCurrentTrip(state.trips);
         state.currentId = current ? current.id : state.trips[0].id;
@@ -456,8 +483,8 @@
       loadDocs(state.currentId).then(renderCurrentTrip);
     }).catch(function () {
       // Offline for the first load with no cached trips: say it plainly.
-      if (!navigator.onLine) setMsg('You are offline. Reconnect once to load your trips, then the app works offline.', 'info');
-      else setMsg('Could not reach the server. Try again.', 'err');
+      if (!navigator.onLine) setMsg(t('driver.offlineFirstLoad'), 'info');
+      else setMsg(t('driver.serverUnreachable'), 'err');
       renderSync();
     });
   }
@@ -466,10 +493,10 @@
     var wrap = byId('tripPickerWrap');
     if (state.trips.length < 2) { wrap.classList.add('hidden'); return; }
     wrap.classList.remove('hidden');
-    byId('tripPicker').innerHTML = state.trips.map(function (t) {
-      var o = t.order || {};
-      return '<option value="' + esc(t.id) + '"' + (t.id === state.currentId ? ' selected' : '') + '>' +
-        esc((o.origin || '?') + ' → ' + (o.destination || '?')) + ' · ' + esc(t.status) + '</option>';
+    byId('tripPicker').innerHTML = state.trips.map(function (trip) {
+      var o = trip.order || {};
+      return '<option value="' + esc(trip.id) + '"' + (trip.id === state.currentId ? ' selected' : '') + '>' +
+        esc((o.origin || '?') + ' → ' + (o.destination || '?')) + ' · ' + esc(statusLabel(trip.status)) + '</option>';
     }).join('');
   }
 
@@ -493,10 +520,16 @@
   }
 
   /* --- tour card -------------------------------------------------------- */
+  function checklistOptions() {
+    return core.CHECKLIST.map(function (row) {
+      return '<option value="' + esc(row.docType) + '">' + esc(t(row.labelKey)) + '</option>';
+    }).join('');
+  }
+
   function renderCurrentTrip() {
     var trip = currentTrip();
     var host = byId('tripHost');
-    if (!trip) { host.innerHTML = '<p class="muted">No trip selected.</p>'; return; }
+    if (!trip) { host.innerHTML = '<p class="muted">' + esc(t('driver.noTripSelected')) + '</p>'; return; }
     // The driver-trips payload has no documents; the checklist uses the last
     // fetched set (empty until `GET /api/trips/:id/documents` answers).
     var card = core.buildTourCard({
@@ -515,53 +548,53 @@
     html += '<div class="trip-card" data-trip-card="' + esc(trip.id) + '">';
     html += '<div class="trip-head"><div class="route">' +
       esc(card.route.origin || '?') + '<span class="arrow">→</span>' + esc(card.route.destination || '?') + '</div>' +
-      '<span class="status s-' + esc(card.status) + '">' + esc(card.status) + '</span></div>';
+      '<span class="status s-' + esc(card.status) + '">' + esc(statusLabel(card.status)) + '</span></div>';
 
     html += '<div class="facts">' +
-      fact('Cargo', card.cargo || '—') +
-      fact('Truck', card.truck.plate ? card.truck.plate + (card.truck.euroClass ? ' · ' + card.truck.euroClass : '') : '—') +
-      fact('Rate', card.rateEur === null ? '—' : '€' + card.rateEur.toFixed(2)) +
-      fact('ETA', card.etaLabel) +
+      fact(t('driver.cargo'), card.cargo || t('common.none')) +
+      fact(t('driver.truck'), card.truck.plate ? card.truck.plate + (card.truck.euroClass ? ' · ' + card.truck.euroClass : '') : t('common.none')) +
+      fact(t('common.rate'), money(card.rateEur)) +
+      fact(t('driver.eta'), t(card.etaKey)) +
       '</div>';
 
-    html += '<div class="section"><div class="section-title">Required documents</div><ul class="check">';
+    html += '<div class="section"><div class="section-title">' + esc(t('driver.requiredDocuments')) + '</div><ul class="check">';
     card.checklist.forEach(function (row) {
-      var badge = row.required ? '<span class="req">' + (row.alternative ? 'Or this' : 'Required') + '</span>' : '';
+      var badge = row.required ? '<span class="req">' + esc(row.alternative ? t('driver.badgeOrThis') : t('driver.badgeRequired')) + '</span>' : '';
       html += '<li class="' + (row.present ? 'present' : '') + '">' +
         '<span class="tick" aria-hidden="true">' + (row.present ? '✓' : '–') + '</span>' +
-        '<span class="body"><span class="name">' + esc(row.label) + badge + '</span>' +
-        '<span class="hint">' + esc(row.present ? ('Attached · ' + row.status) : row.hint) + '</span></span></li>';
+        '<span class="body"><span class="name">' + esc(t(row.labelKey)) + badge + '</span>' +
+        '<span class="hint">' + esc(row.present ? t('driver.attached', { status: docStatusLabel(row.status) }) : t(row.hintKey)) + '</span></span></li>';
     });
     html += '</ul></div>';
 
-    html += '<div class="section"><div class="section-title">Update status</div><div class="actions">';
+    html += '<div class="section"><div class="section-title">' + esc(t('driver.updateStatus')) + '</div><div class="actions">';
     if (card.nextStatuses.length) {
       card.nextStatuses.forEach(function (to) {
         var cls = to === 'CANCELLED' ? 'ghost' : 'primary';
         html += '<button class="' + cls + '" data-status="' + esc(to) + '" type="button">' +
-          esc(ACTION_LABELS[to] || ('Mark ' + to)) + '</button>';
+          esc(actionLabel(to)) + '</button>';
       });
     } else {
-      html += '<p class="muted">This trip is closed — no further status changes.</p>';
+      html += '<p class="muted">' + esc(t('driver.closed')) + '</p>';
     }
     html += '</div>';
     var gate = card.nextStatuses.indexOf('POD_UPLOADED') !== -1 && !card.podSatisfied;
     if (gate) {
-      html += '<p class="gate">Attach a POD photo or an eCMR below first — the server refuses POD_UPLOADED without one.</p>';
+      html += '<p class="gate">' + esc(t('driver.podGate')) + '</p>';
     }
     html += '</div>';
 
-    html += '<div class="section"><div class="section-title">Capture POD</div><div class="capture-row">';
-    html += '<label for="docType">Document type</label><select id="docType">' + CHECKLIST_OPTIONS + '</select>';
-    html += '<label for="podFile">Photo or file</label>' +
+    html += '<div class="section"><div class="section-title">' + esc(t('driver.captureTitle')) + '</div><div class="capture-row">';
+    html += '<label for="docType">' + esc(t('driver.docTypeLabel')) + '</label><select id="docType">' + checklistOptions() + '</select>';
+    html += '<label for="podFile">' + esc(t('driver.photoLabel')) + '</label>' +
       '<input id="podFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment">';
     html += '<div class="gps" id="gpsLine">' + esc(gpsLine()) + '</div>';
-    html += '<button class="primary" id="captureBtn" type="button">Attach &amp; upload</button>';
-    html += '<p class="hint muted">Time and GPS are attached to the photo. Without a signal it is queued on the phone and sent when you are back online.</p>';
+    html += '<button class="primary" id="captureBtn" type="button">' + esc(t('driver.attachUpload')) + '</button>';
+    html += '<p class="hint muted">' + esc(t('driver.captureHint')) + '</p>';
     html += '</div></div>';
 
     if (queuedForTrip.length) {
-      html += '<div class="section"><div class="section-title">Queued for this trip</div><ul class="queue">' +
+      html += '<div class="section"><div class="section-title">' + esc(t('driver.queuedForTrip')) + '</div><ul class="queue">' +
         queuedForTrip.map(function (item) {
           return '<li><span class="what">' + esc(itemLabel(item)) + '</span></li>';
         }).join('') + '</ul></div>';
@@ -582,11 +615,15 @@
   }
 
   function gpsLine() {
-    if (state.geoState === 'checking') return 'Getting GPS…';
-    var label = core.captureGeoLabel(state.geo);
-    if (label) return 'GPS ready: ' + label;
-    if (state.geoState === 'unavailable') return 'No GPS fix — the photo will be sent without a location.';
-    return 'GPS: requested when you attach a photo.';
+    if (state.geoState === 'checking') return t('driver.gpsChecking');
+    var coords = core.captureCoords(state.geo);
+    if (coords) {
+      return coords.accuracyM === null
+        ? t('driver.gpsReady', { label: t('driver.gpsCoords', { lat: coords.lat, lng: coords.lng }) })
+        : t('driver.gpsReady', { label: t('driver.gpsCoordsAccuracy', { lat: coords.lat, lng: coords.lng, accuracy: coords.accuracyM }) });
+    }
+    if (state.geoState === 'unavailable') return t('driver.gpsUnavailable');
+    return t('driver.gpsIdle');
   }
 
   /* --- capture ---------------------------------------------------------- */
@@ -629,18 +666,18 @@
     var input = byId('podFile');
     var select = byId('docType');
     var file = input && input.files ? input.files[0] : null;
-    if (!file) { setMsg('Take or choose a photo first.', 'err'); return; }
-    if (file.size <= 0) { setMsg('That file is empty.', 'err'); return; }
-    if (file.size > MAX_UPLOAD_BYTES) { setMsg('That file is larger than 10 MiB.', 'err'); return; }
+    if (!file) { setMsg(t('driver.error.choosePhoto'), 'err'); return; }
+    if (file.size <= 0) { setMsg(t('driver.error.emptyFile'), 'err'); return; }
+    if (file.size > MAX_UPLOAD_BYTES) { setMsg(t('driver.error.tooLarge'), 'err'); return; }
     var docType = select ? select.value : 'pod';
     var mimeType = guessMime(file.name, file.type);
-    if (!mimeType) { setMsg('Unsupported file type. Use JPEG, PNG, WebP, HEIC or PDF.', 'err'); return; }
+    if (!mimeType) { setMsg(t('driver.error.unsupportedType'), 'err'); return; }
 
     btn.disabled = true;
     var capturedAt = new Date().toISOString();
     getPosition(6000).then(function (geo) {
       var capture = core.normalizeCapture({ capturedAt: capturedAt, geo: geo });
-      if (!capture.ok) { setMsg(capture.detail, 'err'); return null; }
+      if (!capture.ok) { setMsg(t('error.invalidCapture', { detail: t(capture.detailKey) }), 'err'); return null; }
       var activeTrip = currentTrip();
       var willSatisfyPod = core.POD_DOC_TYPES.indexOf(docType) !== -1;
       var item = core.makeQueueItem({
@@ -682,7 +719,7 @@
         return syncQueue();
       });
     }).catch(function (err) {
-      setMsg('Could not queue the capture: ' + err.message, 'err');
+      setMsg(t('driver.error.queueFailed', { detail: err.message }), 'err');
     }).then(function () {
       btn.disabled = false;
     });
@@ -692,7 +729,7 @@
   function requestStatus(tripId, to, btn) {
     clearMsg();
     if (core.requiresConfirmation(to)) {
-      var ok = window.confirm('Confirm: mark this trip as ' + to + '?');
+      var ok = window.confirm(t('driver.confirmStatus', { status: statusLabel(to) }));
       if (!ok) return;
     }
     btn.disabled = true;
@@ -770,11 +807,13 @@
           state.syncing = false;
           renderSync();
           if (applied.dropped.length) {
-            setMsg('Some changes were rejected by the server: ' + applied.dropped.map(function (d) {
-              return (d.error || 'error') + ' (' + d.status + ')';
-            }).join(', '), 'err');
+            setMsg(t('driver.sync.rejected', {
+              list: applied.dropped.map(function (d) {
+                return (d.error || 'error') + ' (' + d.status + ')';
+              }).join(', ')
+            }), 'err');
           } else if (applied.sent.length) {
-            setMsg(applied.sent.length + (applied.sent.length === 1 ? ' change' : ' changes') + ' synced.', 'ok');
+            setMsg(t('driver.sync.syncedChanges', { count: applied.sent.length }), 'ok');
           }
           return refreshData();
         });
@@ -803,9 +842,12 @@
       localStorage.setItem(TOKEN_KEY, r.data.token);
       localStorage.setItem(USER_KEY, JSON.stringify(r.data.user || null));
       byId('password').value = '';
-      showApp();
-      setMsg('Signed in.', 'ok');
-    }).catch(function () { setMsg('Network error: could not reach the server.', 'err'); });
+      // Board task #6: the login response carries the org default locale; apply
+      // it now unless the driver has already chosen a language.
+      if (i18n && typeof i18n.setUser === 'function') i18n.setUser(r.data.user);
+      else showApp();
+      setMsg(t('common.signedIn'), 'ok');
+    }).catch(function () { setMsg(t('error.network'), 'err'); });
   });
 
   byId('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
@@ -852,8 +894,21 @@
     });
   }
 
-  renderSync();
-  if (token()) showApp(); else showLogin();
+  // Board task #6: boot i18n before the first render, so no catalogue key ever
+  // reaches the screen. `onApply` also runs on every language switch, which is
+  // what re-renders the tour card, the queue and the sync chip in the new
+  // language.
+  var bootUser = storedUser();
+  window.RoadwiseI18nUI.init({
+    mount: '#langSlot',
+    user: bootUser,
+    org: bootUser && bootUser.locale,
+    onApply: function (ui) {
+      i18n = ui;
+      renderSync();
+      if (token()) showApp(); else showLogin();
+    }
+  });
 })();
 </script>
 </body>

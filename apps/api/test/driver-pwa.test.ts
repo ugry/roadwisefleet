@@ -49,7 +49,7 @@ test('GET /pilot/sw.js is served as JavaScript (a service worker needs a JS MIME
   const res = await app.inject({ method: 'GET', url: '/pilot/sw.js' });
   assert.equal(res.statusCode, 200);
   assert.match(String(res.headers['content-type']), /javascript/);
-  assert.match(res.payload, /rwf-driver-shell-v1/);
+  assert.match(res.payload, /rwf-driver-shell-v2/);
   assert.match(res.payload, /addEventListener\('fetch'/);
 });
 
@@ -58,6 +58,24 @@ test('GET /pilot/lib/driver-core.js is served as JavaScript and defines the brow
   assert.equal(res.statusCode, 200);
   assert.match(String(res.headers['content-type']), /javascript/);
   assert.match(res.payload, /RoadwiseDriverCore/);
+});
+
+test('the i18n runtime and all four catalogues are served on the pilot origin', async () => {
+  // Board task #6: the pages fetch `locales/<lang>.json` from the same static
+  // root, and the service worker precaches the same URLs.
+  for (const url of ['/pilot/lib/i18n.js', '/pilot/lib/i18n-ui.js']) {
+    const res = await app.inject({ method: 'GET', url });
+    assert.equal(res.statusCode, 200, `${url} must be served`);
+    assert.match(String(res.headers['content-type']), /javascript/, `${url} needs a JS MIME`);
+  }
+  for (const locale of ['en', 'de', 'pl', 'tr']) {
+    const res = await app.inject({ method: 'GET', url: `/pilot/locales/${locale}.json` });
+    assert.equal(res.statusCode, 200, `/pilot/locales/${locale}.json must be served`);
+    assert.match(String(res.headers['content-type']), /json/, 'a catalogue must be JSON');
+    const catalog = res.json();
+    assert.equal(typeof catalog['common.signIn'], 'string', `${locale} must translate the sign-in button`);
+    assert.equal(typeof catalog[`language.name.${locale}`], 'string');
+  }
 });
 
 test('the manifest icons are served as PNG with the right bytes', async () => {

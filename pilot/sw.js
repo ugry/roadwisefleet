@@ -2,7 +2,8 @@
  * RoadwiseFleet driver app — service worker (board task #4).
  *
  * Scope: `/pilot/` only. It caches the app *shell* (the driver page, the shared
- * domain core, the manifest and the icons) so the app opens with no signal.
+ * domain core, the i18n runtime and the EN/DE/PL/TR catalogues, the manifest and
+ * the icons) so the app opens — and can switch language — with no signal.
  *
  * It deliberately never caches `/api/*`: trip data, documents and tracking
  * payloads are per-user and must not sit in a shared HTTP cache. API requests
@@ -13,10 +14,16 @@
  */
 'use strict';
 
-var CACHE_NAME = 'rwf-driver-shell-v1';
+var CACHE_NAME = 'rwf-driver-shell-v2';
 var SHELL = [
   './driver.html',
   './lib/driver-core.js',
+  './lib/i18n.js',
+  './lib/i18n-ui.js',
+  './locales/en.json',
+  './locales/de.json',
+  './locales/pl.json',
+  './locales/tr.json',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
