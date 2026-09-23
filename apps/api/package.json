@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "test": "node --test src/",
-    "test:router": "tsx --test test/track-router.test.ts",
+    "test:router": "tsx --test test/track-router.test.ts test/driver-pwa.test.ts",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

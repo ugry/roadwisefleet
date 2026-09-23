@@ -59,8 +59,9 @@ scoped to the pilot org (`pilot-org`) — it never touches another org's data.
 Pure logic (state machine, scrypt password hashing, token signing/verification,
 RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
 Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
-demo-reset planning, tracking-link signing/shaping) runs on the Node.js native
-test runner with no install:
+demo-reset planning, tracking-link signing/shaping, document capture validation,
+driver-PWA tour card/checklist/offline queue) runs on the Node.js native test
+runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -71,7 +72,10 @@ database**: it mints a real tracking token (~203 chars) and drives the real
 `buildServer()` through `app.inject()`, proving `/track/:token` and
 `/api/track/:token` are served rather than rejected with `414
 FST_ERR_MAX_PARAM_LENGTH` (the PR #25 review finding — Fastify's default
-`maxParamLength` is 100):
+`maxParamLength` is 100). It also checks that the driver PWA's assets are served
+with the MIME types a browser and an install prompt require (the manifest as
+`application/manifest+json`, `sw.js` and `lib/driver-core.js` as JavaScript, the
+icons as PNG) and that the static root cannot be walked out of:
 
 ```bash
 pnpm --filter @roadwisefleet/api test:router
@@ -98,8 +102,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/drivers` | bearer, `trip:create` | active org drivers (`id`, `name`, `phone`) |
 | `GET /api/trucks` | bearer, `trip:create` | org trucks (`id`, `plate`, `dimensions`, `euroClass`) |
 | `GET /api/customers` | bearer, `trip:create` | org customers (`id`, `name`) |
-| `POST /api/trips/:id/documents` | bearer, `trip:*` or `pod:upload` + assigned driver | upload a document as JSON base64 (`docType`, `filename`, `mimeType`, `dataBase64`); stored under `UPLOAD_DIR` with a generated `storageKey`, row `PENDING` → `UPLOADED`; `400` on a bad type/mime/size, `403` on the wrong role |
-| `GET /api/trips/:id/documents` | bearer, `trip:*` or `trip:read` + assigned driver | the trip's document checklist (`id`, `docType`, `status`, `uploadedAt`, `expiresAt` — never the `storageKey`) |
+| `POST /api/trips/:id/documents` | bearer, `trip:*` or `pod:upload` + assigned driver | upload a document as JSON base64 (`docType`, `filename`, `mimeType`, `dataBase64`, plus the optional driver capture `capturedAt` + `geo`); stored under `UPLOAD_DIR` with a generated `storageKey`, row `PENDING` → `UPLOADED`; `400` on a bad type/mime/size or a malformed capture (`invalid_capture`), `403` on the wrong role |
+| `GET /api/trips/:id/documents` | bearer, `trip:*` or `trip:read` + assigned driver | the trip's document checklist (`id`, `docType`, `status`, `uploadedAt`, `expiresAt`, `capturedAt`, `capture` — never the `storageKey`) |
 | `PATCH /api/documents/:id` | bearer, `trip:*` | set a document to `VERIFIED` or `REJECTED`; any other status is `400 invalid_status`, a foreign-org document is `404` |
 | `POST /api/trips/:id/track-link` | bearer, `trip:*` | mint a signed customer tracking link for one trip (`201` with `token`, `url`, `expiresAt`, `ttlSeconds`); a foreign-org trip is `404` |
 | `GET /api/track/:token` | — | public tracking payload — route, status, timeline, last known position, ETA placeholder, POD flag; **no PII**; invalid/expired/rotated token → `404 invalid_token` |
@@ -131,6 +135,53 @@ the key is never returned by the API. Limits: `MAX_UPLOAD_BYTES` (default
 10 MiB) and a MIME allowlist (JPEG, PNG, WebP, HEIC, HEIF, PDF). A trip can only
 move to `POD_UPLOADED` once it has an `UPLOADED`/`VERIFIED` `pod` or `ecmr`
 document (`400 pod_required` otherwise).
+
+### Driver PWA (board task #4)
+`pilot/driver.html` is the installable, offline-capable driver app. An upload may
+carry the **capture metadata** — when and where the driver took the photo:
+
+```bash
+curl -sX POST http://127.0.0.1:8080/api/trips/<tripId>/documents \
+  -H "authorization: Bearer <token>" -H "content-type: application/json" \
+  -d '{"docType":"pod","filename":"pod.jpg","mimeType":"image/jpeg","dataBase64":"...",
+       "capturedAt":"2026-09-23T11:59:00Z","geo":{"lat":48.137,"lng":11.575,"accuracy":12}}'
+```
+
+Both fields are optional — a driver in a basement loading bay denies the position
+and the upload still succeeds — but a *present* value is validated rather than
+stored blindly: `normalizeCapture` (`src/documents.js`) rejects a malformed or
+out-of-range `geo`, a non-numeric accuracy, an unparseable `capturedAt` and a
+timestamp more than 24 h in the future, all with `400 invalid_capture`. GPS is
+best-effort; the timestamp is not. The columns are additive and nullable
+(`prisma/migrations/20260923120000_add_document_capture`), and
+`capturedAt`/`capture` are exposed by `shapeDocument` — never `storageKey`.
+
+The page itself is deliberately framework-free and self-contained:
+
+- `pilot/manifest.webmanifest` — `standalone`, scoped to `/pilot/`, with 192/512
+  and maskable icons, so Chrome on Android offers **Install**.
+- `pilot/sw.js` — caches only the `/pilot/` app shell (page, `lib/driver-core.js`,
+  manifest, icons); `/api/*` is never cached, so no trip or document payload sits
+  in a shared HTTP cache. Navigation is network-first; the cached shell is the
+  offline fallback.
+- `pilot/lib/driver-core.js` — the pure domain core (tour card, checklist, POD
+  gate, capture validation, offline queue). It is loaded twice on purpose: as a
+  classic script in the browser and by `src/driver-pwa.test.js`, which fails if
+  its mirrored transition table or document lists ever drift from the API.
+- The **offline queue** persists status changes and captures in IndexedDB (with
+  an in-memory fallback for WebViews without it) and replays them oldest-first on
+  reconnect — a capture is always sent *before* the `POD_UPLOADED` change that
+  depends on it. A 4xx the server will never accept is dropped and surfaced to
+  the driver; network/5xx failures stay queued with an attempt count.
+
+The driver page keeps the bearer token in `localStorage` (not `sessionStorage`
+like the dashboard) so an installed app reopens offline without a re-login.
+
+> **Operator note:** the three new capture columns ship as an additive migration
+> (`20260923120000_add_document_capture`). It has to be applied to the pilot
+> database (`pnpm exec prisma migrate deploy`) before a capture upload will
+> persist; until then the `POST` fails on the unknown columns. The migration is
+> nullable-only, so existing rows stay valid.
 
 ### Customer tracking link (board task #5)
 A dispatcher can mint a shareable, login-free link for one trip:
@@ -190,13 +241,18 @@ with `/api/*` — no new port and no nginx. Production `web/` is untouched.
   input — no raw IDs), status-transition controls, a click-a-row trip drawer
   (timeline, documents, expenses, P&L) and a "Create tracking link" action
   (board task #5).
-- `pilot/driver.html` — driver login, assigned trips, the next legal status and
-  a POD/eCMR upload control with the trip's document list (used by the driver
-  PWA).
+- `pilot/driver.html` — the driver PWA (board task #4): mobile-first layout,
+  current-trip tour card (route, cargo, truck, rate, an honest ETA placeholder
+  and the required-documents checklist), full-width one-thumb actions showing
+  only the next legal statuses, camera/file POD capture with timestamp + GPS, and
+  an offline queue with a sync chip. Installable and offline-capable via
+  `pilot/manifest.webmanifest` + `pilot/sw.js`; its domain rules live in
+  `pilot/lib/driver-core.js`.
 
 Open `http://127.0.0.1:8080/pilot/` after `pnpm dev`. The pages use vanilla
-`fetch` and keep the bearer token in `sessionStorage`; no build step and no
-external CDN.
+`fetch`; no build step and no external CDN. The dashboard keeps the bearer token
+in `sessionStorage`, the driver app in `localStorage` (so an installed PWA
+reopens offline) — see the driver-PWA section above.
 
 ## Waitlist → account handoff
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the

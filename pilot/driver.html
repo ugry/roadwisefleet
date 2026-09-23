@@ -2,11 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RoadwiseFleet — Pilot Driver</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RoadwiseFleet — Driver</title>
+<meta name="description" content="RoadwiseFleet driver app: your current trip, one-thumb status updates and photo proof of delivery, online or offline.">
+<meta name="theme-color" content="#0b1f3a">
+<meta name="color-scheme" content="light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RWF Driver">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
     --navy-950: oklch(0.20 0.04 258);
+    --navy-900: oklch(0.26 0.05 258);
     --bg: oklch(0.985 0.003 250);
     --surface: oklch(1 0 0);
     --ink: oklch(0.24 0.05 258);
@@ -17,150 +28,243 @@
     --on-accent: oklch(0.20 0.040 258);
     --on-dark: oklch(0.985 0.002 250);
     --success: oklch(0.56 0.130 158);
+    --success-deep: oklch(0.40 0.12 158);
     --danger: oklch(0.55 0.190 26);
     --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
     --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --shadow-card: 0 1px 2px oklch(0.2 0.04 258 / .05), 0 10px 30px oklch(0.2 0.04 258 / .06);
+    --tap: 48px;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.45;
+    padding-bottom:env(safe-area-inset-bottom)}
   a{color:var(--accent-deep)}
-  header.top{background:var(--navy-950);color:var(--on-dark);padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  header.top .brand{font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:.02em;text-transform:uppercase}
-  header.top .tag{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
-  header.top .spacer{flex:1}
-  header.top nav a{color:var(--on-dark);opacity:.85;margin-left:14px;text-decoration:none;font-size:13px}
-  header.top nav a:hover{opacity:1;text-decoration:underline}
-  main{max-width:820px;margin:0 auto;padding:26px 20px 60px}
-  h1{font-family:var(--font-display);font-weight:600;font-size:28px;letter-spacing:.01em;margin:0 0 4px}
+  .hidden{display:none !important}
+
+  /* --- app bar, sticky, thumb-reachable sync chip ------------------------- */
+  header.appbar{position:sticky;top:0;z-index:5;background:var(--navy-950);color:var(--on-dark);
+    padding:calc(10px + env(safe-area-inset-top)) 14px 0}
+  .appbar-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .mark{width:26px;height:26px;border-radius:7px;background:var(--accent);flex:0 0 auto;
+    box-shadow:inset 0 0 0 3px var(--navy-950)}
+  .brand{font-family:var(--font-display);font-weight:600;font-size:19px;letter-spacing:.02em;text-transform:uppercase;line-height:1}
+  .brand .tag{display:block;font-family:var(--font-body);font-size:11px;letter-spacing:.10em;color:var(--accent);font-weight:600}
+  .appbar .spacer{flex:1}
+  .appbar a.ghost-link{color:var(--on-dark);font-size:13px;text-decoration:none;opacity:.9;padding:8px 2px}
+  .syncbar{display:flex;align-items:center;gap:8px;margin:10px 0 0;padding:8px 2px 10px;font-size:13px;border-top:1px solid oklch(1 0 0 / .12)}
+  .syncbar .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+  .syncbar.state-synced .dot{background:var(--success)}
+  .syncbar.state-pending .dot{background:var(--accent)}
+  .syncbar.state-syncing .dot{background:var(--accent);animation:pulse 1s infinite}
+  .syncbar.state-offline .dot{background:oklch(0.72 0.02 255)}
+  .syncbar.state-error .dot{background:var(--danger)}
+  @keyframes pulse{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}
+  .syncbar .sync-label{flex:1;min-width:0}
+
+  main{max-width:640px;margin:0 auto;padding:16px 14px 40px}
+  h1{font-family:var(--font-display);font-weight:600;font-size:26px;letter-spacing:.01em;margin:6px 0 2px}
+  h2{font-family:var(--font-display);font-weight:600;font-size:17px;letter-spacing:.02em;margin:0 0 10px;text-transform:uppercase}
   .muted{color:var(--muted);font-size:13px}
-  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-card);padding:18px;margin:18px 0}
-  .card h2{font-family:var(--font-display);font-weight:600;font-size:18px;margin:0 0 12px;letter-spacing:.01em}
-  label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 0 4px}
-  input{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
-  input:focus{outline:none;box-shadow:0 0 0 3px oklch(0.80 0.165 82 / .55);border-color:var(--accent)}
-  button{font-family:inherit;font-size:14px;font-weight:600;border:1px solid transparent;border-radius:7px;padding:9px 14px;cursor:pointer}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-card);padding:16px;margin:14px 0}
+  label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 0 4px;font-weight:600}
+  input,select{width:100%;min-height:var(--tap);padding:10px 12px;border:1px solid var(--border);border-radius:9px;
+    font-family:inherit;font-size:16px;background:var(--surface);color:var(--ink)}
+  input:focus,select:focus{outline:none;box-shadow:0 0 0 3px oklch(0.80 0.165 82 / .55);border-color:var(--accent)}
+  input[type=file]{padding:9px;font-size:14px}
+  button{font-family:inherit;font-size:16px;font-weight:600;border:1px solid transparent;border-radius:10px;
+    min-height:var(--tap);padding:10px 16px;cursor:pointer;touch-action:manipulation}
   button.primary{background:var(--accent);color:var(--on-accent)}
-  button.primary:hover{filter:brightness(1.05)}
+  button.primary:active{filter:brightness(.95)}
   button.ghost{background:transparent;border-color:var(--border);color:var(--ink)}
-  button.small{padding:5px 9px;font-size:12px}
-  button:disabled{opacity:.5;cursor:default}
-  .trip{border:1px solid var(--border);border-radius:9px;padding:14px;margin:10px 0;background:var(--surface)}
-  .trip .route{font-family:var(--font-display);font-weight:600;font-size:18px;letter-spacing:.01em}
-  .trip .meta{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;font-size:13px;color:var(--muted)}
-  .status{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;background:var(--bg);border:1px solid var(--border);color:var(--ink);text-transform:uppercase}
-  .status.s-DELIVERED,.status.s-POD_UPLOADED,.status.s-INVOICED,.status.s-SETTLED{color:var(--success);border-color:var(--success)}
-  .status.s-CANCELLED{color:var(--danger);border-color:var(--danger)}
-  .status.s-VERIFIED{color:var(--success);border-color:var(--success)}
-  .status.s-REJECTED{color:var(--danger);border-color:var(--danger)}
+  button.danger{background:transparent;border-color:var(--danger);color:var(--danger)}
+  button.small{min-height:36px;padding:6px 12px;font-size:13px}
+  button:disabled{opacity:.45;cursor:default}
+
+  /* --- tour card --------------------------------------------------------- */
+  .trip-card{border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:var(--shadow-card);padding:16px;margin:14px 0}
+  .trip-head{display:flex;align-items:flex-start;gap:10px}
+  .route{font-family:var(--font-display);font-weight:600;font-size:22px;line-height:1.15;flex:1}
+  .route .arrow{color:var(--accent-deep);padding:0 4px}
+  .status{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.04em;
+    background:var(--bg);border:1px solid var(--border);color:var(--ink);text-transform:uppercase;white-space:nowrap}
+  .status.s-DELIVERED,.status.s-POD_UPLOADED,.status.s-INVOICED,.status.s-SETTLED,.status.s-VERIFIED{color:var(--success-deep);border-color:var(--success)}
+  .status.s-CANCELLED,.status.s-REJECTED{color:var(--danger);border-color:var(--danger)}
   .status.s-UPLOADED{color:var(--accent-deep);border-color:var(--accent-deep)}
   .status.s-IN_TRANSIT,.status.s-LOADED{color:var(--accent-deep);border-color:var(--accent-deep)}
-  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-  .docs{margin-top:14px;border-top:1px solid var(--border);padding-top:12px}
-  .docs .section-title{font-family:var(--font-display);font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
-  .doclist table{width:100%;border-collapse:collapse;font-size:13px}
-  .doclist th,.doclist td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}
-  .doclist th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
-  .upload{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
-  .upload select{padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
-  .upload input[type=file]{font-size:13px;max-width:230px}
-  .upload .hint{font-size:12px;color:var(--muted);width:100%}
-  .msg{padding:10px 12px;border-radius:7px;margin:12px 0;font-size:13px;display:none;white-space:pre-wrap}
+  .facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 0}
+  @media (min-width:420px){.facts{grid-template-columns:repeat(4,minmax(0,1fr))}}
+  .fact{background:var(--bg);border-radius:9px;padding:9px 10px;min-width:0}
+  .fact .k{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700}
+  .fact .v{font-size:15px;font-weight:600;overflow-wrap:anywhere}
+  .section{margin-top:16px;border-top:1px solid var(--border);padding-top:14px}
+  .section .section-title{font-family:var(--font-display);font-weight:600;font-size:15px;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--muted);margin-bottom:8px}
+
+  /* --- one-thumb status actions ----------------------------------------- */
+  .actions{display:grid;gap:10px}
+  .actions button{width:100%;font-size:17px;min-height:56px}
+  .gate{background:oklch(0.80 0.165 82 / .16);border:1px solid var(--accent);color:var(--accent-deep);
+    border-radius:9px;padding:10px 12px;font-size:13px;margin-top:10px}
+
+  /* --- document checklist ------------------------------------------------ */
+  .check{list-style:none;margin:0;padding:0}
+  .check li{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
+  .check li:last-child{border-bottom:0}
+  .check .tick{width:22px;height:22px;border-radius:6px;flex:0 0 auto;border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--muted);background:var(--bg)}
+  .check li.present .tick{background:var(--success);border-color:var(--success);color:var(--on-dark)}
+  .check .body{flex:1;min-width:0}
+  .check .name{font-weight:600;font-size:14px}
+  .check .hint{font-size:12px;color:var(--muted)}
+  .req{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-deep);
+    border:1px solid var(--accent);border-radius:999px;padding:1px 7px;margin-left:6px;white-space:nowrap}
+
+  /* --- capture ----------------------------------------------------------- */
+  .capture-row{display:grid;gap:10px}
+  .gps{font-size:13px;color:var(--muted);min-height:20px}
+  .gps.ok{color:var(--success-deep)}
+  .gps.warn{color:var(--accent-deep)}
+  .queue{list-style:none;margin:10px 0 0;padding:0}
+  .queue li{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+  .queue li:last-child{border-bottom:0}
+  .queue .what{flex:1;min-width:0;overflow-wrap:anywhere}
+
+  .msg{padding:11px 12px;border-radius:9px;margin:12px 0;font-size:14px;display:none;white-space:pre-wrap}
   .msg.show{display:block}
   .msg.err{background:oklch(0.55 0.19 26 / .08);border:1px solid var(--danger);color:var(--danger)}
-  .msg.ok{background:oklch(0.56 0.13 158 / .10);border:1px solid var(--success);color:oklch(0.40 0.12 158)}
-  .hidden{display:none !important}
-  .who{font-size:13px;color:var(--muted)}
+  .msg.ok{background:oklch(0.56 0.13 158 / .10);border:1px solid var(--success);color:var(--success-deep)}
+  .msg.info{background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+  .who{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .who .spacer{flex:1}
+  .trip-pick{max-width:100%}
 </style>
 </head>
 <body>
-<header class="top">
-  <span class="brand">RoadwiseFleet</span>
-  <span class="tag">Pilot · Driver</span>
-  <span class="spacer"></span>
-  <nav>
-    <a href="dashboard.html">Dashboard</a>
-    <a href="index.html">Pilot home</a>
-  </nav>
+<header class="appbar">
+  <div class="appbar-row">
+    <span class="mark" aria-hidden="true"></span>
+    <span class="brand">RoadwiseFleet<span class="tag">Driver</span></span>
+    <span class="spacer"></span>
+    <button id="installBtn" class="ghost small hidden" type="button">Install</button>
+    <a class="ghost-link" href="index.html">Pilot home</a>
+  </div>
+  <div id="syncBar" class="syncbar state-synced" role="status" aria-live="polite">
+    <span class="dot" aria-hidden="true"></span>
+    <span id="syncLabel" class="sync-label">Checking sync…</span>
+    <button id="syncNow" class="ghost small hidden" type="button">Sync now</button>
+  </div>
 </header>
-<main>
-  <h1>My trips</h1>
-  <p class="muted">Live trip state for the signed-in driver.</p>
 
-  <div id="globalMsg" class="msg"></div>
+<main>
+  <div id="globalMsg" class="msg" role="alert"></div>
 
   <section id="loginCard" class="card">
-    <h2>Driver sign in</h2>
+    <h1>Driver sign in</h1>
+    <p class="muted">Your trips only. Works offline once loaded.</p>
     <form id="loginForm" autocomplete="on">
       <label for="email">Email</label>
-      <input id="email" name="email" type="email" required autocomplete="username" placeholder="driver1@pilot.roadwisefleet.test">
+      <input id="email" name="email" type="email" required autocomplete="username" inputmode="email"
+             placeholder="driver1@pilot.roadwisefleet.test">
       <label for="password">Password</label>
       <input id="password" name="password" type="password" required autocomplete="current-password">
-      <div style="margin-top:14px"><button class="primary" type="submit">Sign in</button></div>
+      <div style="margin-top:16px"><button class="primary" type="submit" style="width:100%">Sign in</button></div>
     </form>
   </section>
 
   <section id="app" class="hidden">
-    <p class="who">Signed in as <strong id="whoName">—</strong> · <a href="#" id="logout">Sign out</a> · <button class="ghost small" id="refresh" type="button">Refresh</button></p>
-    <div id="tripList"><p class="muted">Loading…</p></div>
+    <p class="who">
+      <span>Signed in as <strong id="whoName">—</strong></span>
+      <span class="spacer"></span>
+      <button id="refresh" class="ghost small" type="button">Refresh</button>
+      <a href="#" id="logout">Sign out</a>
+    </p>
+
+    <div id="tripPickerWrap" class="hidden card" style="padding:12px 14px">
+      <label for="tripPicker">Trip</label>
+      <select id="tripPicker" class="trip-pick"></select>
+    </div>
+
+    <div id="tripHost"><p class="muted">Loading your trips…</p></div>
+
+    <section id="queueCard" class="card hidden">
+      <h2>Waiting to sync</h2>
+      <p class="muted" id="queueHint">Captured while offline — these send themselves when you are back online.</p>
+      <ul id="queueList" class="queue"></ul>
+    </section>
   </section>
 </main>
 
+<script src="lib/driver-core.js"></script>
 <script>
 (function () {
   'use strict';
+
+  var core = window.RoadwiseDriverCore;
   var TOKEN_KEY = 'rwf_token';
   var USER_KEY = 'rwf_user';
-  // Mirror of apps/api/src/trip-status.js — UI convenience only; the API is authoritative.
-  var TRANSITIONS = {
-    DRAFT: ['ASSIGNED', 'CANCELLED'],
-    ASSIGNED: ['LOADED', 'CANCELLED'],
-    LOADED: ['IN_TRANSIT'],
-    IN_TRANSIT: ['DELIVERED'],
-    DELIVERED: ['POD_UPLOADED'],
-    POD_UPLOADED: ['INVOICED'],
-    INVOICED: ['SETTLED'],
-    SETTLED: [],
-    CANCELLED: []
+  var DB_NAME = 'rwf-driver';
+  var DB_STORE = 'queue';
+  var DB_VERSION = 1;
+  // Mirrors the API defaults; the API is authoritative (documents.js).
+  var MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+  var MIME_BY_EXT = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+    heic: 'image/heic', heif: 'image/heif', pdf: 'application/pdf'
   };
-
-  // Document upload (board task #3). The API is authoritative on type, size and
-  // role; these are only so the driver gets an early, friendly message.
-  var MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // mirrors the API default (MAX_UPLOAD_BYTES)
-  var DOC_TYPES = [
-    ['pod', 'POD'],
-    ['ecmr', 'eCMR'],
-    ['e_irsaliye', 'e-İrsaliye'],
-    ['invoice', 'Invoice'],
-    ['driver_license', 'Driving licence'],
-    ['cpc', 'Driver CPC'],
-    ['medical', 'Medical certificate'],
-    ['insurance', 'Insurance'],
-    ['tacho_file', 'Tachograph file']
-  ];
-  var DOC_OPTIONS = DOC_TYPES.map(function (d) {
-    return '<option value="' + esc(d[0]) + '">' + esc(d[1]) + '</option>';
+  var ACTION_LABELS = {
+    ASSIGNED: 'Accept trip',
+    LOADED: 'Mark loaded',
+    IN_TRANSIT: 'Start driving',
+    DELIVERED: 'Mark delivered',
+    POD_UPLOADED: 'Confirm POD uploaded',
+    INVOICED: 'Mark invoiced',
+    SETTLED: 'Mark settled',
+    CANCELLED: 'Cancel trip'
+  };
+  var CHECKLIST_OPTIONS = core.CHECKLIST.map(function (row) {
+    return '<option value="' + esc(row.docType) + '">' + esc(row.label) + '</option>';
   }).join('');
 
-  function $(id) { return document.getElementById(id); }
-  function token() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+  var state = {
+    trips: [],
+    docsByTrip: {},
+    currentId: null,
+    queue: [],
+    syncing: false,
+    lastError: null,
+    geo: null,
+    geoState: 'idle',
+    deferredPrompt: null
+  };
+
+  function byId(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function token() { return localStorage.getItem(TOKEN_KEY) || ''; }
+
   function setMsg(text, kind) {
-    var el = $('globalMsg');
+    var el = byId('globalMsg');
     el.className = 'msg show ' + (kind || 'err');
     el.textContent = text;
   }
-  function clearMsg() { var el = $('globalMsg'); el.className = 'msg'; el.textContent = ''; }
+  function clearMsg() { var el = byId('globalMsg'); el.className = 'msg'; el.textContent = ''; }
 
   function errorText(status, data) {
-    if (status === 401) return 'Not authorised (401): please sign in again.';
-    if (status === 403) return 'Forbidden (403): this trip is not assigned to you.';
+    if (status === 0) return 'No connection — saved on the phone and sent when you are back online.';
+    if (status === 401) return 'Session expired (401). Please sign in again.';
+    if (status === 403) return 'Forbidden (403): that trip is not assigned to you.';
     var code = (data && data.error) || ('http_' + status);
-    if (code === 'invalid_transition') return 'Rejected transition (400): ' + data.from + ' -> ' + data.to + '.';
+    if (code === 'invalid_transition') return 'Rejected transition (400): ' + (data && data.from) + ' -> ' + (data && data.to) + '.';
     if (code === 'invalid_status') return 'Unknown status (400).';
-    if (code === 'pod_required') return 'Upload a POD or eCMR document before marking the trip POD_UPLOADED.';
-    if (code === 'unsupported_type') return 'Unsupported file type (400). Use a JPEG, PNG, WebP, HEIC or PDF.';
+    if (code === 'pod_required') return 'Attach a POD or eCMR before marking the trip POD_UPLOADED.';
+    if (code === 'unsupported_type') return 'Unsupported file type (400). Use JPEG, PNG, WebP, HEIC or PDF.';
     if (code === 'file_too_large') return 'File too large (400). The maximum is 10 MiB.';
-    if (code === 'invalid_size') return 'The file is empty (400).';
+    if (code === 'invalid_size') return 'That file is empty (400).';
+    if (code === 'invalid_capture') return 'The photo details were rejected (400): ' + ((data && data.detail) || 'bad capture metadata');
     if (code === 'invalid_doc_type') return 'Unknown document type (400).';
     if (code === 'invalid_upload') return 'The upload payload was rejected (400).';
     if (code === 'invalid_filename') return 'The filename was rejected (400).';
@@ -170,12 +274,12 @@
   function api(path, opts) {
     opts = opts || {};
     var headers = {};
-    if (opts.body) headers['content-type'] = 'application/json';
+    if (opts.body !== undefined) headers['content-type'] = 'application/json';
     if (opts.token) headers['authorization'] = 'Bearer ' + opts.token;
     return fetch(path, {
       method: opts.method || 'GET',
       headers: headers,
-      body: opts.body ? JSON.stringify(opts.body) : undefined
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined
     }).then(function (res) {
       return res.json().catch(function () { return null; }).then(function (data) {
         return { status: res.status, data: data };
@@ -183,116 +287,331 @@
     });
   }
 
-  function money(v) {
-    if (v === null || v === undefined || v === '') return '—';
-    var n = Number(v);
-    return Number.isFinite(n) ? '€' + n.toFixed(2) : '—';
+  /* --- local queue storage (IndexedDB, memory fallback) ------------------ */
+  var memoryQueue = [];
+  var dbPromise = null;
+
+  function openDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function (resolve, reject) {
+      if (!('indexedDB' in window)) { reject(new Error('no indexedDB')); return; }
+      var req = window.indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) {
+          db.createObjectStore(DB_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error || new Error('indexedDB open failed')); };
+    });
+    return dbPromise;
   }
 
-  function esc(s) {
-    return String(s === null || s === undefined ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  function idbAll() {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(DB_STORE, 'readonly');
+        var req = tx.objectStore(DB_STORE).getAll();
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
   }
 
+  function idbPut(item) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).put(item);
+        tx.oncomplete = function () { resolve(true); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function idbDelete(id) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).delete(id);
+        tx.oncomplete = function () { resolve(true); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  // Every storage call degrades to the in-memory queue: a WebView without
+  // IndexedDB still gets the offline behaviour for the current session.
+  function queueLoad() {
+    return idbAll().then(function (items) {
+      state.queue = core.sortQueue(items);
+      return state.queue;
+    }).catch(function () {
+      state.queue = core.sortQueue(memoryQueue);
+      return state.queue;
+    });
+  }
+  function queueSave(item) {
+    memoryQueue.push(item);
+    return idbPut(item).catch(function () { return false; });
+  }
+  function queueDrop(id) {
+    memoryQueue = memoryQueue.filter(function (i) { return i.id !== id; });
+    return idbDelete(id).catch(function () { return false; });
+  }
+
+  function newId() {
+    return 'q-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  /* --- sync indicator + queue rendering --------------------------------- */
+  function renderSync() {
+    var indicator = core.syncIndicator(state.queue, {
+      online: navigator.onLine,
+      syncing: state.syncing,
+      lastError: state.lastError
+    });
+    var bar = byId('syncBar');
+    bar.className = 'syncbar state-' + indicator.state;
+    byId('syncLabel').textContent = indicator.label;
+    byId('syncNow').classList.toggle('hidden', !(state.queue.length && navigator.onLine && !state.syncing));
+    renderQueue();
+  }
+
+  function itemLabel(item) {
+    if (item.kind === 'status') return 'Status → ' + ((item.payload && item.payload.status) || '?');
+    var docType = (item.payload && item.payload.docType) || 'document';
+    return (item.photo ? 'POD photo (' : 'Document (') + docType + ')';
+  }
+
+  function renderQueue() {
+    var card = byId('queueCard');
+    var list = byId('queueList');
+    if (!state.queue.length) { card.classList.add('hidden'); list.innerHTML = ''; return; }
+    card.classList.remove('hidden');
+    list.innerHTML = state.queue.map(function (item) {
+      return '<li>' +
+        '<span class="what">' + esc(itemLabel(item)) + '<br><span class="muted">' + esc(new Date(item.at).toLocaleString()) +
+        (item.attempts ? ' · retried ' + esc(item.attempts) + '×' : '') + '</span></span>' +
+        '<button class="ghost small" data-discard="' + esc(item.id) + '" type="button">Discard</button>' +
+      '</li>';
+    }).join('');
+    Array.prototype.forEach.call(list.querySelectorAll('button[data-discard]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-discard');
+        queueDrop(id).then(function () {
+          state.queue = state.queue.filter(function (i) { return i.id !== id; });
+          state.lastError = null;
+          renderSync();
+        });
+      });
+    });
+  }
+
+  /* --- auth ------------------------------------------------------------- */
   function showApp() {
     var user = null;
-    try { user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); } catch (e) { user = null; }
-    if (user) $('whoName').textContent = user.name || user.email || 'driver';
-    $('loginCard').classList.add('hidden');
-    $('app').classList.remove('hidden');
-    loadTrips();
+    try { user = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { user = null; }
+    if (user) byId('whoName').textContent = user.name || user.email || 'driver';
+    byId('loginCard').classList.add('hidden');
+    byId('app').classList.remove('hidden');
+    queueLoad().then(function () {
+      renderSync();
+      return syncQueue();
+    }).then(loadTrips);
   }
 
-  function showLogin() {
-    $('app').classList.add('hidden');
-    $('loginCard').classList.remove('hidden');
+  function showLogin(message) {
+    byId('app').classList.add('hidden');
+    byId('loginCard').classList.remove('hidden');
+    if (message) setMsg(message, 'err');
+  }
+
+  function handleUnauthorized() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    showLogin(errorText(401, null));
   }
 
   function loadTrips() {
     return api('/api/driver/trips', { token: token() }).then(function (r) {
-      if (r.status === 401) { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(USER_KEY); showLogin(); setMsg(errorText(r.status, r.data), 'err'); return; }
-      if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
-      renderTrips(r.data && r.data.trips ? r.data.trips : []);
+      if (r.status === 401) { handleUnauthorized(); return; }
+      if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); renderSync(); return; }
+      state.trips = (r.data && r.data.trips) || [];
+      if (!state.trips.length) {
+        state.currentId = null;
+        byId('tripHost').innerHTML = '<p class="muted">No trips assigned to you.</p>';
+        byId('tripPickerWrap').classList.add('hidden');
+        renderSync();
+        return;
+      }
+      var known = state.trips.some(function (t) { return t.id === state.currentId; });
+      if (!known) {
+        var current = core.pickCurrentTrip(state.trips);
+        state.currentId = current ? current.id : state.trips[0].id;
+      }
+      renderTripPicker();
+      renderCurrentTrip();
+      loadDocs(state.currentId).then(renderCurrentTrip);
+    }).catch(function () {
+      // Offline for the first load with no cached trips: say it plainly.
+      if (!navigator.onLine) setMsg('You are offline. Reconnect once to load your trips, then the app works offline.', 'info');
+      else setMsg('Could not reach the server. Try again.', 'err');
+      renderSync();
     });
   }
 
-  function renderTrips(trips) {
-    var list = $('tripList');
-    if (!trips.length) { list.innerHTML = '<p class="muted">No trips assigned to you.</p>'; return; }
-    list.innerHTML = trips.map(function (t) {
-      var order = t.order || {};
-      var next = TRANSITIONS[t.status] || [];
-      var buttons = next.map(function (s) {
-        return '<button class="primary small" data-trip="' + esc(t.id) + '" data-to="' + esc(s) + '">Mark ' + esc(s) + '</button>';
-      }).join('');
-      var last = Array.isArray(t.statusEvents) && t.statusEvents.length
-        ? t.statusEvents[t.statusEvents.length - 1]
-        : null;
-      var updated = last && last.happenedAt ? new Date(last.happenedAt).toLocaleString() : '—';
-      return '<div class="trip" data-trip-card="' + esc(t.id) + '">' +
-        '<div class="route">' + esc(order.origin || '?') + ' → ' + esc(order.destination || '?') + '</div>' +
-        '<div class="meta">' +
-          '<span><span class="status s-' + esc(t.status) + '">' + esc(t.status) + '</span></span>' +
-          '<span>Rate: ' + money(t.rateEur) + '</span>' +
-          '<span>Last update: ' + esc(updated) + '</span>' +
-        '</div>' +
-        '<div class="actions">' + (buttons || '<span class="muted">No further transitions.</span>') + '</div>' +
-        '<div class="docs">' +
-          '<div class="section-title">Documents</div>' +
-          '<div class="doclist" data-docs="' + esc(t.id) + '"><p class="muted">Loading…</p></div>' +
-          '<div class="upload">' +
-            '<select data-doctype="' + esc(t.id) + '" aria-label="Document type">' + DOC_OPTIONS + '</select>' +
-            '<input type="file" data-file="' + esc(t.id) + '" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" aria-label="Document file">' +
-            '<button class="primary small" data-upload="' + esc(t.id) + '" type="button">Upload</button>' +
-            '<span class="hint">A POD or eCMR is required before POD_UPLOADED · JPEG/PNG/WebP/HEIC/PDF · max 10 MiB</span>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
+  function renderTripPicker() {
+    var wrap = byId('tripPickerWrap');
+    if (state.trips.length < 2) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+    byId('tripPicker').innerHTML = state.trips.map(function (t) {
+      var o = t.order || {};
+      return '<option value="' + esc(t.id) + '"' + (t.id === state.currentId ? ' selected' : '') + '>' +
+        esc((o.origin || '?') + ' → ' + (o.destination || '?')) + ' · ' + esc(t.status) + '</option>';
     }).join('');
-    Array.prototype.forEach.call(list.querySelectorAll('button[data-trip]'), function (btn) {
-      btn.addEventListener('click', function () {
-        transition(btn.getAttribute('data-trip'), btn.getAttribute('data-to'), btn);
-      });
-    });
-    Array.prototype.forEach.call(list.querySelectorAll('button[data-upload]'), function (btn) {
-      btn.addEventListener('click', function () { uploadDocument(btn.getAttribute('data-upload'), btn); });
-    });
-    trips.forEach(function (t) { loadDocs(t.id); });
   }
 
-  // Attribute lookup by value — never interpolate an id into a CSS selector.
-  function byData(attr, value) {
-    var nodes = document.querySelectorAll('[' + attr + ']');
-    for (var i = 0; i < nodes.length; i++) {
-      if (nodes[i].getAttribute(attr) === value) return nodes[i];
+  function currentTrip() {
+    for (var i = 0; i < state.trips.length; i++) {
+      if (state.trips[i].id === state.currentId) return state.trips[i];
     }
     return null;
   }
 
-  function loadDocs(id) {
-    return api('/api/trips/' + encodeURIComponent(id) + '/documents', { token: token() }).then(function (r) {
-      var host = byData('data-docs', id);
-      if (!host) return;
-      if (r.status !== 200) { host.innerHTML = '<p class="muted">' + esc(errorText(r.status, r.data)) + '</p>'; return; }
-      renderDocs(host, (r.data && r.data.documents) || []);
-    }).catch(function (err) {
-      var host = byData('data-docs', id);
-      if (host) host.innerHTML = '<p class="muted">' + esc(err.message) + '</p>';
+  function loadDocs(tripId) {
+    if (!tripId) return Promise.resolve([]);
+    return api('/api/trips/' + encodeURIComponent(tripId) + '/documents', { token: token() }).then(function (r) {
+      var docs = r.status === 200 ? ((r.data && r.data.documents) || []) : [];
+      state.docsByTrip[tripId] = docs;
+      return docs;
+    }).catch(function () {
+      state.docsByTrip[tripId] = state.docsByTrip[tripId] || [];
+      return state.docsByTrip[tripId];
     });
   }
 
-  function renderDocs(host, docs) {
-    if (!docs.length) { host.innerHTML = '<p class="muted">No documents uploaded yet.</p>'; return; }
-    host.innerHTML = '<table><thead><tr><th>Type</th><th>Status</th><th>Uploaded</th></tr></thead><tbody>' +
-      docs.map(function (d) {
-        return '<tr><td>' + esc(d.docType) + '</td>' +
-          '<td><span class="status s-' + esc(d.status) + '">' + esc(d.status) + '</span></td>' +
-          '<td>' + esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : '—') + '</td></tr>';
-      }).join('') + '</tbody></table>';
+  /* --- tour card -------------------------------------------------------- */
+  function renderCurrentTrip() {
+    var trip = currentTrip();
+    var host = byId('tripHost');
+    if (!trip) { host.innerHTML = '<p class="muted">No trip selected.</p>'; return; }
+    // The driver-trips payload has no documents; the checklist uses the last
+    // fetched set (empty until `GET /api/trips/:id/documents` answers).
+    var card = core.buildTourCard({
+      id: trip.id,
+      status: trip.status,
+      rateEur: trip.rateEur,
+      order: trip.order,
+      truck: trip.truck,
+      stops: trip.stops,
+      statusEvents: trip.statusEvents,
+      documents: state.docsByTrip[trip.id] || []
+    });
+    var queuedForTrip = state.queue.filter(function (i) { return i.tripId === trip.id; });
+
+    var html = '';
+    html += '<div class="trip-card" data-trip-card="' + esc(trip.id) + '">';
+    html += '<div class="trip-head"><div class="route">' +
+      esc(card.route.origin || '?') + '<span class="arrow">→</span>' + esc(card.route.destination || '?') + '</div>' +
+      '<span class="status s-' + esc(card.status) + '">' + esc(card.status) + '</span></div>';
+
+    html += '<div class="facts">' +
+      fact('Cargo', card.cargo || '—') +
+      fact('Truck', card.truck.plate ? card.truck.plate + (card.truck.euroClass ? ' · ' + card.truck.euroClass : '') : '—') +
+      fact('Rate', card.rateEur === null ? '—' : '€' + card.rateEur.toFixed(2)) +
+      fact('ETA', card.etaLabel) +
+      '</div>';
+
+    html += '<div class="section"><div class="section-title">Required documents</div><ul class="check">';
+    card.checklist.forEach(function (row) {
+      var badge = row.required ? '<span class="req">' + (row.alternative ? 'Or this' : 'Required') + '</span>' : '';
+      html += '<li class="' + (row.present ? 'present' : '') + '">' +
+        '<span class="tick" aria-hidden="true">' + (row.present ? '✓' : '–') + '</span>' +
+        '<span class="body"><span class="name">' + esc(row.label) + badge + '</span>' +
+        '<span class="hint">' + esc(row.present ? ('Attached · ' + row.status) : row.hint) + '</span></span></li>';
+    });
+    html += '</ul></div>';
+
+    html += '<div class="section"><div class="section-title">Update status</div><div class="actions">';
+    if (card.nextStatuses.length) {
+      card.nextStatuses.forEach(function (to) {
+        var cls = to === 'CANCELLED' ? 'ghost' : 'primary';
+        html += '<button class="' + cls + '" data-status="' + esc(to) + '" type="button">' +
+          esc(ACTION_LABELS[to] || ('Mark ' + to)) + '</button>';
+      });
+    } else {
+      html += '<p class="muted">This trip is closed — no further status changes.</p>';
+    }
+    html += '</div>';
+    var gate = card.nextStatuses.indexOf('POD_UPLOADED') !== -1 && !card.podSatisfied;
+    if (gate) {
+      html += '<p class="gate">Attach a POD photo or an eCMR below first — the server refuses POD_UPLOADED without one.</p>';
+    }
+    html += '</div>';
+
+    html += '<div class="section"><div class="section-title">Capture POD</div><div class="capture-row">';
+    html += '<label for="docType">Document type</label><select id="docType">' + CHECKLIST_OPTIONS + '</select>';
+    html += '<label for="podFile">Photo or file</label>' +
+      '<input id="podFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment">';
+    html += '<div class="gps" id="gpsLine">' + esc(gpsLine()) + '</div>';
+    html += '<button class="primary" id="captureBtn" type="button">Attach &amp; upload</button>';
+    html += '<p class="hint muted">Time and GPS are attached to the photo. Without a signal it is queued on the phone and sent when you are back online.</p>';
+    html += '</div></div>';
+
+    if (queuedForTrip.length) {
+      html += '<div class="section"><div class="section-title">Queued for this trip</div><ul class="queue">' +
+        queuedForTrip.map(function (item) {
+          return '<li><span class="what">' + esc(itemLabel(item)) + '</span></li>';
+        }).join('') + '</ul></div>';
+    }
+
+    html += '</div>';
+    host.innerHTML = html;
+
+    Array.prototype.forEach.call(host.querySelectorAll('button[data-status]'), function (btn) {
+      btn.addEventListener('click', function () { requestStatus(trip.id, btn.getAttribute('data-status'), btn); });
+    });
+    var captureBtn = byId('captureBtn');
+    if (captureBtn) captureBtn.addEventListener('click', function () { captureDocument(trip.id, captureBtn); });
   }
 
-  function readBase64(file) {
+  function fact(key, value) {
+    return '<div class="fact"><div class="k">' + esc(key) + '</div><div class="v">' + esc(value) + '</div></div>';
+  }
+
+  function gpsLine() {
+    if (state.geoState === 'checking') return 'Getting GPS…';
+    var label = core.captureGeoLabel(state.geo);
+    if (label) return 'GPS ready: ' + label;
+    if (state.geoState === 'unavailable') return 'No GPS fix — the photo will be sent without a location.';
+    return 'GPS: requested when you attach a photo.';
+  }
+
+  /* --- capture ---------------------------------------------------------- */
+  function getPosition(timeoutMs) {
+    return new Promise(function (resolve) {
+      if (!navigator.geolocation) { resolve(null); return; }
+      state.geoState = 'checking';
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        if (!core.isUsableFix(pos)) { state.geoState = 'unavailable'; resolve(null); return; }
+        state.geoState = 'ready';
+        resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
+      }, function () {
+        state.geoState = 'unavailable';
+        resolve(null);
+      }, { enableHighAccuracy: true, timeout: timeoutMs || 6000, maximumAge: 30000 });
+    });
+  }
+
+  function guessMime(name, declared) {
+    if (declared) return declared;
+    var ext = String(name || '').split('.').pop().toLowerCase();
+    return MIME_BY_EXT[ext] || '';
+  }
+
+  function readBase64(blob) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
       reader.onerror = function () { reject(new Error('could not read the file')); };
@@ -301,80 +620,239 @@
         var comma = url.indexOf(',');
         resolve(comma >= 0 ? url.slice(comma + 1) : '');
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(blob);
     });
   }
 
-  // Upload one document (board task #3): the file is read as base64 and POSTed
-  // as JSON, so the pilot needs no multipart dependency. The API enforces the
-  // doc type, the size cap and the role; the checks here are only for UX.
-  function uploadDocument(id, btn) {
+  function captureDocument(tripId, btn) {
     clearMsg();
-    var card = byData('data-trip-card', id);
-    var sel = card ? card.querySelector('select[data-doctype]') : null;
-    var input = card ? card.querySelector('input[data-file]') : null;
+    var input = byId('podFile');
+    var select = byId('docType');
     var file = input && input.files ? input.files[0] : null;
-    if (!file) { setMsg('Choose a file to upload first.', 'err'); return; }
+    if (!file) { setMsg('Take or choose a photo first.', 'err'); return; }
     if (file.size <= 0) { setMsg('That file is empty.', 'err'); return; }
     if (file.size > MAX_UPLOAD_BYTES) { setMsg('That file is larger than 10 MiB.', 'err'); return; }
+    var docType = select ? select.value : 'pod';
+    var mimeType = guessMime(file.name, file.type);
+    if (!mimeType) { setMsg('Unsupported file type. Use JPEG, PNG, WebP, HEIC or PDF.', 'err'); return; }
+
     btn.disabled = true;
-    readBase64(file).then(function (b64) {
-      return api('/api/trips/' + encodeURIComponent(id) + '/documents', {
-        method: 'POST',
-        token: token(),
-        body: {
-          docType: sel ? sel.value : 'pod',
-          filename: file.name,
-          mimeType: file.type || '',
-          dataBase64: b64
+    var capturedAt = new Date().toISOString();
+    getPosition(6000).then(function (geo) {
+      var capture = core.normalizeCapture({ capturedAt: capturedAt, geo: geo });
+      if (!capture.ok) { setMsg(capture.detail, 'err'); return null; }
+      var activeTrip = currentTrip();
+      var willSatisfyPod = core.POD_DOC_TYPES.indexOf(docType) !== -1;
+      var item = core.makeQueueItem({
+        id: newId(),
+        kind: 'document',
+        tripId: tripId,
+        at: Date.now(),
+        photo: file,
+        payload: {
+          docType: docType,
+          filename: file.name || ('capture-' + Date.now() + '.jpg'),
+          mimeType: mimeType,
+          capturedAt: capture.value.capturedAt,
+          geo: capture.value.lat === null ? null : {
+            lat: capture.value.lat,
+            lng: capture.value.lng,
+            accuracy: capture.value.accuracyM
+          }
         }
       });
-    }).then(function (r) {
-      if (r.status !== 201) { setMsg(errorText(r.status, r.data), 'err'); return loadDocs(id); }
-      setMsg('Uploaded ' + (sel ? sel.value : 'document') + ' for trip ' + id + '.', 'ok');
-      if (input) input.value = '';
-      return loadDocs(id);
-    }).catch(function (err) { setMsg('Network error: ' + err.message, 'err'); })
-      .then(function () { btn.disabled = false; });
+      var pending = [item];
+      // A capture that satisfies the POD gate also moves the trip on — queued
+      // right after the file so the server sees the document first.
+      if (activeTrip && willSatisfyPod && core.nextLegalStatuses(activeTrip.status).indexOf('POD_UPLOADED') !== -1) {
+        pending.push(core.makeQueueItem({
+          id: newId(),
+          kind: 'status',
+          tripId: tripId,
+          at: Date.now() + 1,
+          payload: { status: 'POD_UPLOADED' }
+        }));
+      }
+      return Promise.all(pending.map(function (i) { return queueSave(i); })).then(function () {
+        state.queue = core.sortQueue(state.queue.concat(pending));
+        if (input) input.value = '';
+        state.lastError = null;
+        renderSync();
+        renderCurrentTrip();
+        return syncQueue();
+      });
+    }).catch(function (err) {
+      setMsg('Could not queue the capture: ' + err.message, 'err');
+    }).then(function () {
+      btn.disabled = false;
+    });
   }
 
-  function transition(id, to, btn) {
+  /* --- status transitions ---------------------------------------------- */
+  function requestStatus(tripId, to, btn) {
     clearMsg();
+    if (core.requiresConfirmation(to)) {
+      var ok = window.confirm('Confirm: mark this trip as ' + to + '?');
+      if (!ok) return;
+    }
     btn.disabled = true;
-    api('/api/trips/' + encodeURIComponent(id) + '/status', { method: 'POST', token: token(), body: { status: to } })
-      .then(function (r) {
-        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return loadTrips(); }
-        setMsg('Trip updated: ' + to + '.', 'ok');
-        return loadTrips();
-      })
-      .catch(function (err) { setMsg('Network error: ' + err.message, 'err'); })
-      .then(function () { btn.disabled = false; });
+    var item = core.makeQueueItem({
+      id: newId(),
+      kind: 'status',
+      tripId: tripId,
+      at: Date.now(),
+      payload: { status: to }
+    });
+    queueSave(item).then(function () {
+      state.queue = core.sortQueue(state.queue.concat([item]));
+      state.lastError = null;
+      renderSync();
+      renderCurrentTrip();
+      return syncQueue();
+    }).then(function () {
+      btn.disabled = false;
+    });
   }
 
-  $('loginForm').addEventListener('submit', function (e) {
+  /* --- sync engine ------------------------------------------------------ */
+  function sendItem(item) {
+    var url = core.queueItemUrl(item);
+    var body = item.payload || {};
+    var prepare = item.photo ? readBase64(item.photo).then(function (b64) {
+      var withData = {};
+      for (var k in body) { if (Object.prototype.hasOwnProperty.call(body, k)) withData[k] = body[k]; }
+      withData.dataBase64 = b64;
+      return withData;
+    }) : Promise.resolve(body);
+    return prepare.then(function (payload) {
+      return api(url, { method: core.queueItemMethod(), token: token(), body: payload });
+    }).then(function (r) {
+      var ok = item.kind === 'status' ? r.status === 200 : r.status === 201;
+      return { id: item.id, ok: ok, status: r.status, error: (r.data && r.data.error) || null, detail: (r.data && r.data.detail) || null };
+    }).catch(function () {
+      // Network failure: keep it queued and let the next sync retry.
+      return { id: item.id, ok: false, status: 0, error: 'network' };
+    });
+  }
+
+  function syncQueue() {
+    if (state.syncing) return Promise.resolve();
+    if (!navigator.onLine) { state.lastError = null; renderSync(); return Promise.resolve(); }
+    return queueLoad().then(function (items) {
+      var plan = core.planQueueSync(items, { online: true });
+      if (!plan.send.length) { state.lastError = null; renderSync(); return null; }
+      state.syncing = true;
+      renderSync();
+      var results = [];
+      var chain = Promise.resolve();
+      plan.send.forEach(function (item) {
+        chain = chain.then(function () {
+          if (results.some(function (r) { return r.stop; })) return null;
+          return sendItem(item).then(function (result) {
+            results.push(result);
+            // A retryable failure stops the replay (order matters); a permanent
+            // one is recorded and the next item still goes.
+            if (!result.ok && core.classifyFailure(result.status) === 'retry') {
+              results.push({ stop: true });
+            }
+            return null;
+          });
+        });
+      });
+      return chain.then(function () {
+        var settled = results.filter(function (r) { return !r.stop; });
+        var applied = core.applySyncResults(state.queue, settled);
+        state.queue = applied.queue;
+        state.lastError = applied.dropped.length ? (applied.dropped[0].error || 'rejected') : null;
+        var work = applied.sent.map(function (id) { return queueDrop(id); })
+          .concat(applied.dropped.map(function (d) { return queueDrop(d.id); }));
+        return Promise.all(work).then(function () {
+          state.syncing = false;
+          renderSync();
+          if (applied.dropped.length) {
+            setMsg('Some changes were rejected by the server: ' + applied.dropped.map(function (d) {
+              return (d.error || 'error') + ' (' + d.status + ')';
+            }).join(', '), 'err');
+          } else if (applied.sent.length) {
+            setMsg(applied.sent.length + (applied.sent.length === 1 ? ' change' : ' changes') + ' synced.', 'ok');
+          }
+          return refreshData();
+        });
+      });
+    }).catch(function (err) {
+      state.syncing = false;
+      state.lastError = err && err.message ? err.message : 'sync failed';
+      renderSync();
+    });
+  }
+
+  function refreshData() {
+    if (!token()) return Promise.resolve();
+    return loadTrips();
+  }
+
+  /* --- wiring ----------------------------------------------------------- */
+  byId('loginForm').addEventListener('submit', function (e) {
     e.preventDefault();
     clearMsg();
-    api('/api/auth/login', { method: 'POST', body: { email: $('email').value.trim(), password: $('password').value } })
-      .then(function (r) {
-        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
-        sessionStorage.setItem(TOKEN_KEY, r.data.token);
-        sessionStorage.setItem(USER_KEY, JSON.stringify(r.data.user || null));
-        $('password').value = '';
-        showApp();
-        setMsg('Signed in.', 'ok');
-      })
-      .catch(function (err) { setMsg('Network error: ' + err.message, 'err'); });
+    api('/api/auth/login', {
+      method: 'POST',
+      body: { email: byId('email').value.trim(), password: byId('password').value }
+    }).then(function (r) {
+      if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
+      localStorage.setItem(TOKEN_KEY, r.data.token);
+      localStorage.setItem(USER_KEY, JSON.stringify(r.data.user || null));
+      byId('password').value = '';
+      showApp();
+      setMsg('Signed in.', 'ok');
+    }).catch(function () { setMsg('Network error: could not reach the server.', 'err'); });
   });
 
-  $('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
-  $('logout').addEventListener('click', function (e) {
+  byId('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
+  byId('syncNow').addEventListener('click', function () { clearMsg(); syncQueue().then(refreshData); });
+  byId('logout').addEventListener('click', function (e) {
     e.preventDefault();
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(USER_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    state.trips = [];
+    state.docsByTrip = {};
+    state.currentId = null;
     clearMsg();
     showLogin();
   });
 
+  var picker = byId('tripPicker');
+  if (picker) picker.addEventListener('change', function () {
+    state.currentId = picker.value;
+    renderCurrentTrip();
+    loadDocs(state.currentId).then(renderCurrentTrip);
+  });
+
+  window.addEventListener('online', function () { state.lastError = null; renderSync(); syncQueue(); });
+  window.addEventListener('offline', function () { renderSync(); });
+
+  // Install prompt (Android/Chrome). Never throws when unsupported.
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    state.deferredPrompt = e;
+    byId('installBtn').classList.remove('hidden');
+  });
+  byId('installBtn').addEventListener('click', function () {
+    var prompt = state.deferredPrompt;
+    if (!prompt) return;
+    prompt.prompt();
+    state.deferredPrompt = null;
+    byId('installBtn').classList.add('hidden');
+  });
+
+  // Service worker: caches the app shell so the driver page opens offline.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function () { return null; });
+    });
+  }
+
+  renderSync();
   if (token()) showApp(); else showLogin();
 })();
 </script>

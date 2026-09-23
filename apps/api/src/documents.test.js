@@ -13,6 +13,7 @@ import {
   decodeBase64Upload,
   hasPodDocument,
   listTripDocuments,
+  normalizeCapture,
   normalizeDocumentStatus,
   removeDocumentFile,
   resolveWithin,
@@ -164,6 +165,7 @@ test('normalizeDocumentStatus accepts only VERIFIED/REJECTED', () => {
 
 test('shapeDocument exposes the public fields only (never the storage key)', () => {
   const created = new Date('2026-09-22T10:00:00Z');
+  const captured = new Date('2026-09-22T09:58:00Z');
   const shaped = shapeDocument({
     id: 'doc-1',
     tripId: 't1',
@@ -172,10 +174,35 @@ test('shapeDocument exposes the public fields only (never the storage key)', () 
     storageKey: 't1/pod/doc-1-pod.png',
     createdAt: created,
     expiresAt: null,
+    capturedAt: captured,
+    captureLat: 52.52,
+    captureLng: 13.405,
+    captureAccuracyM: 12,
   });
-  assert.deepEqual(shaped, { id: 'doc-1', docType: 'pod', status: 'UPLOADED', uploadedAt: created, expiresAt: null });
+  assert.deepEqual(shaped, {
+    id: 'doc-1',
+    docType: 'pod',
+    status: 'UPLOADED',
+    uploadedAt: created,
+    expiresAt: null,
+    capturedAt: captured,
+    capture: { lat: 52.52, lng: 13.405, accuracyM: 12 },
+  });
   assert.ok(!('storageKey' in shaped), 'storageKey must not be exposed');
-  assert.deepEqual(shapeDocument(null), { id: undefined, docType: undefined, status: undefined, uploadedAt: null, expiresAt: null });
+  assert.deepEqual(shapeDocument(null), {
+    id: undefined,
+    docType: undefined,
+    status: undefined,
+    uploadedAt: null,
+    expiresAt: null,
+    capturedAt: null,
+    capture: null,
+  });
+  // A capture without a GPS fix has no `capture` block, and the timestamp alone
+  // is still reported (board task #4: GPS is best-effort, the time never is).
+  const noFix = shapeDocument({ id: 'doc-2', capturedAt: captured, captureLat: null, captureLng: null });
+  assert.equal(noFix.capturedAt, captured);
+  assert.equal(noFix.capture, null);
 });
 
 // --- domain: create / list / verify ---
@@ -276,6 +303,82 @@ test('hasPodDocument is true only for an uploaded/verified pod or ecmr', async (
   prisma.state.documents.push({ id: 'c', tripId: 't1', docType: 'pod', status: 'UPLOADED' });
   assert.equal(await hasPodDocument(prisma, { tripId: 't1' }), true);
   assert.equal(await hasPodDocument(prisma, { tripId: 't2' }), false);
+});
+
+test('normalizeCapture validates the optional POD capture metadata', () => {
+  const now = Date.parse('2026-09-23T12:00:00Z');
+  // Neither field: valid, everything null.
+  assert.deepEqual(normalizeCapture({ now }), {
+    ok: true,
+    value: { capturedAt: null, captureLat: null, captureLng: null, captureAccuracyM: null },
+  });
+  // Timestamp only, no GPS fix.
+  assert.deepEqual(normalizeCapture({ capturedAt: '2026-09-23T11:59:00Z', now }), {
+    ok: true,
+    value: { capturedAt: new Date('2026-09-23T11:59:00Z'), captureLat: null, captureLng: null, captureAccuracyM: null },
+  });
+  // Epoch milliseconds are accepted too.
+  assert.equal(normalizeCapture({ capturedAt: now - 1000, now }).value.capturedAt.toISOString(), '2026-09-23T11:59:59.000Z');
+  // Full capture, with the accuracy rounded to a whole metre.
+  assert.deepEqual(normalizeCapture({ capturedAt: '2026-09-23T11:00:00Z', geo: { lat: 52.52, lng: 13.405, accuracy: 11.6 }, now }), {
+    ok: true,
+    value: { capturedAt: new Date('2026-09-23T11:00:00Z'), captureLat: 52.52, captureLng: 13.405, captureAccuracyM: 12 },
+  });
+  // GPS without accuracy is fine.
+  assert.deepEqual(normalizeCapture({ geo: { lat: 52.52, lng: 13.405 }, now }).value.captureAccuracyM, null);
+
+  // Rejections: never store an impossible fix or a future timestamp.
+  assert.equal(normalizeCapture({ capturedAt: 'not-a-date', now }).error, 'invalid_capture');
+  assert.equal(normalizeCapture({ capturedAt: new Date(now + 48 * 3600 * 1000).toISOString(), now }).error, 'invalid_capture');
+  assert.equal(normalizeCapture({ geo: { lat: 91, lng: 0 }, now }).error, 'invalid_capture');
+  assert.equal(normalizeCapture({ geo: { lat: 0, lng: -181 }, now }).error, 'invalid_capture');
+  assert.equal(normalizeCapture({ geo: { lat: '52.5' }, now }).error, 'invalid_capture');
+  assert.equal(normalizeCapture({ geo: { lat: 52.5, lng: 13.4, accuracy: -1 }, now }).error, 'invalid_capture');
+  assert.equal(normalizeCapture({ geo: 'here', now }).error, 'invalid_capture');
+});
+
+test('createDocument persists the capture metadata and rejects a bad one', async () => {
+  const prisma = makeFakePrisma();
+  const base = { docType: 'pod', filename: 'pod.png', mimeType: 'image/png', dataBase64: PNG };
+  const capturedAt = '2026-09-23T10:00:00Z';
+
+  const withCapture = await createDocument(prisma, {
+    orgId: 'org1',
+    tripId: 't1',
+    body: { ...base, capturedAt, geo: { lat: 52.52, lng: 13.405, accuracy: 9 } },
+    actor: DRIVER1,
+    newId: 'doc-cap',
+  });
+  assert.equal(withCapture.ok, true);
+  assert.deepEqual(withCapture.document.capturedAt, new Date(capturedAt));
+  assert.equal(withCapture.document.captureLat, 52.52);
+  assert.equal(withCapture.document.captureLng, 13.405);
+  assert.equal(withCapture.document.captureAccuracyM, 9);
+  assert.equal(prisma.state.documents.length, 1);
+
+  // A malformed capture is a 400 (`invalid_capture`), not a silent NULL row.
+  const bad = await createDocument(prisma, {
+    orgId: 'org1',
+    tripId: 't1',
+    body: { ...base, geo: { lat: 200, lng: 13.405 } },
+    actor: DRIVER1,
+    newId: 'doc-bad',
+  });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.error, 'invalid_capture');
+  assert.equal(prisma.state.documents.length, 1, 'nothing persisted for a rejected capture');
+
+  // An upload with no capture at all still works (backwards compatible).
+  const plain = await createDocument(prisma, {
+    orgId: 'org1',
+    tripId: 't1',
+    body: base,
+    actor: DRIVER1,
+    newId: 'doc-plain',
+  });
+  assert.equal(plain.ok, true);
+  assert.equal(plain.document.capturedAt, null);
+  assert.equal(plain.document.captureLat, null);
 });
 
 // --- storage (real filesystem, temp dir) ---
