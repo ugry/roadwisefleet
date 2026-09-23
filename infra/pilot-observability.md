@@ -195,4 +195,27 @@ drill in §4 runs.
 timers survived the reboot: `roadwise-pg-backup.timer` next 2026-09-23 03:15 UTC,
 `roadwisefleet-backup.timer` next 2026-09-23 03:30 UTC.
 
+**Re-verification (2026-09-23 16:30 UTC, read-only, `eila/tasks#10`):**
+`roadwise-pg-backup.service` last run **2026-09-23 03:15:02 UTC, `status=0/SUCCESS`**
+(the nightly ran, so the timer re-armed) — `roadwise-pg-backup.timer`
+`active (waiting)`, next **2026-09-24 03:15 UTC**; `roadwisefleet-backup.timer`
+next **2026-09-24 03:30 UTC**. Artifact-level check still **not possible** from
+this account (`/var/backups/roadwisefleet/postgres` → `Permission denied`) →
+**still green by exit code only**. Host resources: RAM 11.7 GB total / 7.9 GB
+available, swap **0/2047 MB**, `/` 16 G/99 G (17 %).
+
+**Ready-to-apply artifacts are still NOT installed** (verified, not assumed):
+`systemctl status pilot-uptime-check.timer` and `pilot-backup-verify.timer` both
+return *"Unit … could not be found"*; `ls -l /etc/logrotate.d` shows no
+`roadwisefleet` drop-in. Their installation remains the §3b step, gated on owner
+approval + root.
+
+**Monitoring-stack config-as-code and the owned thresholds/checks now live in
+[`monitoring/README.md`](./monitoring/README.md)**, with operations in
+[`monitoring/runbook.md`](./monitoring/runbook.md): the stack configs are on
+elilavps1 and are **not transcribable from this account** (they need to be pasted
+or made readable), and the threshold proposals (certbot/domain expiry, pg_dump
+heartbeat, disk-growth watch, flap tuning) are documented there as **proposed,
+not applied**.
+
 *This runbook made no production change and changed no unit or timer.*
