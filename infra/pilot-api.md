@@ -9,12 +9,13 @@ approved a change. This document contains **no** credential values.
 **deferred** — do not add one without a new decision. CI builds/tests and deploys
 `web/` to GitHub Pages only; it does not touch the pilot host.
 
-**Prepared, not yet approved (2026-09-23, board `eila/tasks#31`):** an automatic
-deploy path — merge → staging → health check → auto-rollback → "ready to test",
-with production promotion owner-gated — is specified in [`deploy.md`](./deploy.md).
-Its artifacts (deployer, staging unit, timer, nginx vhost) are reviewed in the
-repo but **not installed**; until an owner-approved window lands them, this
-section remains the live procedure.
+**Prepared, not yet installed (2026-09-23, board `eila/tasks#31`, re-scoped):** an
+automatic deploy path — merge → **the live pilot** → health check → auto-rollback →
+"ready to test" — is specified in [`deploy.md`](./deploy.md) §10. The owner removed
+staging (the pilot *is* the test environment), so the earlier staging design no
+longer applies. Its artifacts (deployer, deploy unit + timer) are reviewed in the
+repo but **not installed**; until an owner-approved window lands them, this section
+remains the live procedure.
 
 **Related:** the Postgres/Redis stack behind this API is documented in
 [`pilot-db.md`](./pilot-db.md). Reference unit mirrors live in
@@ -114,11 +115,11 @@ Run from elilavps2 and expect the values below:
 The pilot API is a git checkout on the host, updated in place. This is separate
 from the web/waitlist `deploy.sh` path.
 
-> **Automation prepared (not installed):** [`deploy.md`](./deploy.md) defines the
-> sanctioned automatic path — staging deploys itself from `main` after CI is
-> green, with health-check + auto-rollback, and production promotion is
-> owner-gated with an automatic revert. The steps below are the current manual
-> procedure and remain the fallback.
+> **Automation prepared (not installed):** [`deploy.md`](./deploy.md) §10 defines
+> the sanctioned automatic path — the pull timer deploys a CI-green `main` commit
+> straight into this checkout, with health-check + auto-rollback (there is no
+> staging environment after the owner's 2026-09-23 re-scope). The steps below are
+> the current manual procedure and remain the fallback.
 
 ```bash
 cd /opt/roadwisefleet/api

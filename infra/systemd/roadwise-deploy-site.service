@@ -1,0 +1,39 @@
+# RoadwiseFleet — site deploy unit (elilavps2)
+#
+# Host path: /etc/systemd/system/roadwise-deploy-site.service
+# Runbook:   infra/deploy.md §10  (board task eila/tasks#31, re-scoped 2026-09-23)
+#
+# READY-TO-APPLY ARTIFACT — not installed. Runs the deployer as root (owner
+# decision, board #31: "Root accepted") because it restarts
+# roadwise-api.service, writes /opt/roadwisefleet/api and /var/lib/roadwisefleet,
+# and runs `pnpm install` + `prisma migrate deploy`. The privilege boundary is
+# documented in deploy.md §10 (reuse of the §7.1 finding).
+#
+# The unit is oneshot and triggered by roadwise-deploy-site.timer. Running it by
+# hand is safe (the deployer is idempotent and takes a lock):
+#   sudo systemctl start roadwise-deploy-site.service
+#
+# Single environment: this deploys straight to the live pilot; there is no
+# staging unit/port/database (owner re-scope 2026-09-23).
+
+[Unit]
+Description=RoadwiseFleet site deploy (pull main -> live pilot, health check, auto-rollback)
+Documentation=file:/opt/roadwisefleet/api/infra/deploy.md
+After=network-online.target roadwise-api.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# Hard-coded deploy-target defaults (overridable here, not in the script).
+Environment=RWF_SITE_DIR=/opt/roadwisefleet/api
+Environment=RWF_SITE_UNIT=roadwise-api.service
+Environment=RWF_SITE_PORT=8080
+Environment=RWF_SITE_URL=https://roadwisefleet.com/pilot/
+Environment=RWF_SITE_STATE_FILE=/var/lib/roadwisefleet/deploy-site-state.json
+# pnpm is non-TTY here and refuses to install interactively without CI=true.
+Environment=CI=true
+ExecStart=/usr/local/bin/roadwise-deploy-site.sh deploy
+TimeoutStartSec=15min
+# No credentials in the unit: the deployer sources the app's 0600 EnvironmentFile
+# (/opt/roadwisefleet/api/.env) itself and never echoes it.
