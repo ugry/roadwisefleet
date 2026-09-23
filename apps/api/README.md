@@ -58,8 +58,8 @@ scoped to the pilot org (`pilot-org`) — it never touches another org's data.
 ## Test
 Pure logic (state machine, scrypt password hashing, token signing/verification,
 RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
-Prisma client, trip detail shaping/P&L, pilot demo-reset planning) runs on the
-Node.js native test runner with no install:
+Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
+demo-reset planning) runs on the Node.js native test runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -81,6 +81,11 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
+| `GET /api/reference` | bearer, `trip:create` | every create-trip option list in one call (orders, drivers, trucks, customers) |
+| `GET /api/orders` | bearer, `trip:create` | org orders with the customer name folded in |
+| `GET /api/drivers` | bearer, `trip:create` | active org drivers (`id`, `name`, `phone`) |
+| `GET /api/trucks` | bearer, `trip:create` | org trucks (`id`, `plate`, `dimensions`, `euroClass`) |
+| `GET /api/customers` | bearer, `trip:create` | org customers (`id`, `name`) |
 | `POST /api/trips/:id/documents` | bearer, `trip:*` or `pod:upload` + assigned driver | upload a document as JSON base64 (`docType`, `filename`, `mimeType`, `dataBase64`); stored under `UPLOAD_DIR` with a generated `storageKey`, row `PENDING` → `UPLOADED`; `400` on a bad type/mime/size, `403` on the wrong role |
 | `GET /api/trips/:id/documents` | bearer, `trip:*` or `trip:read` + assigned driver | the trip's document checklist (`id`, `docType`, `status`, `uploadedAt`, `expiresAt` — never the `storageKey`) |
 | `PATCH /api/documents/:id` | bearer, `trip:*` | set a document to `VERIFIED` or `REJECTED`; any other status is `400 invalid_status`, a foreign-org document is `404` |
@@ -92,6 +97,14 @@ Tenancy comes from the signed token's `org` claim — the old `x-org-id` header
 stub is gone. Capabilities come from the token's `roleId` resolved against the
 seeded `Role.permissions` (`auth/permissions.js`); a denied action returns
 `403 forbidden`.
+
+The reference endpoints expose org-wide data (customer names, other drivers'
+phone numbers), so they require `trip:create` — owner/dispatcher pass, drivers
+get `403`, exactly like `POST /api/trips`. The loaders live in
+`src/reference-data.js` (pure, covered by `src/reference-data.test.js`); the
+route layer is `src/routes/reference.ts`. `User` has no `active` column, so
+"active drivers" maps to the schema's lock state: a driver whose `lockedUntil`
+is in the future is excluded.
 
 ### Documents / POD (board task #3)
 The `Document` model is now used. Uploads are JSON base64 (no multipart
@@ -111,8 +124,10 @@ with `/api/*` — no new port and no nginx. Production `web/` is untouched.
 
 - `pilot/index.html` — landing linking to the two pages.
 - `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
-  form, status-transition controls and a click-a-row trip drawer (timeline,
-  documents, expenses, P&L).
+- `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
+  form (order/driver/truck dropdowns fed by `GET /api/reference`, plus a rate
+  input — no raw IDs), status-transition controls and a click-a-row trip drawer
+  (timeline, documents, expenses, P&L).
 - `pilot/driver.html` — driver login, assigned trips, the next legal status and
   a POD/eCMR upload control with the trip's document list (used by the driver
   PWA).

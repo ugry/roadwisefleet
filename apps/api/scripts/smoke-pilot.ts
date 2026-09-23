@@ -136,6 +136,39 @@ async function main() {
     statuses: driverTrips.json?.trips?.map((t: { status: string }) => t.status),
   };
 
+  // Reference data (board task #1): owner/dispatcher read the create-trip
+  // option lists; a driver token is denied on every one of them.
+  const referencePaths = ['/api/reference', '/api/orders', '/api/drivers', '/api/trucks', '/api/customers'];
+  const adminReference: Record<string, number> = {};
+  const driverReference: Record<string, number> = {};
+  for (const path of referencePaths) {
+    adminReference[path] = (await call(base, 'GET', path, adminToken)).status;
+    driverReference[path] = (await call(base, 'GET', path, driverToken)).status;
+  }
+  results.reference = {
+    expected: { admin: 200, driver: 403 },
+    admin: adminReference,
+    driver: driverReference,
+  };
+
+  // End-to-end create with dropdown picks only (no hand-typed ids).
+  const reference = await call(base, 'GET', '/api/reference', adminToken);
+  const orderPick = reference.json?.reference?.orders?.[0]?.id;
+  const driverPick = reference.json?.reference?.drivers?.[0]?.id;
+  const truckPick = reference.json?.reference?.trucks?.[0]?.id;
+  const formTrip = await call(base, 'POST', '/api/trips', adminToken, {
+    orderId: orderPick,
+    driverId: driverPick,
+    truckId: truckPick,
+    rateEur: 777,
+  });
+  results.createTripFromReference = {
+    expected: 201,
+    status: formTrip.status,
+    picks: { orderPick, driverPick, truckPick },
+    tripStatus: formTrip.json?.trip?.status,
+  };
+
   // Documents / POD (board task #3). The trip is DELIVERED; POD_UPLOADED must be
   // refused until a POD/eCMR document exists, the assigned driver uploads one,
   // the owner verifies it, and the gate then opens.
