@@ -58,8 +58,8 @@ scoped to the pilot org (`pilot-org`) — it never touches another org's data.
 ## Test
 Pure logic (state machine, scrypt password hashing, token signing/verification,
 RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
-Prisma client, create-trip reference loaders, pilot demo-reset planning) runs
-on the Node.js native test runner with no install:
+Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
+demo-reset planning) runs on the Node.js native test runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -77,6 +77,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token |
 | `GET /api/auth/me` | bearer | the current principal |
 | `GET /api/trips` | bearer, `trip:read` | dashboard trip list for the token's org |
+| `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer, driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); a trip in another org is `404`, never a leak |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
@@ -123,8 +124,10 @@ with `/api/*` — no new port and no nginx. Production `web/` is untouched.
 
 - `pilot/index.html` — landing linking to the two pages.
 - `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
+- `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
   form (order/driver/truck dropdowns fed by `GET /api/reference`, plus a rate
-  input — no raw IDs) and status-transition controls.
+  input — no raw IDs), status-transition controls and a click-a-row trip drawer
+  (timeline, documents, expenses, P&L).
 - `pilot/driver.html` — driver login, assigned trips, the next legal status and
   a POD/eCMR upload control with the trip's document list (used by the driver
   PWA).

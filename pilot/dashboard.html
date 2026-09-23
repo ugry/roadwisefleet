@@ -62,6 +62,29 @@
   .msg.ok{background:oklch(0.56 0.13 158 / .10);border:1px solid var(--success);color:oklch(0.40 0.12 158)}
   .hidden{display:none !important}
   .who{font-size:13px;color:var(--muted)}
+  tr.clickable{cursor:pointer}
+  tr.clickable:hover{background:oklch(0.985 0.003 250)}
+  .overlay{position:fixed;inset:0;background:oklch(0.2 0.04 258 / .35);opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:19}
+  .overlay.open{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;height:100%;width:min(560px,100%);background:var(--surface);border-left:1px solid var(--border);box-shadow:-8px 0 30px oklch(0.2 0.04 258 / .18);transform:translateX(102%);transition:transform .18s ease;z-index:20;display:flex;flex-direction:column}
+  .drawer.open{transform:none}
+  .drawer-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+  .drawer-head h2{font-family:var(--font-display);font-weight:600;font-size:18px;margin:0;flex:1}
+  .drawer-body{padding:16px 18px 40px;overflow:auto}
+  .section-title{font-family:var(--font-display);font-weight:600;font-size:15px;text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px;color:var(--navy-800)}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:14px;margin:0 0 6px}
+  .kv dt{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0;padding-top:2px}
+  .kv dd{margin:0}
+  .timeline{list-style:none;margin:0;padding:0}
+  .timeline li{position:relative;padding:0 0 14px 18px;border-left:2px solid var(--border)}
+  .timeline li:last-child{border-left-color:transparent}
+  .timeline li:before{content:"";position:absolute;left:-6px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--accent)}
+  .tl-what{font-weight:600}
+  .tl-when{font-size:12px;color:var(--muted)}
+  .pnl{font-family:var(--font-display);font-size:22px;margin:0}
+  .pnl.pos{color:var(--success)}
+  .pnl.neg{color:var(--danger)}
+  .empty{color:var(--muted);font-size:13px}
   @media (max-width:640px){ table,thead,tbody,th,td,tr{display:block} thead{display:none} td{border:none;padding:3px 0} tr{border-bottom:1px solid var(--border);padding:8px 0} }
 </style>
 </head>
@@ -138,6 +161,15 @@
     </div>
   </section>
 </main>
+
+<div id="overlay" class="overlay"></div>
+<aside id="drawer" class="drawer" aria-hidden="true" aria-label="Trip detail">
+  <div class="drawer-head">
+    <h2 id="drawerTitle">Trip detail</h2>
+    <button class="ghost small" id="drawerClose" type="button">Close</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"><p class="muted">Select a trip to see its detail.</p></div>
+</aside>
 
 <script>
 (function () {
@@ -286,7 +318,7 @@
       var buttons = next.map(function (s) {
         return '<button class="ghost small" data-trip="' + esc(t.id) + '" data-to="' + esc(s) + '">' + esc(s) + '</button>';
       }).join('');
-      return '<tr>' +
+      return '<tr class="clickable" data-open="' + esc(t.id) + '">' +
         '<td>' + route + '</td>' +
         '<td>' + driver + '</td>' +
         '<td><span class="status s-' + esc(t.status) + '">' + esc(t.status) + '</span></td>' +
@@ -299,6 +331,98 @@
         transition(btn.getAttribute('data-trip'), btn.getAttribute('data-to'), btn);
       });
     });
+    Array.prototype.forEach.call(body.querySelectorAll('tr[data-open]'), function (tr) {
+      tr.addEventListener('click', function (ev) {
+        // A transition button inside the row must not also open the drawer.
+        if (ev.target && ev.target.closest && ev.target.closest('button')) return;
+        loadTripDetail(tr.getAttribute('data-open'));
+      });
+    });
+  }
+
+  function fmtDate(v) {
+    if (!v) return '—';
+    var d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : d.toLocaleString();
+  }
+
+  function openDrawer() {
+    $('drawer').classList.add('open');
+    $('drawer').setAttribute('aria-hidden', 'false');
+    $('overlay').classList.add('open');
+  }
+
+  function closeDrawer() {
+    $('drawer').classList.remove('open');
+    $('drawer').setAttribute('aria-hidden', 'true');
+    $('overlay').classList.remove('open');
+  }
+
+  // Trip detail (board task #2): one read-only GET /api/trips/:id, rendered into
+  // the drawer. Org scoping is the API's job; here we only display what it returns.
+  function loadTripDetail(id) {
+    $('drawerTitle').textContent = 'Trip ' + id;
+    $('drawerBody').innerHTML = '<p class="muted">Loading…</p>';
+    openDrawer();
+    return api('/api/trips/' + encodeURIComponent(id), { token: token() }).then(function (r) {
+      if (r.status !== 200) {
+        $('drawerBody').innerHTML = '<p class="msg err show">' + esc(errorText(r.status, r.data)) + '</p>';
+        return;
+      }
+      renderTripDetail(r.data && r.data.trip ? r.data.trip : {});
+    }).catch(function (err) {
+      $('drawerBody').innerHTML = '<p class="msg err show">Network error: ' + esc(err.message) + '</p>';
+    });
+  }
+
+  function renderTripDetail(t) {
+    var order = t.order || {};
+    var totals = t.totals || {};
+    var pnl = totals.pnlEur;
+    var pnlClass = (pnl === null || pnl === undefined) ? '' : (pnl < 0 ? 'neg' : 'pos');
+
+    var events = t.statusEvents || [];
+    var timeline = events.length ? '<ul class="timeline">' + events.map(function (e) {
+      return '<li>' +
+        '<div class="tl-what">' + esc(e.from) + ' → ' + esc(e.to) + '</div>' +
+        '<div class="tl-when">' + esc(fmtDate(e.at)) + (e.actor ? ' · ' + esc(e.actor.name) : '') + '</div>' +
+      '</li>';
+    }).join('') + '</ul>' : '<p class="empty">No status events yet.</p>';
+
+    var docs = t.documents || [];
+    var docRows = docs.length ? docs.map(function (d) {
+      return '<tr><td>' + esc(d.docType) + '</td><td>' + esc(d.status) + '</td><td>' + esc(fmtDate(d.uploadedAt)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="3" class="empty">No documents.</td></tr>';
+
+    var expenses = t.expenses || [];
+    var expRows = expenses.length ? expenses.map(function (x) {
+      return '<tr><td>' + esc(x.category) + '</td><td>' + money(x.amountEur) + '</td></tr>';
+    }).join('') : '<tr><td colspan="2" class="empty">No expenses.</td></tr>';
+
+    $('drawerBody').innerHTML =
+      '<p><span class="status s-' + esc(t.status) + '">' + esc(t.status) + '</span></p>' +
+      '<dl class="kv">' +
+        '<dt>Route</dt><dd>' + esc(order.origin || '?') + ' → ' + esc(order.destination || '?') + '</dd>' +
+        '<dt>Cargo</dt><dd>' + esc(order.cargo || '—') + '</dd>' +
+        '<dt>Customer</dt><dd>' + esc(order.customer ? order.customer.name : '—') + '</dd>' +
+        '<dt>Driver</dt><dd>' + esc(t.driver ? (t.driver.name || t.driver.email || t.driver.id) : '—') + '</dd>' +
+        '<dt>Truck</dt><dd>' + esc(t.truck ? (t.truck.plate || t.truck.id) : '—') + '</dd>' +
+        '<dt>Rate</dt><dd>' + money(t.rateEur) + '</dd>' +
+      '</dl>' +
+      '<div class="section-title">Timeline</div>' + timeline +
+      '<div class="section-title">Documents</div>' +
+        '<table><thead><tr><th>Type</th><th>Status</th><th>Uploaded</th></tr></thead><tbody>' + docRows + '</tbody></table>' +
+      '<div class="section-title">Expenses</div>' +
+        '<table><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>' + expRows + '</tbody></table>' +
+      '<div class="section-title">P&amp;L</div>' +
+        '<p class="pnl ' + pnlClass + '">' + money(pnl) + '</p>' +
+        '<p class="muted">Rate ' + money(t.rateEur) + ' − expenses ' + money(totals.expensesEur) + '</p>';
+  }
+
+  function refreshOpenDrawer(id) {
+    if ($('drawer').classList.contains('open') && $('drawerTitle').textContent === 'Trip ' + id) {
+      loadTripDetail(id);
+    }
   }
 
   function transition(id, to, btn) {
@@ -306,9 +430,9 @@
     btn.disabled = true;
     api('/api/trips/' + encodeURIComponent(id) + '/status', { method: 'POST', token: token(), body: { status: to } })
       .then(function (r) {
-        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return loadTrips(); }
-        setMsg('Trip ' + id + ' -> ' + to + '.', 'ok');
-        return loadTrips();
+        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); }
+        else { setMsg('Trip ' + id + ' -> ' + to + '.', 'ok'); }
+        return loadTrips().then(function () { refreshOpenDrawer(id); });
       })
       .catch(function (err) { setMsg('Network error: ' + err.message, 'err'); })
       .then(function () { btn.disabled = false; });
@@ -351,6 +475,9 @@
   });
 
   $('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
+  $('drawerClose').addEventListener('click', closeDrawer);
+  $('overlay').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });
   $('logout').addEventListener('click', function (e) {
     e.preventDefault();
     sessionStorage.removeItem(TOKEN_KEY);
