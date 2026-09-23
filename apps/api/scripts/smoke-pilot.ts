@@ -83,6 +83,31 @@ async function main() {
   const detailMissing = await call(base, 'GET', '/api/trips/does-not-exist', adminToken);
   results.tripDetailMissing = { expected: 404, status: detailMissing.status, body: detailMissing.json };
 
+  // Customer tracking link (board task #5). This is the acceptance check the
+  // original PR evidence missed: the minted token is ~203 chars, over Fastify's
+  // default maxParamLength (100), so a real HTTP call must pass the router —
+  // before the fix both routes answered 414 FST_ERR_MAX_PARAM_LENGTH.
+  const trackMint = await call(base, 'POST', `/api/trips/${tripId}/track-link`, adminToken);
+  const trackToken = (trackMint.json?.link?.token as string) || '';
+  const trackPage = await fetch(`${base}/track/${trackToken}`);
+  const trackPageBody = await trackPage.text();
+  const trackJson = await fetch(`${base}/api/track/${trackToken}`);
+  const trackJsonBody = await trackJson.json().catch(() => null);
+  const trackTampered = await fetch(`${base}/api/track/${trackToken.slice(0, -2)}xy`);
+  results.trackingLink = {
+    expected: { mint: 201, page: 200, json: 200, tampered: 404 },
+    tokenLength: trackToken.length,
+    mintStatus: trackMint.status,
+    pageStatus: trackPage.status,
+    pageIsHtml: /text\/html/.test(trackPage.headers.get('content-type') || ''),
+    pageNoindexHeader: trackPage.headers.get('x-robots-tag'),
+    pageHasNoindexMeta: trackPageBody.includes('name="robots"'),
+    jsonStatus: trackJson.status,
+    jsonNoindexHeader: trackJson.headers.get('x-robots-tag'),
+    jsonTripStatus: trackJsonBody?.tracking?.status,
+    tamperedStatus: trackTampered.status,
+  };
+
   const unauth = await call(base, 'GET', '/api/trips');
   results.unauthenticated = { status: unauth.status, body: unauth.json };
 
@@ -134,6 +159,39 @@ async function main() {
     status: driverTrips.status,
     count: driverTrips.json?.trips?.length,
     statuses: driverTrips.json?.trips?.map((t: { status: string }) => t.status),
+  };
+
+  // Reference data (board task #1): owner/dispatcher read the create-trip
+  // option lists; a driver token is denied on every one of them.
+  const referencePaths = ['/api/reference', '/api/orders', '/api/drivers', '/api/trucks', '/api/customers'];
+  const adminReference: Record<string, number> = {};
+  const driverReference: Record<string, number> = {};
+  for (const path of referencePaths) {
+    adminReference[path] = (await call(base, 'GET', path, adminToken)).status;
+    driverReference[path] = (await call(base, 'GET', path, driverToken)).status;
+  }
+  results.reference = {
+    expected: { admin: 200, driver: 403 },
+    admin: adminReference,
+    driver: driverReference,
+  };
+
+  // End-to-end create with dropdown picks only (no hand-typed ids).
+  const reference = await call(base, 'GET', '/api/reference', adminToken);
+  const orderPick = reference.json?.reference?.orders?.[0]?.id;
+  const driverPick = reference.json?.reference?.drivers?.[0]?.id;
+  const truckPick = reference.json?.reference?.trucks?.[0]?.id;
+  const formTrip = await call(base, 'POST', '/api/trips', adminToken, {
+    orderId: orderPick,
+    driverId: driverPick,
+    truckId: truckPick,
+    rateEur: 777,
+  });
+  results.createTripFromReference = {
+    expected: 201,
+    status: formTrip.status,
+    picks: { orderPick, driverPick, truckPick },
+    tripStatus: formTrip.json?.trip?.status,
   };
 
   // Documents / POD (board task #3). The trip is DELIVERED; POD_UPLOADED must be
