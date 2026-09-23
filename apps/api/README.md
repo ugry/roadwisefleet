@@ -18,6 +18,9 @@ pilot seed, minimal token auth and the core trip loop are wired.
 - `../../pilot/` — the pilot-only web surface served by this API under `/pilot/`
   (repo-root dir, separate from the production `web/`). Its UI strings — EN/DE/PL/TR
   — live in `pilot/locales/` (see "Internationalisation" below).
+- `../../app/` — the Fleet Manager application served by this API under `/app/`
+  (board task #32, see "Fleet Manager app" below). Its English catalogue lives in
+  `app/locales/en.json`.
 
 ## Run
 ```bash
@@ -61,8 +64,9 @@ Pure logic (state machine, scrypt password hashing, token signing/verification,
 RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
 Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
 demo-reset planning, tracking-link signing/shaping, document capture validation,
-driver-PWA tour card/checklist/offline queue, locale resolution and the pilot i18n
-catalogues) runs on the Node.js native test runner with no install:
+driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard and
+static-serving rules, locale resolution and the pilot i18n catalogues) runs on the
+Node.js native test runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -76,7 +80,10 @@ FST_ERR_MAX_PARAM_LENGTH` (the PR #25 review finding — Fastify's default
 `maxParamLength` is 100). It also checks that the driver PWA's assets are served
 with the MIME types a browser and an install prompt require (the manifest as
 `application/manifest+json`, `sw.js` and `lib/driver-core.js` as JavaScript, the
-icons as PNG) and that the static root cannot be walked out of:
+icons as PNG) and that the static root cannot be walked out of. It also proves the
+Fleet Manager surface: `/app` redirects to `/app/`, the shell is served as HTML,
+a deep link returns the shell, the assets carry their real content types and a
+missing asset or a traversal attempt is a `404`:
 
 ```bash
 pnpm --filter @roadwisefleet/api test:router
@@ -110,6 +117,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/track/:token` | — | public tracking payload — route, status, timeline, last known position, ETA placeholder, POD flag; **no PII**; invalid/expired/rotated token → `404 invalid_token` |
 | `GET /track/:token` | — | public tracking HTML page (self-contained, no build step) for the shared link; `x-robots-tag: noindex, nofollow` |
 | `GET /pilot/*` | — | pilot-only web surface from `<repo>/pilot` (same origin, no build step) |
+| `GET /app` | — | `302` to `/app/` (the Fleet Manager mount point) |
+| `GET /app/*` | — | Fleet Manager app from `<repo>/app`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `x-robots-tag: noindex, nofollow` |
 | `POST /api/waitlist` | — | landing-page waitlist (honeypot + validation) |
 | `GET /api/waitlist` | `X-Admin-Token` | admin list |
 
@@ -298,6 +307,63 @@ then to the key itself, so a catalogue gap can never blank out the UI.
 > `400`/`403` bodies, e.g. `invalid_transition`) are still English. Only the pilot
 > UI is localised in this task; localising server messages needs the request's
 > `Accept-Language` threaded through the route layer.
+
+## Fleet Manager app (`/app/`) — board task #32 (FAv1-F1)
+The authenticated dispatcher application. `web/` is the marketing site, `pilot/`
+is the driver demo; `app/` is the product surface that every later FAv1 function
+(dashboard, trips, dispatch, documents, tracking, finance) plugs into as a route.
+
+Static, dependency-free, no build step and no CDN, served by the API itself
+(`src/routes/app.ts`) so it is same-origin with `/api/*`:
+
+- `app/index.html` — the two-view shell: the login view and the authenticated
+  app view (header, `#navSlot`, `#outlet`, global error/empty states). Both start
+  hidden — neither is rendered before the guard has decided.
+- `app/app.css` — the shared layout, responsive at 375px and 1440px.
+- `app/lib/app-core.js` — the pure core (route table, role model, guard, nav and
+  panel renderers). Loaded twice on purpose: as a classic script in the browser
+  and by `src/app-core.test.js` in the no-install CI job, exactly like
+  `pilot/lib/driver-core.js`.
+- `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
+  `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
+  routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
+  `pageshow`.
+- `app/locales/en.json` — the English catalogue. The shell reuses the pilot's
+  `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime (board task #6), so the
+  language hook and switcher already exist; EN ships first and additional
+  catalogues are drop-in files.
+
+Behaviour:
+
+- **Auth/roles.** The API is authoritative: the role always comes back from
+  `GET /api/auth/me`, so a hand-edited role in storage cannot widen access. The
+  client guard mirrors the API's RBAC — `owner` sees everything, `dispatcher`
+  trips/dispatch/documents/tracking/fleet, `accountant` finance only, `driver`
+  overview + their own trips. An unknown role gets no navigation and no app
+  (deny by default).
+- **Guard.** Any unauthenticated `/app/*` visit goes to `/app/login` (the URL is
+  replaced, so the back button does not bounce); a deep link is remembered and
+  restored after login when the role may open it; a signed-in user on a route
+  their role does not own is redirected to their role home; logout clears the
+  session and a back-button/bfcache restore is refused.
+- **Session.** The bearer token lives in `sessionStorage` (keys `rwf.app.token` /
+  `rwf.app.user`, distinct from the pilot's) — it must not survive the tab and the
+  app must not become CSRF-able. Nothing touches cookies.
+- **Servable surface.** `src/app-shell.js` is the pure half of the static
+  contract: the resolved real path (symlinks included) must stay inside
+  `<repo>/app`, dotfiles are never served, only an explicit extension allow-list
+  is served, there are no directory listings, and a missing asset is a real `404`
+  (HTML is never served as JavaScript). Deep links return the shell so the client
+  router can run.
+
+Tests: `src/app-core.test.js` + `src/app-shell.test.js` run in the no-install CI
+job; `test/app-shell.test.ts` adds the HTTP-level `app.inject()` checks under
+`pnpm test:router`.
+
+> **Deployment note:** production nginx proxies only `/api/`, `/pilot/` and
+> `/track/` to the API, so `/app/` needs a `location /app/` block before the Fleet
+> Manager is reachable on roadwisefleet.com. The API side is complete and testable
+> on the loopback; the nginx change is an infra request (not part of this code).
 
 ## Waitlist → account handoff
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the
