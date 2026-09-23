@@ -1,0 +1,13 @@
+# robots.txt — https://roadwisefleet.com
+#
+# This file ships with both deployments (live nginx root and the GitHub Pages
+# preview). On the Pages project page it is served at
+# https://ugry.github.io/roadwisefleet/robots.txt, which is NOT the origin-level
+# robots.txt for github.io — crawlers ignore it there. Preview non-indexing is
+# enforced instead by the noindex meta tag added by the preview guard in each
+# page's <head>, plus the apex <link rel="canonical">.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://roadwisefleet.com/sitemap.xml
