@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:status": "prisma migrate status",
     "db:seed": "tsx scripts/seed-pilot.ts",
+    "db:reset": "tsx scripts/seed-pilot.ts --reset",
     "smoke": "tsx scripts/smoke-pilot.ts",
     "handoff": "tsx scripts/waitlist-handoff.ts"
   },
