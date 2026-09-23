@@ -29,4 +29,9 @@ export const env = {
   AUTH_SECRET: resolveAuthSecret(),
   TOKEN_TTL_SECONDS: Number(process.env.TOKEN_TTL_SECONDS || 12 * 60 * 60),
   ADMIN_TOKEN: process.env.ADMIN_TOKEN || '',
+  // Document storage (board task #3): local disk for the pilot, MinIO later.
+  // Files are written under this directory only (path-traversal guarded in
+  // documents.js) and never served directly.
+  UPLOAD_DIR: process.env.UPLOAD_DIR || resolve(here, '../../../var/uploads'),
+  MAX_UPLOAD_BYTES: Number(process.env.MAX_UPLOAD_BYTES || 10 * 1024 * 1024),
 };
