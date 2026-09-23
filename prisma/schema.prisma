@@ -132,6 +132,10 @@ model Document {
   status           String    @default("PENDING") // PENDING | UPLOADED | VERIFIED | REJECTED
   expiresAt        DateTime? // drives compliance-vault expiry alerts
   issuingAuthority String?
+  capturedAt       DateTime? // when the driver took the photo (POD capture, board #4)
+  captureLat       Decimal?  @db.Decimal(9, 6) // GPS fix at capture time (nullable: no fix)
+  captureLng       Decimal?  @db.Decimal(9, 6)
+  captureAccuracyM Int? // fix accuracy in metres
   createdAt        DateTime  @default(now())
 }
 

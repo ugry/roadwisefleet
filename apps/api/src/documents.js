@@ -41,6 +41,9 @@ export const DOC_TYPES = Object.freeze([
 /** Document types that satisfy the POD_UPLOADED gate. */
 export const POD_DOC_TYPES = Object.freeze(['pod', 'ecmr']);
 
+/** A capture timestamp further in the future than this is a clock problem. */
+export const MAX_CAPTURE_SKEW_MS = 24 * 60 * 60 * 1000;
+
 /** Accepted MIME types -> canonical file extension. */
 export const ALLOWED_MIME = Object.freeze({
   'image/jpeg': 'jpg',
@@ -193,18 +196,76 @@ export function normalizeDocumentStatus(value) {
 }
 
 /**
+ * Validate the optional capture metadata a POD upload carries (board task #4):
+ * `capturedAt` (ISO string or epoch ms) and `geo` ({ lat, lng, accuracy }).
+ *
+ * Both are optional — a driver with no GPS fix still uploads — but a *present*
+ * value must be sane: bad coordinates or a future timestamp are rejected rather
+ * than stored, so the compliance record is never silently wrong. Returns the
+ * exact column values to persist.
+ * @param {{ capturedAt?: unknown, geo?: unknown, now?: number }} [input]
+ * @returns {{ ok: true, value: { capturedAt: Date | null, captureLat: number | null, captureLng: number | null, captureAccuracyM: number | null } } | { ok: false, error: string, detail: string }}
+ */
+export function normalizeCapture(input = {}) {
+  const now = typeof input.now === 'number' ? input.now : Date.now();
+
+  let capturedAt = null;
+  if (input.capturedAt !== undefined && input.capturedAt !== null && input.capturedAt !== '') {
+    const ms = typeof input.capturedAt === 'number' ? input.capturedAt : Date.parse(String(input.capturedAt));
+    if (!Number.isFinite(ms)) {
+      return { ok: false, error: 'invalid_capture', detail: 'capturedAt must be an ISO date or epoch milliseconds' };
+    }
+    if (ms > now + MAX_CAPTURE_SKEW_MS) {
+      return { ok: false, error: 'invalid_capture', detail: 'capturedAt is in the future' };
+    }
+    capturedAt = new Date(ms);
+  }
+
+  if (input.geo === undefined || input.geo === null) {
+    return { ok: true, value: { capturedAt, captureLat: null, captureLng: null, captureAccuracyM: null } };
+  }
+  const geo = input.geo;
+  if (typeof geo !== 'object' || Array.isArray(geo)) {
+    return { ok: false, error: 'invalid_capture', detail: 'geo must be an object with lat/lng' };
+  }
+  const lat = Number(/** @type {any} */ (geo).lat);
+  const lng = Number(/** @type {any} */ (geo).lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { ok: false, error: 'invalid_capture', detail: 'geo.lat and geo.lng are required numbers' };
+  }
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return { ok: false, error: 'invalid_capture', detail: 'geo.lat/lng out of range' };
+  }
+  let captureAccuracyM = null;
+  const rawAccuracy = /** @type {any} */ (geo).accuracy;
+  if (rawAccuracy !== undefined && rawAccuracy !== null && rawAccuracy !== '') {
+    const accuracy = Number(rawAccuracy);
+    if (!Number.isFinite(accuracy) || accuracy < 0) {
+      return { ok: false, error: 'invalid_capture', detail: 'geo.accuracy must be a non-negative number' };
+    }
+    captureAccuracyM = Math.round(accuracy);
+  }
+  return { ok: true, value: { capturedAt, captureLat: lat, captureLng: lng, captureAccuracyM } };
+}
+
+/**
  * Public shape of a document row. Never exposes `storageKey` (an internal disk
- * path): the API surface is id/docType/status/uploadedAt/expiresAt only.
+ * path): the API surface is id/docType/status/uploadedAt/expiresAt/capture only.
  * @param {any} d
- * @returns {{ id: any, docType: any, status: any, uploadedAt: any, expiresAt: any }}
+ * @returns {{ id: any, docType: any, status: any, uploadedAt: any, expiresAt: any, capturedAt: any, capture: any }}
  */
 export function shapeDocument(d) {
+  const lat = d?.captureLat === null || d?.captureLat === undefined ? null : Number(d.captureLat);
+  const lng = d?.captureLng === null || d?.captureLng === undefined ? null : Number(d.captureLng);
+  const accuracyM = d?.captureAccuracyM === null || d?.captureAccuracyM === undefined ? null : Number(d.captureAccuracyM);
   return {
     id: d?.id,
     docType: d?.docType,
     status: d?.status,
     uploadedAt: d?.createdAt ?? null,
     expiresAt: d?.expiresAt ?? null,
+    capturedAt: d?.capturedAt ?? null,
+    capture: lat === null || lng === null ? null : { lat, lng, accuracyM },
   };
 }
 
@@ -259,10 +320,14 @@ export async function createDocument(prisma, { orgId, tripId, body, actor, maxBy
   });
   if (!validated.ok) return validated;
 
+  // Board task #4: a driver capture carries when/where the photo was taken.
+  const capture = normalizeCapture({ capturedAt: b.capturedAt, geo: b.geo });
+  if (!capture.ok) return capture;
+
   const id = newId ?? randomUUID();
   const storageKey = buildStorageKey({ tripId, docType: validated.value.docType, id, filename: validated.value.filename });
   const document = await prisma.document.create({
-    data: { id, tripId, docType: validated.value.docType, storageKey, status: 'PENDING' },
+    data: { id, tripId, docType: validated.value.docType, storageKey, status: 'PENDING', ...capture.value },
   });
   return { ok: true, document, bytes };
 }
