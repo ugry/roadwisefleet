@@ -51,6 +51,8 @@ Known drift risk: certbot rewrites the site file on renewal/creation — pull it
 | [`host-exposure.md`](./host-exposure.md) | Public-listener inventory (3000, 9000/9001, 9200, 5355), no-host-firewall finding, closure plan. |
 | [`pilot-observability.md`](./pilot-observability.md) | Current observability (metrics/alerting gaps), verified backup state, restore-drill procedure. |
 | [`firewall/README.md`](./firewall/README.md) | Host firewall config-as-code: reviewed `ufw` rules, apply/rollback, order of operations. |
+| [`monitoring/README.md`](./monitoring/README.md) | Monitoring stack inventory (Gatus/VictoriaMetrics/node_exporter/Grafana/relay), **config-as-code gap** (configs live on elilavps1 — not transcribable from here), owned thresholds/checks T1–T8. |
+| [`monitoring/runbook.md`](./monitoring/runbook.md) | Monitoring operations: routine probes, silence/extend a check, alert round-trip test, relay Matrix token rotation, restore procedures, change control. |
 
 > The `scripts/`, `logrotate/` and `firewall/` files are **ready-to-apply
 > artifacts**: they are reviewed here but not installed on the host. Installing
