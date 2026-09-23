@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RoadwiseFleet — Pilot</title>
+<title data-i18n="index.title"></title>
 <style>
   :root{
     --navy-950: oklch(0.20 0.04 258);
@@ -22,9 +22,14 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5}
-  header.top{background:var(--navy-950);color:var(--on-dark);padding:16px 20px;display:flex;align-items:center;gap:14px}
+  header.top{background:var(--navy-950);color:var(--on-dark);padding:16px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   header.top .brand{font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:.02em;text-transform:uppercase}
   header.top .tag{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+  header.top .spacer{flex:1}
+  header.top .lang-slot{display:flex;align-items:center;gap:8px;font-size:12px}
+  header.top label.lang{display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.08em;color:var(--on-dark);opacity:.85}
+  header.top select.lang-switcher{font-family:inherit;font-size:13px;padding:5px 7px;border-radius:6px;border:1px solid var(--navy-950);
+    background:var(--on-dark);color:var(--ink)}
   main{max-width:760px;margin:0 auto;padding:40px 20px 60px}
   h1{font-family:var(--font-display);font-weight:600;font-size:34px;letter-spacing:.01em;margin:0 0 8px}
   p.lead{color:var(--muted);margin:0 0 28px}
@@ -39,25 +44,38 @@
 </head>
 <body>
 <header class="top">
-  <span class="brand">RoadwiseFleet</span>
-  <span class="tag">Pilot</span>
+  <span class="brand" data-i18n="brand.name"></span>
+  <span class="tag" data-i18n="common.pilotTag"></span>
+  <span class="spacer"></span>
+  <span class="lang-slot" id="langSlot"></span>
 </header>
 <main>
-  <h1>Pilot surface</h1>
-  <p class="lead">A pilot-only web surface served by the pilot API on the same origin. Not the production site.</p>
+  <h1 data-i18n="index.h1"></h1>
+  <p class="lead" data-i18n="index.lead"></p>
   <div class="grid">
     <a class="card" href="dashboard.html">
-      <h2>Dispatch dashboard</h2>
-      <p>Sign in with an owner or dispatcher account: org trip list, create trips, advance statuses.</p>
-      <span class="go">Open dashboard →</span>
+      <h2 data-i18n="nav.dashboard"></h2>
+      <p data-i18n="index.dashboardCard"></p>
+      <span class="go" data-i18n="index.openDashboard"></span>
     </a>
     <a class="card" href="driver.html">
-      <h2>Driver view</h2>
-      <p>Sign in with a driver account: your assigned trips and the next legal status.</p>
-      <span class="go">Open driver view →</span>
+      <h2 data-i18n="nav.driver"></h2>
+      <p data-i18n="index.driverCard"></p>
+      <span class="go" data-i18n="index.openDriver"></span>
     </a>
   </div>
-  <footer>Pilot build — data lives in the pilot database, sessions are per-tab.</footer>
+  <footer data-i18n="index.footer"></footer>
 </main>
+
+<script src="lib/i18n.js"></script>
+<script src="lib/i18n-ui.js"></script>
+<script>
+(function () {
+  'use strict';
+  // Board task #6: the landing page has no session, so the locale comes from
+  // ?lang=, the browser's remembered choice, or its own language — then EN.
+  window.RoadwiseI18nUI.init({ mount: '#langSlot' });
+})();
+</script>
 </body>
 </html>

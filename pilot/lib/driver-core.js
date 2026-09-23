@@ -13,6 +13,10 @@
  * (`apps/api/src/trip-status.js`) — `TRANSITIONS` is a mirror, and
  * `driver-pwa.test.js` fails if the two ever drift apart.
  *
+ * Every user-visible sentence is a catalogue *key* (`pilot/locales/*.json`,
+ * board task #6) — no English literal lives in this file, so the driver app is
+ * translatable without touching the domain rules.
+ *
  * No secrets, no build step, ES5-compatible syntax (the pilot targets cheap
  * Android WebViews).
  */
@@ -63,13 +67,17 @@
    * a `pod` **or** an `ecmr` satisfies (`POD_DOC_TYPES`); the alternative row is
    * marked so the driver is not told to produce both. The rest is the pilot
    * paperwork attachable from the same screen.
+   *
+   * Text lives in the locale catalogues (`pilot/locales/*.json`) — this module
+   * carries keys, never English, so the pilot can be read in EN/DE/PL/TR
+   * (board task #6).
    */
   var CHECKLIST = [
-    { docType: 'pod', label: 'POD photo', required: true, alternative: false, hint: 'Photo of the signed delivery note' },
-    { docType: 'ecmr', label: 'eCMR', required: true, alternative: true, hint: 'Signed consignment note — an alternative to the POD' },
-    { docType: 'e_irsaliye', label: 'e-İrsaliye', required: false, alternative: false, hint: 'Turkish consignment note' },
-    { docType: 'invoice', label: 'Invoice', required: false, alternative: false, hint: 'Freight invoice' },
-    { docType: 'tacho_file', label: 'Tachograph file', required: false, alternative: false, hint: 'Tacho export' },
+    { docType: 'pod', labelKey: 'doctype.pod', hintKey: 'doctype.pod.hint', required: true, alternative: false },
+    { docType: 'ecmr', labelKey: 'doctype.ecmr', hintKey: 'doctype.ecmr.hint', required: true, alternative: true },
+    { docType: 'e_irsaliye', labelKey: 'doctype.e_irsaliye', hintKey: 'doctype.e_irsaliye.hint', required: false, alternative: false },
+    { docType: 'invoice', labelKey: 'doctype.invoice', hintKey: 'doctype.invoice.hint', required: false, alternative: false },
+    { docType: 'tacho_file', labelKey: 'doctype.tacho_file', hintKey: 'doctype.tacho_file.hint', required: false, alternative: false },
   ];
 
   /** One requirement per group: the trip needs at least one document from each. */
@@ -155,8 +163,8 @@
       var status = match ? String(match.status || '') : '';
       return {
         docType: row.docType,
-        label: row.label,
-        hint: row.hint,
+        labelKey: row.labelKey,
+        hintKey: row.hintKey,
         required: row.required,
         alternative: row.alternative,
         present: PRESENT_DOC_STATUSES.indexOf(status) !== -1,
@@ -212,7 +220,7 @@
       rateEur: money(t.rateEur),
       // No ETA source in the pilot data model yet: say so instead of inventing one.
       eta: null,
-      etaLabel: 'ETA — not available yet',
+      etaKey: 'driver.etaUnavailable',
       stops: (Array.isArray(t.stops) ? t.stops : []).map(function (s) {
         return {
           seq: s.seq,
@@ -253,8 +261,12 @@
    * GPS is best-effort: a missing/denied position is valid (both fields null),
    * but a *malformed* one is rejected rather than silently stored, and a
    * timestamp in the future is a clock problem the driver should see.
+   *
+   * `detail` is the developer-facing sentence (parity with the server-side
+   * `documents.js#normalizeCapture`); `detailKey` is the catalogue key the page
+   * shows the driver (board task #6).
    * @param {{ capturedAt?: unknown, geo?: unknown, now?: number }} [input]
-   * @returns {{ ok: true, value: { capturedAt: string|null, lat: number|null, lng: number|null, accuracyM: number|null } } | { ok: false, error: string, detail: string }}
+   * @returns {{ ok: true, value: { capturedAt: string|null, lat: number|null, lng: number|null, accuracyM: number|null } } | { ok: false, error: string, detail: string, detailKey: string }}
    */
   function normalizeCapture(input) {
     var b = input || {};
@@ -264,10 +276,10 @@
     if (b.capturedAt !== undefined && b.capturedAt !== null && b.capturedAt !== '') {
       var ms = typeof b.capturedAt === 'number' ? b.capturedAt : Date.parse(String(b.capturedAt));
       if (!Number.isFinite(ms)) {
-        return { ok: false, error: 'invalid_capture', detail: 'capturedAt must be an ISO date or epoch milliseconds' };
+        return { ok: false, error: 'invalid_capture', detail: 'capturedAt must be an ISO date or epoch milliseconds', detailKey: 'capture.badTimestamp' };
       }
       if (ms > now + 24 * 60 * 60 * 1000) {
-        return { ok: false, error: 'invalid_capture', detail: 'capturedAt is in the future' };
+        return { ok: false, error: 'invalid_capture', detail: 'capturedAt is in the future', detailKey: 'capture.futureTimestamp' };
       }
       capturedAt = new Date(ms).toISOString();
     }
@@ -277,34 +289,43 @@
     }
     var g = b.geo;
     if (typeof g !== 'object') {
-      return { ok: false, error: 'invalid_capture', detail: 'geo must be an object' };
+      return { ok: false, error: 'invalid_capture', detail: 'geo must be an object', detailKey: 'capture.geoNotObject' };
     }
     var lat = Number(g.lat);
     var lng = Number(g.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return { ok: false, error: 'invalid_capture', detail: 'geo.lat and geo.lng are required numbers' };
+      return { ok: false, error: 'invalid_capture', detail: 'geo.lat and geo.lng are required numbers', detailKey: 'capture.geoRequired' };
     }
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      return { ok: false, error: 'invalid_capture', detail: 'geo.lat/lng out of range' };
+      return { ok: false, error: 'invalid_capture', detail: 'geo.lat/lng out of range', detailKey: 'capture.geoRange' };
     }
     var accuracyM = null;
     if (g.accuracy !== undefined && g.accuracy !== null && g.accuracy !== '') {
       var acc = Number(g.accuracy);
       if (!Number.isFinite(acc) || acc < 0) {
-        return { ok: false, error: 'invalid_capture', detail: 'geo.accuracy must be a non-negative number' };
+        return { ok: false, error: 'invalid_capture', detail: 'geo.accuracy must be a non-negative number', detailKey: 'capture.accuracy' };
       }
       accuracyM = Math.round(acc);
     }
     return { ok: true, value: { capturedAt: capturedAt, lat: lat, lng: lng, accuracyM: accuracyM } };
   }
 
-  /** Human-readable GPS line for a capture ("51.5074, -0.1278 ±25 m"). */
-  function captureGeoLabel(capture) {
+  /**
+   * The numeric parts of a GPS fix, ready for the page to put into a translated
+   * string (`driver.gpsCoords`, `driver.gpsCoordsAccuracy`). Coordinates keep
+   * their conventional dot decimals — that is how drivers read a position — so
+   * nothing here is locale-dependent.
+   * @param {{ lat?: any, lng?: any, accuracyM?: any }|null} capture
+   * @returns {{ lat: string, lng: string, accuracyM: number|null }|null}
+   */
+  function captureCoords(capture) {
     var c = capture || {};
     if (c.lat === null || c.lat === undefined || c.lng === null || c.lng === undefined) return null;
-    var label = Number(c.lat).toFixed(4) + ', ' + Number(c.lng).toFixed(4);
-    if (c.accuracyM !== null && c.accuracyM !== undefined) label += ' ±' + c.accuracyM + ' m';
-    return label;
+    return {
+      lat: Number(c.lat).toFixed(4),
+      lng: Number(c.lng).toFixed(4),
+      accuracyM: (c.accuracyM === null || c.accuracyM === undefined) ? null : Number(c.accuracyM),
+    };
   }
 
   /** True when the fix is too coarse to be worth attaching. */
@@ -422,20 +443,19 @@
   }
 
   /**
-   * The sync indicator: one word, one count, one colour hint for the UI.
+   * The sync indicator: one state, the pending count, and the catalogue key the
+   * page renders (with `{ count }`, so the plural form comes from the locale).
    * @param {any[]|undefined} items
    * @param {{ online?: boolean, syncing?: boolean, lastError?: string|null }} [opts]
    */
   function syncIndicator(items, opts) {
     var b = opts || {};
     var pending = Array.isArray(items) ? items.length : 0;
-    if (b.syncing) return { state: 'syncing', pending: pending, label: 'Syncing…' };
-    if (b.online === false) {
-      return { state: 'offline', pending: pending, label: 'Offline — ' + pending + (pending === 1 ? ' change' : ' changes') + ' waiting' };
-    }
-    if (b.lastError) return { state: 'error', pending: pending, label: 'Sync problem — ' + pending + ' waiting' };
-    if (pending > 0) return { state: 'pending', pending: pending, label: pending + (pending === 1 ? ' change' : ' changes') + ' waiting to sync' };
-    return { state: 'synced', pending: 0, label: 'All changes synced' };
+    if (b.syncing) return { state: 'syncing', pending: pending, labelKey: 'driver.sync.syncing' };
+    if (b.online === false) return { state: 'offline', pending: pending, labelKey: 'driver.sync.offline' };
+    if (b.lastError) return { state: 'error', pending: pending, labelKey: 'driver.sync.error' };
+    if (pending > 0) return { state: 'pending', pending: pending, labelKey: 'driver.sync.pending' };
+    return { state: 'synced', pending: 0, labelKey: 'driver.sync.synced' };
   }
 
   /** The URL a queued item will be sent to. */
@@ -477,7 +497,7 @@
     buildTourCard: buildTourCard,
     pickCurrentTrip: pickCurrentTrip,
     normalizeCapture: normalizeCapture,
-    captureGeoLabel: captureGeoLabel,
+    captureCoords: captureCoords,
     isUsableFix: isUsableFix,
     makeQueueItem: makeQueueItem,
     sortQueue: sortQueue,
