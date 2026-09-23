@@ -34,4 +34,12 @@ export const env = {
   // documents.js) and never served directly.
   UPLOAD_DIR: process.env.UPLOAD_DIR || resolve(here, '../../../var/uploads'),
   MAX_UPLOAD_BYTES: Number(process.env.MAX_UPLOAD_BYTES || 10 * 1024 * 1024),
+  // Customer tracking links (board task #5). The signing key is derived from
+  // AUTH_SECRET unless TRACK_LINK_SECRET is set — set the latter to revoke every
+  // outstanding link without invalidating all sessions. TTL defaults to 30 days.
+  TRACK_LINK_SECRET: process.env.TRACK_LINK_SECRET || '',
+  TRACK_LINK_TTL_SECONDS: Number(process.env.TRACK_LINK_TTL_SECONDS || 30 * 24 * 60 * 60),
+  // Optional absolute base for generated links (e.g. https://roadwisefleet.com).
+  // Empty → origin-relative `/track/<token>`, correct for the same-origin pilot.
+  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || '',
 };

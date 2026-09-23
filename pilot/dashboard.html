@@ -416,7 +416,38 @@
         '<table><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>' + expRows + '</tbody></table>' +
       '<div class="section-title">P&amp;L</div>' +
         '<p class="pnl ' + pnlClass + '">' + money(pnl) + '</p>' +
-        '<p class="muted">Rate ' + money(t.rateEur) + ' − expenses ' + money(totals.expensesEur) + '</p>';
+        '<p class="muted">Rate ' + money(t.rateEur) + ' − expenses ' + money(totals.expensesEur) + '</p>' +
+      '<div class="section-title">Customer tracking</div>' +
+        '<p class="muted">Share a read-only link: route, status and timeline, no login and no PII.</p>' +
+        '<button class="ghost small" id="trackLinkBtn" type="button">Create tracking link</button>' +
+        '<p class="muted" id="trackLinkOut">No link created yet.</p>';
+
+    // Injected above, so look it up inside the drawer body rather than with the
+    // $-helper, which would need the id to exist in the static document.
+    var linkBtn = $('drawerBody').querySelector('#trackLinkBtn');
+    if (linkBtn) {
+      linkBtn.addEventListener('click', function () { createTrackLink(t.id, linkBtn); });
+    }
+  }
+
+  // Board task #5: mint a shareable, login-free tracking link for this trip.
+  // Owner/dispatcher only — the API answers 403 for any other role.
+  function createTrackLink(id, btn) {
+    btn.disabled = true;
+    var out = $('drawerBody').querySelector('#trackLinkOut');
+    out.textContent = 'Creating…';
+    api('/api/trips/' + encodeURIComponent(id) + '/track-link', { method: 'POST', token: token() })
+      .then(function (r) {
+        btn.disabled = false;
+        if (r.status !== 201) { out.textContent = errorText(r.status, r.data); return; }
+        var link = (r.data && r.data.link) || {};
+        var url = new URL(link.url, window.location.origin).href;
+        out.innerHTML = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        out.textContent = 'Network error: ' + err.message;
+      });
   }
 
   function refreshOpenDrawer(id) {

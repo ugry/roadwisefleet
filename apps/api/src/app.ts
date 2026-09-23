@@ -8,6 +8,7 @@ import { waitlistRoutes } from './routes/waitlist.js';
 import { tripRoutes } from './routes/trips.js';
 import { referenceRoutes } from './routes/reference.js';
 import { documentRoutes } from './routes/documents.js';
+import { trackPageRoutes, trackRoutes } from './routes/track.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
 const here = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,11 @@ export function buildServer() {
   app.register(tripRoutes, { prefix: '/api' });
   app.register(referenceRoutes, { prefix: '/api' });
   app.register(documentRoutes, { prefix: '/api' });
+  app.register(trackRoutes, { prefix: '/api' });
+
+  // Public customer tracking page: root path `/track/:token` (no auth, not
+  // under /pilot/), so a shared link reads like a customer-facing URL.
+  app.register(trackPageRoutes);
 
   // Pilot-only web surface. Served from the API itself so the pages are
   // same-origin with `/api/*` (no new port, no nginx). The root is locked to
