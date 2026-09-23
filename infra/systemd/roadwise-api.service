@@ -10,15 +10,25 @@
 #
 # Authoritative copy: the host file. Transcribed from the verified unit facts
 # and live `systemctl status` output (the sandbox cannot read /etc directly).
+#
+# Provenance of the ordering/type/environment directives (After=, Wants=,
+# Type=, Environment=): the live unit was read by the overseer over SSH `sudo`
+# (2026-09-14, ref 12). This sandbox cannot read /etc, so those directives are
+# reproduced from that read, not independently re-read here. Independently
+# confirmed read-only this run: unit is `enabled`, service `active (running)`,
+# and the running command matches ExecStart below.
 
 [Unit]
 Description=RoadwiseFleet pilot API (elilavps2)
+After=network-online.target roadwise-pg.service roadwise-redis.service
+Wants=network-online.target
 Requires=roadwise-pg.service
-After=roadwise-pg.service roadwise-redis.service
 
 [Service]
+Type=simple
 User=debian
 Group=debian
+Environment=HOME=/home/debian
 WorkingDirectory=/opt/roadwisefleet/api
 EnvironmentFile=/opt/roadwisefleet/api/.env
 ExecStart=/usr/local/bin/pnpm --filter @roadwisefleet/api start

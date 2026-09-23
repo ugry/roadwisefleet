@@ -9,6 +9,7 @@ Files here mirror what runs on the production VPS (51.222.139.227).
 | `../services/waitlist/backup.sh` | `/opt/roadwisefleet/waitlist/backup.sh` | Nightly waitlist backup (tar.gz to `/var/backups/roadwisefleet`, 14-day retention), run by the `roadwisefleet-backup.timer` systemd unit. |
 | `systemd/roadwise-api.service` | `/etc/systemd/system/roadwise-api.service` | Value-free reference mirror of the pilot API unit. Runbook: [`pilot-api.md`](./pilot-api.md). |
 | `systemd/roadwise-pg.service` | `/etc/systemd/system/roadwise-pg.service` | Value-free reference mirror of the pilot Postgres unit. Runbook: [`pilot-db.md`](./pilot-db.md). |
+| `systemd/roadwise-redis.service` | `/etc/systemd/system/roadwise-redis.service` | Value-free reference mirror of the pilot Redis unit (observable fields only). Runbook: [`pilot-db.md`](./pilot-db.md). |
 
 Apply after editing:
 ```bash
