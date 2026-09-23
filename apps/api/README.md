@@ -66,6 +66,17 @@ test runner with no install:
 pnpm test                            # or: node --test apps/api/src/
 ```
 
+The HTTP-level router regression test needs the API dependencies but **no
+database**: it mints a real tracking token (~203 chars) and drives the real
+`buildServer()` through `app.inject()`, proving `/track/:token` and
+`/api/track/:token` are served rather than rejected with `414
+FST_ERR_MAX_PARAM_LENGTH` (the PR #25 review finding — Fastify's default
+`maxParamLength` is 100):
+
+```bash
+pnpm --filter @roadwisefleet/api test:router
+```
+
 The DB-backed smoke test needs a migrated + seeded database:
 ```bash
 pnpm --filter @roadwisefleet/api smoke -- --password=...
@@ -154,6 +165,14 @@ route — the signed trip id *is* the capability.
 
 Logic lives in `src/track-link.js` (pure, covered by `src/track-link.test.js`);
 the HTML shell is `src/track-page.js`; the routes are `src/routes/track.ts`.
+
+A tracking token is ~203 chars, which is longer than Fastify's default route
+parameter cap (`maxParamLength: 100`) — so `buildServer()` configures
+`routerOptions.maxParamLength` (512) via `src/server-options.js`, otherwise
+`/track/:token` and `/api/track/:token` fail with `414
+FST_ERR_MAX_PARAM_LENGTH` before the handler runs. Guarded by
+`src/track-router.test.js` (dependency-free, runs in CI) and
+`test/track-router.test.ts` (`pnpm test:router`, real `app.inject()`).
 
 > Deployment note: production nginx currently proxies only `/api/` and `/pilot/`
 > to the API, so `/track/:token` needs a `location /track/` block (with the

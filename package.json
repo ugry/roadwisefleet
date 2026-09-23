@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "pnpm --filter @roadwisefleet/api dev",
     "test": "pnpm --filter @roadwisefleet/api test",
+    "test:router": "pnpm --filter @roadwisefleet/api test:router",
     "db:generate": "pnpm --filter @roadwisefleet/api db:generate",
     "db:migrate": "pnpm --filter @roadwisefleet/api db:migrate",
     "db:status": "pnpm --filter @roadwisefleet/api db:status",

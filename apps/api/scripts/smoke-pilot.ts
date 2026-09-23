@@ -83,6 +83,31 @@ async function main() {
   const detailMissing = await call(base, 'GET', '/api/trips/does-not-exist', adminToken);
   results.tripDetailMissing = { expected: 404, status: detailMissing.status, body: detailMissing.json };
 
+  // Customer tracking link (board task #5). This is the acceptance check the
+  // original PR evidence missed: the minted token is ~203 chars, over Fastify's
+  // default maxParamLength (100), so a real HTTP call must pass the router —
+  // before the fix both routes answered 414 FST_ERR_MAX_PARAM_LENGTH.
+  const trackMint = await call(base, 'POST', `/api/trips/${tripId}/track-link`, adminToken);
+  const trackToken = (trackMint.json?.link?.token as string) || '';
+  const trackPage = await fetch(`${base}/track/${trackToken}`);
+  const trackPageBody = await trackPage.text();
+  const trackJson = await fetch(`${base}/api/track/${trackToken}`);
+  const trackJsonBody = await trackJson.json().catch(() => null);
+  const trackTampered = await fetch(`${base}/api/track/${trackToken.slice(0, -2)}xy`);
+  results.trackingLink = {
+    expected: { mint: 201, page: 200, json: 200, tampered: 404 },
+    tokenLength: trackToken.length,
+    mintStatus: trackMint.status,
+    pageStatus: trackPage.status,
+    pageIsHtml: /text\/html/.test(trackPage.headers.get('content-type') || ''),
+    pageNoindexHeader: trackPage.headers.get('x-robots-tag'),
+    pageHasNoindexMeta: trackPageBody.includes('name="robots"'),
+    jsonStatus: trackJson.status,
+    jsonNoindexHeader: trackJson.headers.get('x-robots-tag'),
+    jsonTripStatus: trackJsonBody?.tracking?.status,
+    tamperedStatus: trackTampered.status,
+  };
+
   const unauth = await call(base, 'GET', '/api/trips');
   results.unauthenticated = { status: unauth.status, body: unauth.json };
 

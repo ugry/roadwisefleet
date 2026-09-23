@@ -9,6 +9,7 @@ import { tripRoutes } from './routes/trips.js';
 import { referenceRoutes } from './routes/reference.js';
 import { documentRoutes } from './routes/documents.js';
 import { trackPageRoutes, trackRoutes } from './routes/track.js';
+import { serverOptions } from './server-options.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
 const here = dirname(fileURLToPath(import.meta.url));
@@ -20,7 +21,9 @@ const pilotRoot = resolve(here, '../../../pilot');
  * that calls `listen()`.
  */
 export function buildServer() {
-  const app = Fastify({ logger: true });
+  // `routerOptions.maxParamLength` must exceed a real tracking token (~203
+  // chars); the Fastify default (100) returned 414 before the handler ran.
+  const app = Fastify(serverOptions());
 
   app.register(healthRoutes);
   app.register(authRoutes, { prefix: '/api' });
