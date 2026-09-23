@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title data-i18n="app.title">Fleet Manager — RoadwiseFleet</title>
+<link rel="stylesheet" href="/app/app.css">
+</head>
+<body>
+<a class="skip-link" href="#outlet" data-i18n="app.skipToContent">Skip to content</a>
+
+<!-- =====================================================================
+     Login view. Unauthenticated. Shown by app.js whenever there is no
+     usable session; the app view is never rendered in that state.
+     ===================================================================== -->
+<section id="loginView" class="login" hidden>
+  <div class="login-card">
+    <p class="brand-line">
+      <span class="brand" data-i18n="brand.name">RoadwiseFleet</span>
+      <span class="tag" data-i18n="brand.appTag">Fleet Manager</span>
+    </p>
+    <h1 data-i18n="login.title">Sign in to Fleet Manager</h1>
+    <p class="lead" data-i18n="login.lead"></p>
+
+    <form id="loginForm" novalidate>
+      <div class="field">
+        <label for="email" data-i18n="login.email">Email</label>
+        <input id="email" name="email" type="email" required autocomplete="username"
+               inputmode="email" spellcheck="false" autofocus
+               data-i18n-placeholder="login.emailPlaceholder"
+               aria-describedby="loginHelper">
+      </div>
+      <div class="field">
+        <label for="password" data-i18n="login.password">Password</label>
+        <input id="password" name="password" type="password" required
+               autocomplete="current-password"
+               data-i18n-placeholder="login.passwordPlaceholder">
+      </div>
+      <p class="helper" id="loginHelper" data-i18n="login.helper"></p>
+      <p class="alert" id="loginError" role="alert" hidden></p>
+      <button class="primary" id="loginSubmit" type="submit" data-i18n="login.submit">Sign in</button>
+    </form>
+  </div>
+</section>
+
+<!-- =====================================================================
+     App view. Authenticated shell: header, role-aware navigation, and the
+     outlet every later function (F2–F10) mounts into.
+     ===================================================================== -->
+<div id="appView" class="app" hidden>
+  <header class="topbar">
+    <p class="brand-line">
+      <span class="brand" data-i18n="brand.name">RoadwiseFleet</span>
+      <span class="tag" data-i18n="brand.appTag">Fleet Manager</span>
+    </p>
+    <p class="who">
+      <span data-i18n="common.signedInAs">Signed in as</span>
+      <strong id="whoName"></strong>
+      <span class="role-badge" id="whoRole"></span>
+    </p>
+    <span class="spacer"></span>
+    <span class="lang-slot" id="langSlot"></span>
+    <button class="ghost" id="logout" type="button" data-i18n="common.signOut">Sign out</button>
+  </header>
+
+  <div class="layout">
+    <nav class="sidenav" id="navSlot" aria-label="Main navigation" data-i18n-aria-label="common.menu"></nav>
+    <main class="content">
+      <p class="alert" id="globalError" role="alert" hidden></p>
+      <section id="outlet" tabindex="-1" aria-live="polite"></section>
+    </main>
+  </div>
+</div>
+
+<noscript>
+  <p class="noscript">Fleet Manager needs JavaScript. Enable it and reload the page.</p>
+</noscript>
+
+<!-- Shared i18n core and DOM layer, reused from the pilot (board task #6). -->
+<script src="/pilot/lib/i18n.js"></script>
+<script src="/pilot/lib/i18n-ui.js"></script>
+<script src="/app/lib/app-core.js"></script>
+<script src="/app/app.js"></script>
+</body>
+</html>
