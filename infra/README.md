@@ -14,9 +14,9 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `pilot-exposure.md` | — | Runbook: routing, topology, reboot resilience, deploy/rollback, health checks, logs, credentials. |
 | `pilot-api.md` | — | Runbook: pilot API unit, config, ops, update steps, hardening. |
 | `pilot-db.md` | — | Runbook: Postgres/Redis containers and backups. |
-| `systemd/roadwise-api.service` | `/etc/systemd/system/roadwise-api.service` | Value-free reference mirror of the pilot API unit. |
-| `systemd/roadwise-pg.service` | `/etc/systemd/system/roadwise-pg.service` | Value-free reference mirror of the pilot Postgres unit. |
-| `systemd/roadwise-redis.service` | `/etc/systemd/system/roadwise-redis.service` | Value-free reference mirror of the pilot Redis unit (observable fields only). |
+| `systemd/roadwise-api.service` | `/etc/systemd/system/roadwise-api.service` | Value-free reference mirror of the pilot API unit. Runbook: [`pilot-api.md`](./pilot-api.md). |
+| `systemd/roadwise-pg.service` | `/etc/systemd/system/roadwise-pg.service` | Value-free reference mirror of the pilot Postgres unit. Runbook: [`pilot-db.md`](./pilot-db.md). |
+| `systemd/roadwise-redis.service` | `/etc/systemd/system/roadwise-redis.service` | Value-free reference mirror of the pilot Redis unit (observable fields only). Runbook: [`pilot-db.md`](./pilot-db.md). |
 | `../services/waitlist/roadwisefleet-waitlist.service` | `/etc/systemd/system/roadwisefleet-waitlist.service` | systemd unit for the legacy waitlist microservice. |
 | `../services/waitlist/backup.sh` | `/opt/roadwisefleet/waitlist/backup.sh` | Nightly waitlist backup (tar.gz to `/var/backups/roadwisefleet`, 14-day retention), run by the `roadwisefleet-backup.timer` unit. |
 
