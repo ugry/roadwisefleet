@@ -80,6 +80,9 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
+| `POST /api/trips/:id/documents` | bearer, `trip:*` or `pod:upload` + assigned driver | upload a document as JSON base64 (`docType`, `filename`, `mimeType`, `dataBase64`); stored under `UPLOAD_DIR` with a generated `storageKey`, row `PENDING` → `UPLOADED`; `400` on a bad type/mime/size, `403` on the wrong role |
+| `GET /api/trips/:id/documents` | bearer, `trip:*` or `trip:read` + assigned driver | the trip's document checklist (`id`, `docType`, `status`, `uploadedAt`, `expiresAt` — never the `storageKey`) |
+| `PATCH /api/documents/:id` | bearer, `trip:*` | set a document to `VERIFIED` or `REJECTED`; any other status is `400 invalid_status`, a foreign-org document is `404` |
 | `GET /pilot/*` | — | pilot-only web surface from `<repo>/pilot` (same origin, no build step) |
 | `POST /api/waitlist` | — | landing-page waitlist (honeypot + validation) |
 | `GET /api/waitlist` | `X-Admin-Token` | admin list |
@@ -89,6 +92,17 @@ stub is gone. Capabilities come from the token's `roleId` resolved against the
 seeded `Role.permissions` (`auth/permissions.js`); a denied action returns
 `403 forbidden`.
 
+### Documents / POD (board task #3)
+The `Document` model is now used. Uploads are JSON base64 (no multipart
+dependency) and land on local disk under `UPLOAD_DIR` (default
+`<repo>/var/uploads`, gitignored; MinIO later). `storageKey` is generated
+server-side as `<tripId>/<docType>/<documentId>-<sanitised-name>` and every
+write goes through `resolveWithin`, so a file can never escape the upload root;
+the key is never returned by the API. Limits: `MAX_UPLOAD_BYTES` (default
+10 MiB) and a MIME allowlist (JPEG, PNG, WebP, HEIC, HEIF, PDF). A trip can only
+move to `POD_UPLOADED` once it has an `UPLOADED`/`VERIFIED` `pod` or `ecmr`
+document (`400 pod_required` otherwise).
+
 ## Pilot web surface (`/pilot/`)
 The API serves the static pilot pages from the repo-root `pilot/` directory via
 `@fastify/static` (`src/app.ts`, prefix `/pilot/`), so the pages are same-origin
@@ -97,7 +111,9 @@ with `/api/*` — no new port and no nginx. Production `web/` is untouched.
 - `pilot/index.html` — landing linking to the two pages.
 - `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
   form and status-transition controls.
-- `pilot/driver.html` — driver login, assigned trips and the next legal status.
+- `pilot/driver.html` — driver login, assigned trips, the next legal status and
+  a POD/eCMR upload control with the trip's document list (used by the driver
+  PWA).
 
 Open `http://127.0.0.1:8080/pilot/` after `pnpm dev`. The pages use vanilla
 `fetch` and keep the bearer token in `sessionStorage`; no build step and no
