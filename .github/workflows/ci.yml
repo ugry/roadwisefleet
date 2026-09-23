@@ -81,16 +81,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Error severity only: this catches real bugs — including shell *parse*
-      # errors — in the deploy/ops scripts without churning on style warnings in
-      # pre-existing files. These scripts run on a host, so until this job
-      # existed CI validated none of them.
-      - name: Run shellcheck (error severity)
+      # Warning severity: catches real bugs (unquoted expansions, subshell
+      # variable loss, parse errors) in the deploy/ops scripts that run on a
+      # host, where CI previously validated nothing. Style-level noise is
+      # filtered out; every script in the repo passes this gate today.
+      - name: Run shellcheck (warning severity)
         run: |
           set -e
           mapfile -t files < <(git ls-files -z '*.sh' | tr '\0' '\n')
           echo "checking ${#files[@]} tracked shell scripts"
-          shellcheck --severity=error "${files[@]}"
+          shellcheck --severity=warning "${files[@]}"
 
   deploy-pages:
     name: Deploy GitHub Pages (web/)
