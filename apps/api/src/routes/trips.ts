@@ -5,6 +5,7 @@ import { requireAuth } from '../auth/guard.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
 import { createTrip, listDriverTrips, listOrgTrips, transitionTrip } from '../trips-core.js';
+import { getTripDetail } from '../trip-detail.js';
 
 /*
  * Trips API — real auth (signed bearer token) replaces the former `x-org-id`
@@ -32,6 +33,24 @@ export async function tripRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'forbidden' });
     }
     return reply.send({ trips: await listOrgTrips(prisma, { orgId: user.orgId }) });
+  });
+
+  // Trip detail (board task #2): the drawer payload — order/customer, driver,
+  // truck, status timeline, documents, expenses, settlement and P&L. Read-only
+  // and org-scoped: a trip in another org is a 404, never a 403 leak.
+  app.get('/trips/:id', { preHandler: auth }, async (req, reply) => {
+    const user = req.user;
+    if (!user?.orgId) return reply.code(403).send({ error: 'no_org' });
+    const permissions = await loadRolePermissions(prisma, user.roleId);
+    if (!hasPermission(permissions, 'trip:read')) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+    const { id } = req.params as { id: string };
+    const result = await getTripDetail(prisma, { orgId: user.orgId, tripId: id });
+    if (!result.ok) {
+      return reply.code(statusForError(result.error)).send({ error: result.error });
+    }
+    return reply.send({ trip: result.trip });
   });
 
   app.post('/trips', { preHandler: auth }, async (req, reply) => {

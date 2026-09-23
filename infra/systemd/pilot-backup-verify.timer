@@ -1,0 +1,19 @@
+# Ready-to-apply artifact — timer for backup verification (task eila/tasks#10).
+#
+# NOT installed by CI. Install to /etc/systemd/system/pilot-backup-verify.timer
+# (mode 0644) and `systemctl enable --now pilot-backup-verify.timer`.
+#
+# Runs at 04:15 UTC — after both nightly backups (03:15 pg, 03:30 waitlist) and
+# before the working day, so a broken backup is known the same night.
+
+[Unit]
+Description=Verify the RoadwiseFleet pilot backups nightly
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 UTC
+AccuracySec=1min
+Persistent=true
+Unit=pilot-backup-verify.service
+
+[Install]
+WantedBy=timers.target
