@@ -75,6 +75,23 @@ jobs:
       - name: Run API tests
         run: node --test apps/api/src/
 
+  shellcheck:
+    name: Shellcheck (infra scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Error severity only: this catches real bugs — including shell *parse*
+      # errors — in the deploy/ops scripts without churning on style warnings in
+      # pre-existing files. These scripts run on a host, so until this job
+      # existed CI validated none of them.
+      - name: Run shellcheck (error severity)
+        run: |
+          set -e
+          mapfile -t files < <(git ls-files -z '*.sh' | tr '\0' '\n')
+          echo "checking ${#files[@]} tracked shell scripts"
+          shellcheck --severity=error "${files[@]}"
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'

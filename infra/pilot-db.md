@@ -90,6 +90,12 @@ On the pilot host these are supplied from a **gitignored `.env`** file
   `eila/requests#3`.
 - **Deferred:** GitHub Actions VPS deploy. The `ci` workflow builds/tests and
   deploys `web/` to GitHub Pages only; it does not touch the pilot DB host.
+- **Prepared (not installed):** the automatic staging deploy path in
+  [`deploy.md`](./deploy.md) runs `prisma migrate deploy` — additive-only policy,
+  so an automatic rollback (code only) leaves the previous release working against
+  the newer schema. Staging uses a **separate database**
+  (`roadwisefleet_staging`) on the same container; the production database is
+  never migrated by a staging deploy.
 
 ## 6. Verification checklist (read-only)
 
