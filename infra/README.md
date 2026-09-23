@@ -22,6 +22,8 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `scripts/pilot-uptime-check.sh` | `/usr/local/bin/` | Probes `/`, `/pilot/`, `/api/trips`, `/api/waitlist`, `/health`; mails `ugur@` on failure. |
 | `scripts/pilot-backup-verify.sh` | `/usr/local/bin/` | `pg_restore --list` / gzip / tar integrity + freshness; mails `ugur@` on failure. |
 | `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container (live volume untouched). |
+| `scripts/pilot-api-error-watch.sh` | `/usr/local/bin/` | API error visibility (board #44): 5xx/upstream rate from the nginx logs, unit state + restart bursts, `/pilot/` latency. Alerts once per incident via `roadwise-notify.sh`, announces recovery, stays quiet during a single restart. `run` / `status` / `--self-test` (the self-test runs in CI). |
+| `systemd/pilot-api-error-watch.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply 2-minute timer for the above (a stopped API alerts within ~4 min). Runbook: [`monitoring/runbook.md`](./monitoring/runbook.md) §7. |
 | `logrotate/roadwisefleet` | `/etc/logrotate.d/roadwisefleet` | Logrotate drop-in for pilot log files. |
 | `firewall/ufw-pilot.sh` | `/opt/roadwisefleet/firewall/` | Reviewed, idempotent firewall rule set (default-deny inbound; 22/80/443 only). `apply` / `status` / `rollback`. |
 | `deploy.md` | — | Runbook: the automatic deploy path (board #31). **§10 = the current single-environment deployer** (merge → live pilot → health check → auto-rollback); §4–§7 are the superseded staging design (not installed). |
@@ -62,8 +64,8 @@ Known drift risk: certbot rewrites the site file on renewal/creation — pull it
 | [`host-exposure.md`](./host-exposure.md) | Public-listener inventory (3000, 9000/9001, 9200, 5355), no-host-firewall finding, closure plan. |
 | [`pilot-observability.md`](./pilot-observability.md) | Current observability (metrics/alerting gaps), verified backup state, restore-drill procedure. |
 | [`firewall/README.md`](./firewall/README.md) | Host firewall config-as-code: reviewed `ufw` rules, apply/rollback, order of operations. |
-| [`monitoring/README.md`](./monitoring/README.md) | Monitoring stack inventory (Gatus/VictoriaMetrics/node_exporter/Grafana/relay), **config-as-code gap** (configs live on elilavps1 — not transcribable from here), owned thresholds/checks T1–T8. |
-| [`monitoring/runbook.md`](./monitoring/runbook.md) | Monitoring operations: routine probes, silence/extend a check, alert round-trip test, relay Matrix token rotation, restore procedures, change control. |
+| [`monitoring/README.md`](./monitoring/README.md) | Monitoring stack inventory (Gatus/VictoriaMetrics/node_exporter/Grafana/relay), **config-as-code gap** (configs live on elilavps1 — not transcribable from here), owned thresholds/checks T1–T13, API error visibility (board #44). |
+| [`monitoring/runbook.md`](./monitoring/runbook.md) | Monitoring operations: routine probes, silence/extend a check, alert round-trip test, relay Matrix token rotation, restore procedures, first response to an API error alert (§7), change control. |
 | [`deploy.md`](./deploy.md) | The automatic deploy path (board #31): §10 single-environment deployer (merge → live pilot → auto-rollback); §4–§7 staging design, superseded. |
 
 > The `scripts/`, `logrotate/` and `firewall/` files are **ready-to-apply

@@ -346,9 +346,10 @@ STUB
   check "restart: a single restart does not alert" "$(count "$out2" api-up)" "0"
   echo 105 > "$tmp/restarts"
   out3="$(STUB_RESTARTS_FILE="$tmp/restarts" run_watch "$st" "$tmp/access.log")"
+  echo 110 > "$tmp/restarts"
   out4="$(STUB_RESTARTS_FILE="$tmp/restarts" run_watch "$st" "$tmp/access.log")"
   check "restart: burst silent on the first bad check (flap control)" "$(count "$out3" api-up)" "0"
-  check "restart: burst of 4 restarts alerts on the second" "$(count "$out4" api-up)" "1"
+  check "restart: burst of restarts alerts on the second bad check" "$(count "$out4" api-up)" "1"
 
   # 7. latency: needs CONSEC_LATENCY consecutive slow checks
   st="$tmp/s7"; mkdir -p "$st"
@@ -426,15 +427,22 @@ if [ -n "$restarts_now" ]; then
 fi
 
 api_bad=0; api_reason=""
+add_reason() { # add_reason <text> — append to api_reason with "; " between parts
+  if [ -z "$api_reason" ]; then
+    api_reason="$1"
+  else
+    api_reason="${api_reason}; $1"
+  fi
+}
 if [ "$hcode" != 200 ]; then
-  api_bad=1; api_reason="loopback liveness ${API_HEALTH} returned ${hcode}"
+  api_bad=1; add_reason "loopback liveness ${API_HEALTH} returned ${hcode}"
 fi
 case "$active_state" in
   active|unknown) ;;
-  *) api_bad=1; api_reason="${api_reason:+$api_reason; }${API_UNIT} ActiveState=${active_state}" ;;
+  *) api_bad=1; add_reason "${API_UNIT} ActiveState=${active_state}" ;;
 esac
 if [ "$restart_delta" -ge "$RESTART_BURST" ]; then
-  api_bad=1; api_reason="${api_reason:+$api_reason; }${API_UNIT} restarted ${restart_delta}x since the previous check"
+  api_bad=1; add_reason "${API_UNIT} restarted ${restart_delta}x since the previous check"
 fi
 if [ "$api_bad" = 1 ]; then
   handle api-up 1 "$CONSEC_FAILS" \

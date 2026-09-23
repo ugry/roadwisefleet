@@ -129,3 +129,23 @@ I will not publish step-by-step commands for a layout I have not verified.
 - Secrets never leave elilavps1; if a token ever appears in a log, artifact, ticket
   or email, treat it as an incident: report the *finding* (value-free) and the file
   for cleanup.
+
+## 7. First response — the API error alert (board #44)
+
+The alert text starts with the signal it came from. Read the signal before
+touching anything; the state lives in `/var/lib/pilot-api-watch/<signal>.state`
+(`<state> <last-alert-epoch> <consecutive>`), inspectable read-only with
+`/usr/local/bin/pilot-api-error-watch.sh status`.
+
+| Signal | Means | First response |
+|---|---|---|
+| `api-up` | `roadwise-api.service` not `active`, or loopback `/health` ≠ 200, or ≥ 3 restarts in one interval | `systemctl status roadwise-api roadwise-pg roadwise-redis`; if the unit is down, that is a production incident — **do not** restart it on my own initiative, report it and get owner approval. A restart **burst** usually means a crash loop: read `journalctl -u roadwise-api -n 100` for the reason before restarting anything (the logs name the cause; the alert does not). |
+| `http-5xx` | real requests are failing — count/ratio over 300 s, with the upstream 502/503/504 count and the newest nginx error line | `/health` returning 200 with 502s upstream usually means the API process is alive but the **database or Redis** is not: `systemctl status roadwise-pg roadwise-redis`. Purely 500s point at an application defect — quote the nginx error line, the request path and the time in the report, then hand it to the dev/QA roles; I do not patch application code as a fix. |
+| `latency` | `/pilot/` over 3 s for 3 checks | check capacity, not the app first: `free -m`, `df -h /`, and the swap line — a memory-pressured VPS shows up here before it shows up anywhere else. |
+| `log-unreadable` | the check cannot read `access.log` and is therefore **blind** | fix the check, not the alert: confirm the unit still runs as root and the file is `0640 root:adm`. A muted/blind watchdog is worse than no watchdog — say so on the board if it lasts more than one cycle. |
+
+Rules that apply to all four: it is **one alert per signal per hour** by design —
+a repeat message means the fault is still there, not that the check is broken. If
+the same signal repeats for > 2 cycles without a diagnosis, post on the board with
+the exact commands + output rather than muting the alert (§2). Recovery messages
+are expected and mean the signal cleared itself; they do not need a reply.
