@@ -142,7 +142,15 @@ export async function transitionTrip(prisma, { orgId, tripId, to, actor }) {
 
   const [trip] = await prisma.$transaction([
     prisma.trip.update({ where: { id: tripId }, data: { status: target } }),
-    prisma.statusEvent.create({ data: { tripId, fromStatus: from, toStatus: target } }),
+    prisma.statusEvent.create({
+      data: {
+        tripId,
+        fromStatus: from,
+        toStatus: target,
+        // Who moved the trip, for the detail timeline (board task #2).
+        actorId: actor?.userId ?? null,
+      },
+    }),
   ]);
   return { ok: true, trip };
 }

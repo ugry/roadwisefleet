@@ -57,6 +57,7 @@ model User {
 
   tripsAsDriver Trip[]
   tripDrivers   TripDriver[]
+  statusEvents  StatusEvent[]
 }
 
 model Truck {
@@ -190,6 +191,8 @@ model StatusEvent {
   trip        Trip     @relation(fields: [tripId], references: [id])
   fromStatus  String
   toStatus    String
+  actorId     String? // who moved the trip; nullable for pre-actor history
+  actor       User?    @relation(fields: [actorId], references: [id])
   happenedAt  DateTime @default(now())
 }
 
