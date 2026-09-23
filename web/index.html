@@ -3,8 +3,46 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="index,follow">
+<!-- Preview guard (QA F3): the GitHub Pages build (ugry.github.io/roadwisefleet) is a
+     byte-identical, non-canonical copy of the live site. Static hosting cannot vary
+     content per origin, so this runs before anything else and marks the preview
+     noindex + read-only. The live site (roadwisefleet.com) is unaffected. -->
+<script>
+(function () {
+  "use strict";
+  var preview = /(^|\.)github\.io$/i.test(location.hostname);
+  window.RWF_PREVIEW = preview;
+  if (!preview) return;
+  var meta = document.querySelector('meta[name="robots"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.setAttribute("name", "robots");
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute("content", "noindex,nofollow");
+})();
+</script>
 <title>RoadwiseFleet — The operating system for small trucking fleets</title>
 <meta name="description" content="One Android app for your drivers, one dashboard for dispatch, compliance and cash flow. Built for 1–20-truck fleets — no hardware, no lock-in.">
+<link rel="canonical" href="https://roadwisefleet.com/">
+<!-- Open Graph / Twitter card (QA F8) -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="RoadwiseFleet">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://roadwisefleet.com/">
+<meta property="og:title" content="RoadwiseFleet — The operating system for small trucking fleets">
+<meta property="og:description" content="One Android app for your drivers, one dashboard for dispatch, compliance and cash flow. Built for 1–20-truck fleets — no hardware, no lock-in.">
+<meta property="og:image" content="https://roadwisefleet.com/og-image.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="RoadwiseFleet — deep navy card with the amber route brand mark">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RoadwiseFleet — The operating system for small trucking fleets">
+<meta name="twitter:description" content="One Android app for your drivers, one dashboard for dispatch, compliance and cash flow. Built for 1–20-truck fleets — no hardware, no lock-in.">
+<meta name="twitter:image" content="https://roadwisefleet.com/og-image.png">
+<meta name="twitter:image:alt" content="RoadwiseFleet — deep navy card with the amber route brand mark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1f3a'/%3E%3Cpath d='M7 21c4-6 6-10 9-14' stroke='%23f7b733' stroke-width='2.4' stroke-linecap='round' fill='none'/%3E%3Ccircle cx='17' cy='7' r='2.6' fill='%23f7b733'/%3E%3Ccircle cx='7' cy='21' r='2.6' fill='%23f7b733'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -413,6 +451,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
 .waitlist .h2{color:var(--on-dark)}
 .waitlist .lead{color:var(--on-dark-3);margin:14px auto 0}
 .waitlist-form{display:flex;gap:10px;max-width:520px;margin:30px auto 0}
+.waitlist-form[hidden]{display:none}
 .waitlist-form input{
   flex:1;min-width:0;min-height:52px;padding:12px 16px;border-radius:10px;
   border:1px solid var(--border-dark);background:oklch(1 0 0 / 0.05);color:var(--on-dark);
@@ -420,7 +459,9 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
 }
 .waitlist-form input::placeholder{color:var(--on-dark-3)}
 .waitlist-form input:focus{outline:none;border-color:var(--on-dark);box-shadow:var(--ring-dark)}
+.waitlist-form input[aria-invalid="true"]{border-color:oklch(0.68 0.17 26)}
 .waitlist-note{font-size:12.5px;color:var(--on-dark-3);margin-top:14px}
+.waitlist-note a{color:var(--on-dark);text-decoration:underline;text-underline-offset:2px}
 .waitlist-error{font-size:13px;color:oklch(0.75 0.15 26);margin-top:14px;text-align:center}
 .waitlist-success{display:none;max-width:520px;margin:30px auto 0;background:oklch(1 0 0 / 0.05);border:1px solid var(--border-dark);border-radius:12px;padding:22px;color:var(--on-dark)}
 .waitlist-success .icon{width:26px;height:26px;color:var(--success);margin:0 auto 10px}
@@ -433,7 +474,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
 .footer-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:40px;margin-bottom:44px}
 .footer .brand{margin-bottom:14px}
 .footer-tagline{font-size:14px;line-height:1.6;color:var(--on-dark-3);max-width:34ch}
-.footer h4{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--on-dark-3);margin-bottom:14px}
+.footer h3.footer-heading{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--on-dark-3);margin:0 0 14px}
 .footer-links{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .footer-links a{font-size:14.5px;color:var(--on-dark-2);transition:color .18s var(--ease)}
 .footer-links a:hover{color:var(--on-dark)}
@@ -533,9 +574,9 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
     </a>
     <nav aria-label="Primary">
       <ul class="nav-links">
-        <li><a href="#product">Product</a></li>
-        <li><a href="#product">Drivers</a></li>
+        <li><a href="#drivers">Drivers</a></li>
         <li><a href="#fleets">Fleets</a></li>
+        <li><a href="#how-it-works">How it works</a></li>
         <li><a href="#pricing">Pricing</a></li>
       </ul>
     </nav>
@@ -546,9 +587,9 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
   </div>
 </header>
 <div class="mobile-menu" id="mobile-menu" data-od-id="mobile-menu">
-  <a href="#product">Product</a>
-  <a href="#product">Drivers</a>
+  <a href="#drivers">Drivers</a>
   <a href="#fleets">Fleets</a>
+  <a href="#how-it-works">How it works</a>
   <a href="#pricing">Pricing</a>
   <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
 </div>
@@ -732,7 +773,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
 </section>
 
 <!-- ===================== DRIVER APP ===================== -->
-<section class="product section" id="product" data-od-id="driver-app">
+<section class="product section" id="drivers" data-od-id="driver-app">
   <div class="container">
     <div class="product-grid">
       <div class="product-media" data-reveal>
@@ -975,10 +1016,11 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
       <p class="lead">We’re onboarding a small group of 1–20-truck fleets first. Tell us where to reach you — we’ll reply personally.</p>
       <form class="waitlist-form" id="waitlist-form" novalidate data-od-id="waitlist-form">
         <label for="waitlist-email" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Work email</label>
-        <input type="email" id="waitlist-email" name="email" placeholder="you@yourfleet.com" autocomplete="email" required data-od-id="waitlist-email">
+        <input type="email" id="waitlist-email" name="email" placeholder="you@yourfleet.com" autocomplete="email" required aria-describedby="waitlist-error" data-od-id="waitlist-email">
         <input type="text" name="company_website" style="position:absolute;left:-9999px;width:1px;height:1px" tabindex="-1" autocomplete="off" aria-hidden="true">
         <button class="btn btn-primary" type="submit" data-od-id="waitlist-submit">Join the early-access list</button>
       </form>
+      <p class="waitlist-note" id="waitlist-preview" hidden><b>Preview build.</b> This GitHub Pages copy is read-only, so the waitlist form is disabled here. Join the list at <a href="https://roadwisefleet.com/#waitlist">roadwisefleet.com</a>.</p>
       <p class="waitlist-error" id="waitlist-error" role="alert" hidden></p>
       <p class="waitlist-note">No spam. Early-access updates and pricing only.</p>
       <div class="waitlist-success" id="waitlist-success" role="status" aria-live="polite">
@@ -1007,15 +1049,15 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
         <p class="footer-tagline">The operating system for small trucking fleets and owner-operators.</p>
       </div>
       <div>
-        <h4>Product</h4>
+        <h3 class="footer-heading">Product</h3>
         <ul class="footer-links">
-          <li><a href="#product">Driver app</a></li>
-          <li><a href="#fleets">Fleet dashboard</a></li>
+          <li><a href="#drivers">Drivers</a></li>
+          <li><a href="#fleets">Fleets</a></li>
           <li><a href="#pricing">Pricing</a></li>
         </ul>
       </div>
       <div>
-        <h4>Company</h4>
+        <h3 class="footer-heading">Company</h3>
         <ul class="footer-links">
           <li><a href="mailto:hello@roadwisefleet.com">Contact</a></li>
           <li><a href="https://roadwisefleet.com" rel="noopener">roadwisefleet.com</a></li>
@@ -1023,7 +1065,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
       </div>
     </div>
     <div class="footer-bottom">
-      <span>© 2025 RoadwiseFleet. All rights reserved.</span>
+      <span>© 2026 RoadwiseFleet. All rights reserved.</span>
       <div class="meta">
         <span>Android · Web</span>
         <span>No hardware · No lock-in</span>
@@ -1084,61 +1126,87 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
     revealEls.forEach(function (el) { el.classList.add("is-in"); });
   }
 
-  /* Waitlist form */
+  /* Waitlist form — QA F4: every failure, client- or server-side, is announced */
   var form = document.getElementById("waitlist-form");
   var emailInput = document.getElementById("waitlist-email");
   var success = document.getElementById("waitlist-success");
   var errorBox = document.getElementById("waitlist-error");
+  var previewNote = document.getElementById("waitlist-preview");
   var submitBtn = form.querySelector('button[type="submit"]');
   var API_URL = "https://roadwisefleet.com/api/waitlist";
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    var value = emailInput.value.trim();
-    var valid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
-    emailInput.setAttribute("aria-invalid", String(!valid));
-    emailInput.style.borderColor = valid ? "" : "oklch(0.55 0.19 26)";
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+    emailInput.setAttribute("aria-invalid", "true");
+  }
+  function clearError() {
+    errorBox.textContent = "";
     errorBox.hidden = true;
-    if (!valid) {
-      emailInput.focus();
-      return;
-    }
+    emailInput.removeAttribute("aria-invalid");
+  }
+
+  if (window.RWF_PREVIEW === true) {
+    /* QA F3: the Pages preview must never write into the production waitlist. */
+    form.hidden = true;
+    emailInput.disabled = true;
     submitBtn.disabled = true;
-    var payload = {
-      email: value,
-      company_website: form.querySelector('[name="company_website"]').value,
-      lang: (navigator.language || "").slice(0, 10),
-      source: location.hostname
-    };
-    fetch(API_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
-    })
-    .then(function (res) {
-      return res.json().catch(function () { return {}; }).then(function (d) {
-        return { status: res.status, body: d };
-      });
-    })
-    .then(function (r) {
-      if (r.status === 201 || r.body.ok) {
-        try { localStorage.setItem("rwf-waitlist", value); } catch (err) {}
-        form.style.display = "none";
-        success.style.display = "block";
-      } else if (r.status === 429) {
-        errorBox.textContent = "Too many attempts — please try again later.";
-        errorBox.hidden = false;
-      } else {
-        throw new Error("bad_status");
+    if (previewNote) previewNote.hidden = false;
+  } else {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var value = emailInput.value.trim();
+      if (!value) {
+        showError("Enter your work email so we can reach you.");
+        emailInput.focus();
+        return;
       }
-    })
-    .catch(function () {
-      errorBox.textContent = "Something went wrong — email hello@roadwisefleet.com and we'll add you manually.";
-      errorBox.hidden = false;
-    })
-    .finally(function () {
-      submitBtn.disabled = false;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
+        showError("That doesn’t look like an email address — use the form you@yourfleet.com.");
+        emailInput.focus();
+        return;
+      }
+      clearError();
+      submitBtn.disabled = true;
+      var payload = {
+        email: value,
+        company_website: form.querySelector('[name="company_website"]').value,
+        lang: (navigator.language || "").slice(0, 10),
+        source: location.hostname
+      };
+      fetch(API_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (d) {
+          return { status: res.status, body: d };
+        });
+      })
+      .then(function (r) {
+        if (r.status === 201 || r.body.ok) {
+          try { localStorage.setItem("rwf-waitlist", value); } catch (err) {}
+          form.hidden = true;
+          success.style.display = "block";
+        } else if (r.status === 400) {
+          showError(r.body.error === "invalid_email"
+            ? "That email address was rejected — please check it and try again."
+            : "We couldn’t accept that entry — please check your details and try again.");
+        } else if (r.status === 429) {
+          showError("Too many attempts — please try again later.");
+        } else {
+          throw new Error("bad_status");
+        }
+      })
+      .catch(function () {
+        showError("Something went wrong — email hello@roadwisefleet.com and we’ll add you manually.");
+      })
+      .finally(function () {
+        submitBtn.disabled = false;
+      });
     });
-  });
+  }
 })();
 </script>
 </body>
