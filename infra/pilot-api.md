@@ -29,17 +29,23 @@ pilot Postgres and Redis containers (see `pilot-db.md`).
 | Host | **elilavps2** |
 | Unit | `roadwise-api.service` (`/etc/systemd/system/roadwise-api.service`, mode `0644`, `root:root`) |
 | Service user / group | `debian:debian` |
+| Service type | `Type=simple` |
 | Working directory | `/opt/roadwisefleet/api` (git clone of the public repo; `debian`-owned) |
+| Environment | `HOME=/home/debian`; other settings via `EnvironmentFile` (below) |
 | ExecStart | `/usr/local/bin/pnpm --filter @roadwisefleet/api start` (→ `tsx src/server.ts`) |
 | EnvironmentFile | `/opt/roadwisefleet/api/.env` (mode `0600`, owned `debian:debian`) |
 | Bind address / port | `127.0.0.1:8080` (loopback only) |
 | Restart policy | `Restart=always`, `RestartSec=5` |
 | Hardening | `NoNewPrivileges=true` |
-| Dependencies | `Requires=roadwise-pg.service`; `After=roadwise-pg.service roadwise-redis.service` |
+| Ordering | `After=network-online.target roadwise-pg.service roadwise-redis.service`; `Wants=network-online.target` |
+| Dependencies | `Requires=roadwise-pg.service` |
 
 The unit file is the authoritative copy on the host; the mirror in
 [`systemd/roadwise-api.service`](./systemd/roadwise-api.service) is a value-free
-reference transcription (see the note in that file).
+reference transcription (see the note in that file). The ordering / `Type=` /
+`Environment=` values above were read from the live unit by the overseer over
+SSH `sudo` (2026-09-14, ref 12) — this sandbox cannot read `/etc` directly, so
+they are not independently re-read here.
 
 ## 3. Configuration
 
@@ -128,9 +134,12 @@ Notes:
 - Credentials live in `EnvironmentFile` (`.env`, mode `0600`, `debian:debian`),
   **not** on the command line — nothing secret appears in `systemctl status` or
   the process table. Keep it that way.
-- `NoNewPrivileges=true` is set. Consider adding `ProtectSystem=strict`,
-  `ProtectHome=true`, `PrivateTmp=true`, and a dedicated unprivileged service
-  user before production.
+- `NoNewPrivileges=true` is set. Additional sandboxing (`ProtectSystem=strict`,
+  `ProtectHome=true`, `PrivateTmp=true`) and a dedicated unprivileged service
+  user are **pending owner approval** and a tested rollout — they change the
+  live unit and the API writes under its working directory, so a strict sandbox
+  can break it. Do not apply them unilaterally; the item is tracked by the
+  overseer.
 - The service binds loopback only; keep it behind the local reverse proxy /
   tunnel rather than exposing `8080`.
 - Postgres/Redis run under **rootful** podman — revisit (rootless podman or a
