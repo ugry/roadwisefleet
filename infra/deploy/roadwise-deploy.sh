@@ -29,6 +29,13 @@ set -euo pipefail
 
 PROG="$(basename "$0")"
 
+# Notification: every terminal outcome (ready / rolled back / failed) is sent
+# through roadwise-notify.sh and its delivery result is recorded in the state
+# file as `notify=` (sent | not-sent-no-transport | not-sent-transport-failed | …).
+# A notification is never allowed to fail a deploy, but it is never allowed to
+# fail silently either: `notify=not-sent-*` in deploy-state.json means the owner
+# was NOT told and the alert transport needs fixing (infra/deploy.md §9 B3).
+
 # ------------------------------------------------------------------ config ---
 GIT_REMOTE="${RWF_GIT_REMOTE:-https://github.com/ugry/roadwisefleet.git}"
 BRANCH="${RWF_BRANCH:-main}"
@@ -52,6 +59,7 @@ KEEP_RELEASES="${RWF_KEEP_RELEASES:-5}"
 HEALTH_TIMEOUT_S="${RWF_HEALTH_TIMEOUT_S:-60}"
 RUN_SMOKE="${RWF_RUN_SMOKE:-auto}"           # auto | 1 | 0
 NOTIFY_BIN="${RWF_NOTIFY_BIN:-/usr/local/bin/roadwise-notify.sh}"
+NOTIFY_RESULT="unknown"                      # set by notify() for the state file
 
 # --------------------------------------------------------------- utilities ---
 init_dirs() {
@@ -70,15 +78,23 @@ die() { log "ERROR: $*"; exit 1; }
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-notify() { # notify <ready|alert> <message...>
+notify() { # notify <ready|update|alert> <args...>; never fails the caller, sets NOTIFY_RESULT
   local kind="$1"; shift
+  local rc=0
   if [[ -x "$NOTIFY_BIN" ]]; then
-    if ! "$NOTIFY_BIN" "$kind" "$*"; then
-      log "WARN: notifier returned non-zero; continuing"
-    fi
+    "$NOTIFY_BIN" "$kind" "$@" || rc=$?
   else
     log "WARN: $NOTIFY_BIN not installed — no notification sent"
+    rc=3
   fi
+  case "$rc" in
+    0) NOTIFY_RESULT="sent"; return 0 ;;
+    3) NOTIFY_RESULT="not-sent-no-transport" ;;
+    4) NOTIFY_RESULT="not-sent-transport-failed" ;;
+    *) NOTIFY_RESULT="not-sent-error-$rc" ;;
+  esac
+  log "WARN: notification NOT delivered ($NOTIFY_RESULT) — see infra/deploy.md §9 (B3)"
+  return 0
 }
 
 state_get() { # state_get <key> -> value or empty
@@ -226,20 +242,21 @@ activate() { # activate <release_dir> <unit>
   systemctl restart "$2"
 }
 
-record_ready() { # record_ready <sha> <prev_sha>
-  local sha="$1" prev="$2"
+record_ready() { # record_ready <sha> <prev_sha> <url>
+  local sha="$1" prev="$2" url="$3"
   state_write "surface=staging" "sha=$sha" "short_sha=${sha:0:7}" "status=ready" \
-    "previous_sha=$prev" "deployed_at=$(now_utc)" \
-    "url=https://staging.roadwisefleet.com/pilot/"
+    "previous_sha=$prev" "deployed_at=$(now_utc)" "url=$url" \
+    "notify=$NOTIFY_RESULT"
   mkdir -p "$STATE_DIR"
   {
     printf 'ready-to-test surface=staging sha=%s short=%s at=%s url=%s\n' \
-      "$sha" "${sha:0:7}" "$(now_utc)" "https://staging.roadwisefleet.com/pilot/"
+      "$sha" "${sha:0:7}" "$(now_utc)" "$url"
   } >"$STATE_DIR/ready-to-test.txt"
 }
 
 record_problem() { # record_problem <status> <sha> <detail>
-  state_write "surface=staging" "status=$1" "sha=$2" "detail=$3" "failed_at=$(now_utc)"
+  state_write "surface=staging" "status=$1" "sha=$2" "detail=$3" "failed_at=$(now_utc)" \
+    "notify=$NOTIFY_RESULT"
 }
 
 # -------------------------------------------------------------- operations ---
@@ -272,28 +289,34 @@ deploy_staging() {
   log "commit $target is CI-green ($ci_state)"
 
   local rel="$RELEASES_DIR/$target"
+  local prev_link prev_sha
+  prev_link="$(readlink -f "$STAGING_LINK" 2>/dev/null || true)"
+  prev_sha=""
+  if [[ -n "$prev_link" ]]; then
+    prev_sha="$(basename "$prev_link")"
+  fi
+
   if [[ ! -f "$rel/.release-ready" ]]; then
     log "building release $target"
     rm -rf "$rel"
     mkdir -p "$rel"
     if ! git --git-dir="$MIRROR_DIR" archive "$target" | tar -x -C "$rel"; then
       rm -rf "$rel"
+      notify alert "STAGING DEPLOY of $target FAILED: release extraction failed (mirror $MIRROR_DIR). Staging still runs ${prev_sha:-nothing}."
       die "release extraction failed for $target"
     fi
-    ( cd "$rel" && pnpm install --frozen-lockfile ) || {
+    if ! ( cd "$rel" && pnpm install --frozen-lockfile ); then
       rm -rf "$rel"
+      notify alert "STAGING DEPLOY of $target FAILED during pnpm install. Staging still runs ${prev_sha:-nothing}; production untouched."
       die "dependency install failed for $target"
-    }
+    fi
     : >"$rel/.release-ready"
   fi
 
-  apply_migrations "$rel" || die "prisma migrate deploy failed for $target"
-
-  local prev_link prev_sha
-  prev_link="$(readlink -f "$STAGING_LINK" 2>/dev/null || true)"
-  prev_sha=""
-  if [[ -n "$prev_link" ]]; then
-    prev_sha="$(basename "$prev_link")"
+  if ! apply_migrations "$rel"; then
+    notify alert "STAGING DEPLOY of $target FAILED at the Prisma migration step. Nothing was activated: staging still runs ${prev_sha:-nothing}, production untouched."
+    record_problem "failed" "$target" "prisma migrate deploy failed; previous release still active"
+    die "prisma migrate deploy failed for $target"
   fi
 
   log "activating $target (previous: ${prev_sha:-none})"
@@ -311,32 +334,33 @@ deploy_staging() {
     return $?
   fi
 
-  record_ready "$target" "$prev_sha"
+  local staging_url="https://staging.roadwisefleet.com/pilot/"
+  notify ready "$target" "$staging_url"
+  record_ready "$target" "$prev_sha" "$staging_url"
   prune_releases "$KEEP_RELEASES" "$target" "$prev_sha"
-  log "staging is READY TO TEST at $target"
-  notify ready "READY TO TEST (staging): $target — https://staging.roadwisefleet.com/pilot/"
+  log "staging is READY TO TEST at $target (signal: $NOTIFY_RESULT)"
   return 0
 }
 
 rollback_to() { # rollback_to <target_sha|""> <failed_sha>
   local target="${1:-}" failed="${2:-unknown}"
   if [[ -z "$target" || ! -d "$RELEASES_DIR/$target" ]]; then
+    notify alert "STAGING DEPLOY FAILED at $failed and no previous release exists — staging is down. Manual attention needed."
     record_problem "failed" "$failed" "no usable previous release to roll back to"
     log "ERROR: no previous release available — staging may be down"
-    notify alert "STAGING DEPLOY FAILED at $failed and no previous release exists — staging is down. Manual attention needed."
     return 1
   fi
   log "rolling back to $target"
   activate "$RELEASES_DIR/$target" "$STAGING_UNIT"
   if wait_healthy "$STAGING_PORT" "$HEALTH_TIMEOUT_S"; then
-    record_problem "rolled_back" "$target" "failed deploy of $failed rolled back automatically"
-    log "rollback to $target OK"
     notify alert "STAGING DEPLOY of $failed FAILED health/smoke; automatically rolled back to $target. Production untouched."
+    record_problem "rolled_back" "$target" "failed deploy of $failed rolled back automatically"
+    log "rollback to $target OK (alert: $NOTIFY_RESULT)"
     return 0
   fi
+  notify alert "STAGING ROLLBACK FAILED: $failed failed and the rollback to $target is not healthy. Manual attention needed."
   record_problem "down" "$target" "rollback of $failed to $target also failed health check"
   log "ERROR: rollback to $target also failed health check"
-  notify alert "STAGING ROLLBACK FAILED: $failed failed and the rollback to $target is not healthy. Manual attention needed."
   return 1
 }
 

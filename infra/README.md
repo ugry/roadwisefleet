@@ -26,7 +26,7 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `firewall/ufw-pilot.sh` | `/opt/roadwisefleet/firewall/` | Reviewed, idempotent firewall rule set (default-deny inbound; 22/80/443 only). `apply` / `status` / `rollback`. |
 | `deploy.md` | — | Runbook: the automatic deploy path (merge → staging → health check → auto-rollback → "ready to test"; promotion owner-gated). Board task #31. |
 | `deploy/roadwise-deploy.sh` | `/usr/local/bin/roadwise-deploy.sh` | The one sanctioned deployer (`staging`/`status`/`rollback`); CI-gated pull deploy with rollback. |
-| `deploy/roadwise-notify.sh` | `/usr/local/bin/roadwise-notify.sh` | "READY TO TEST" signal + deploy-failure alerts (Matrix or relay; 0600 env). |
+| `deploy/roadwise-notify.sh` | `/usr/local/bin/roadwise-notify.sh` | "READY TO TEST" / "PRODUCTION UPDATED" signal + deploy-failure alerts. Matrix is the transport usable from elilavps2 (the relay is loopback-only on elilavps1); exit 3/4 = nothing delivered, never a silent skip (0600 env). |
 | `deploy/roadwise-promote.sh` | `/usr/local/bin/roadwise-promote.sh` | Owner-gated staging → production promotion with automatic revert on failed health check. |
 | `deploy/staging.env.example` | `/opt/roadwisefleet/staging/.env` | Key names only for the staging environment (values live on the host, 0600). |
 | `deploy/notify.env.example` | `/etc/roadwisefleet/notify.env` | Key names only for the notifier credential (0600). |

@@ -58,10 +58,10 @@ log() {
 }
 die() { log "ERROR: $*"; exit 1; }
 
-notify() { # notify <ready|alert> <message...>
+notify() { # notify <update|alert> <args...>; never fails the caller
   local kind="$1"; shift
   if [[ -x "$NOTIFY_BIN" ]]; then
-    "$NOTIFY_BIN" "$kind" "$*" || log "WARN: notifier returned non-zero"
+    "$NOTIFY_BIN" "$kind" "$@" || log "WARN: notification NOT delivered (see infra/deploy.md §9 B3)"
   else
     log "WARN: $NOTIFY_BIN not installed — no notification sent"
   fi
@@ -203,4 +203,4 @@ state_write "prod_status=live" "prod_sha=$sha" "prod_short_sha=${sha:0:7}" \
   "prod_previous_sha=$prev_sha" "prod_promoted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   "prod_approval=$approval"
 log "production promoted to $sha (approval: $approval)"
-notify ready "PRODUCTION updated to ${sha:0:7} (approved: ${approval}). Verified healthy."
+notify update "$sha" "https://roadwisefleet.com/pilot/" "approval: $approval"

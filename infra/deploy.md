@@ -90,8 +90,25 @@ sudo systemctl start roadwise-deploy-staging.service
 sudo journalctl -u roadwise-deploy-staging.service -n 100 --no-pager
 sudo /usr/local/bin/roadwise-deploy.sh status
 
-# 5. seed the staging database once the first release is live (smoke needs it)
-sudo -u debian bash -c 'cd /opt/roadwisefleet/staging/current && set -a && . /opt/roadwisefleet/staging/.env && set +a && pnpm --filter @roadwisefleet/api db:seed -- --reset'
+# 4b. verify the notification transport BEFORE enabling the timer (see §9 B3).
+#     Exit 0 = delivered; 3 = no transport configured (nothing was sent);
+#     4 = configured but delivery failed. The deploy is not failed by this,
+#     but the "ready to test" signal is worthless without it.
+sudo /usr/local/bin/roadwise-notify.sh alert "TEST — deploy-path install verification, please ignore"; echo "notify exit: $?"
+
+# 5. seed the staging database once the first release is live (smoke needs it).
+#    The staging EnvironmentFile is 0600 root:root BY DESIGN and the app runs as
+#    `debian`, so this must NOT be sourced as debian (`. /opt/.../.env` as debian
+#    fails with permission denied) and the values must not be put on a command
+#    line. Run the seeder as a transient unit that reuses the same
+#    EnvironmentFile + user as the service:
+sudo systemd-run --unit=roadwise-staging-seed --collect --wait \
+  --property=Type=oneshot \
+  --property=User=debian --property=Group=debian \
+  --property=WorkingDirectory=/opt/roadwisefleet/staging/current \
+  --property=Environment=HOME=/home/debian \
+  --property=EnvironmentFile=/opt/roadwisefleet/staging/.env \
+  /usr/local/bin/pnpm --filter @roadwisefleet/api db:seed -- --reset
 
 # 6. nginx staging vhost (after DNS + htpasswd + certbot per the file header)
 sudo install -m 0644 infra/nginx/roadwisefleet-staging.conf /etc/nginx/sites-available/
@@ -129,11 +146,19 @@ Recorded state — **the only source of truth for "what is live where"**:
   "previous_sha": "<sha>",
   "deployed_at": "<UTC ISO-8601>",
   "url": "https://staging.roadwisefleet.com/pilot/",
+  "notify": "sent | not-sent-no-transport | not-sent-transport-failed | not-sent-error-<rc>",
   "prod_status": "live | rolled_back | down",
   "prod_sha": "<sha>",
   "prod_approval": "<eila/requests#N>"
 }
 ```
+
+`notify` is the delivery result of the notification for that outcome (the notifier
+exits 0 = delivered, 3 = no transport configured, 4 = every configured transport
+failed). It is recorded on both success and failure paths. **`status=ready` with
+`notify=not-sent-*` means staging is fine but nobody was told** — the signal the
+owner relies on is missing and the alert transport must be fixed (§9 B3). The
+failing deploy still exits non-zero, so systemd shows the unit as failed.
 
 `/var/lib/roadwisefleet/ready-to-test.txt` — one line, for the owner digest
 (`/opt/eila/owner_digest.py`, section *READY TO TEST*):
@@ -195,6 +220,27 @@ written rollback — it is not covered by auto-rollback.
 6. **Failure is loud but not destructive.** Health/smoke failure → automatic
    rollback to the previous release → `#eila-alerts` (and `#eila` on success).
    The pilot's live surface is never part of that path.
+7. **Release build runs as root, the application runs as `debian`.** The deploy
+   unit is `User=root`, so `git archive`, `pnpm install` and `prisma` write a
+   root-owned release tree under `/opt/roadwisefleet/releases`, while
+   `roadwise-staging-api.service` runs as `debian` and must read/execute it. It
+   works with a default umask (755/644, no writes needed at runtime), but a
+   restrictive umask or a future write at startup would break staging. Options,
+   both a change to this design and therefore flagged, not silently applied:
+   (a) run the deployer as a dedicated `roadwise-deploy` user (see §7.1) and
+   grant only `systemctl restart roadwise-staging-api.service`; or (b) build as
+   `debian` (a transient unit like the seeder in §4 step 5) and keep the
+   root-only parts (fetch, symlink, restart) separate.
+8. **Notification transport from elilavps2 is Matrix-only.** The orchestrator
+   relay is loopback-bound on **elilavps1** (`127.0.0.1:9099`), so elilavps2 —
+   where the deployer runs — cannot reach it. `notify.env.example` therefore
+   documents Matrix as the transport that actually works, keeps the relay as an
+   advanced option with a reachable URL and a **registered** endpoint
+   (`/alert`, `/gatus`, `/grafana`, payload key `message`), and the notifier now
+   refuses an unregistered path (the old `/notify` default) and exits non-zero
+   instead of skipping silently. Consequence: **§9 B3 (Matrix bot token) is a
+   hard prerequisite** for acceptance criterion 4 — without it `notify=
+   not-sent-no-transport` is recorded and the owner is never told.
 
 ## 8. Acceptance mapping (task #31)
 
@@ -213,13 +259,30 @@ Nothing above has been executed on the host; nothing is claimed as done.
 |---|---|---|
 | B1 | **Install window + approval** — installing units/scripts/nginx and enabling the timer is a production change. | owner (with the overseer) |
 | B2 | **Staging database** — a second database on the pilot Postgres (and a decision on whether staging data is disposable; it must be, since the smoke test writes). | owner/DBA-in-the-window |
-| B3 | **Notifier credential** — a Matrix bot token (or relay URL) for `#eila`. Not my credential, never handled by me. | owner/orchestrator |
+| B3 | **Notifier credential** — a Matrix bot token for `#eila` (the relay on elilavps1 is loopback-only and unreachable from elilavps2, see §7.8, so Matrix is the working transport). Not my credential, never handled by me. Until this exists, the ready-to-test signal is not delivered (`notify=not-sent-no-transport`), so acceptance criterion 4 cannot be met. | owner/orchestrator |
 | B4 | **DNS + cert + basic-auth user** for `staging.roadwisefleet.com` (or a decision to use the path-based fallback). | owner |
 | B5 | **Failure-injection test** — proving rollback + alert requires breaking a deploy on purpose; needs B1–B3 and a supervised run. | owner + overseer |
 | B6 | **Digest wiring** — pointing `/opt/eila/owner_digest.py` at `ready-to-test.txt` (or the JSON). Orchestrator-owned file; I did not touch it. | orchestrator |
 | B7 | **Deploy privilege** — decision on the root pull-deploy risk in §7.1. | owner |
 
-## 10. Related documents
+## 11. Review follow-up (PR #29, overseer request-changes 2026-09-23)
+
+The overseer's review found four defects in the first revision. All four are
+fixed in this PR (repo-only; still nothing installed):
+
+| # | Defect | Fix |
+|---|---|---|
+| D1 | `notify.env.example` offered `RWF_RELAY_URL=http://127.0.0.1:9099/notify`, but the deployer runs on elilavps2 and the relay is loopback-bound on elilavps1 → alerts silently skipped whenever only the relay was configured | The example no longer presents the relay as a ready-to-use transport: Matrix is documented as the transport that works from elilavps2, the relay is marked advanced/usually-wrong with the reason, and a configured-but-failing transport is now a loud failure (§7.8). The deployer records `notify=not-sent-*` in the state file. |
+| D2 | `/notify` is not a registered relay endpoint (only `/alert`, `/gatus`, `/grafana` are), and the body was `{"text": …}` while the relay reads `{"message": …}` | `roadwise-notify.sh` sends `{"message": …}` and refuses any relay path outside the registered set instead of relying on the relay's catch-all. |
+| D3 | Install §4 step 5 seeded as `debian` against a `0600 root:root` EnvironmentFile — `. /opt/roadwisefleet/staging/.env` fails with permission denied | Step 5 now runs the seeder as a transient `systemd-run` unit with `User=debian` + the same `EnvironmentFile=`, so systemd reads the file as root and no value ever touches a command line. |
+| D4 | `roadwise-deploy.sh` called `roadwise-notify.sh ready "<one combined message>"` while `roadwise-notify.sh` expected `<sha> <url>` — duplicated text, and the sha/url contract could silently mis-render | One contract: `ready <sha> <url>`, `update <sha> <url> [<note>]` (production), `alert <message...>`. The deployer passes the SHA and URL separately; `roadwise-promote.sh` uses `update` with the approval ref. |
+
+Also fixed while in there: a failed **extraction / `pnpm install` / Prisma
+migration** now raises an alert and records `status=failed` instead of failing
+quietly with only a log line, and the previous SHA is resolved before any
+mutating step so those alerts can name what staging still runs.
+
+## 12. Related documents
 
 - [`pilot-api.md`](./pilot-api.md) — the production API unit and its update steps.
 - [`pilot-db.md`](./pilot-db.md) — Postgres/Redis and backups.
