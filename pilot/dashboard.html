@@ -124,17 +124,21 @@
   <section id="app" class="hidden">
     <p class="who">Signed in as <strong id="whoName">—</strong> <span id="whoRole"></span> · <a href="#" id="logout">Sign out</a></p>
 
-    <div class="card">
+    <div class="card" id="createCard">
       <h2>Create trip</h2>
       <form id="createForm">
         <div class="row">
           <div>
-            <label for="orderId">Order ID (required)</label>
-            <input id="orderId" name="orderId" required placeholder="pilot-order-1">
+            <label for="orderId">Order (required)</label>
+            <select id="orderId" name="orderId" required><option value="">Loading…</option></select>
           </div>
           <div>
-            <label for="driverId">Driver ID (optional)</label>
-            <input id="driverId" name="driverId" placeholder="pilot-driver-1">
+            <label for="driverId">Driver (optional)</label>
+            <select id="driverId" name="driverId"><option value="">— unassigned —</option></select>
+          </div>
+          <div>
+            <label for="truckId">Truck (optional)</label>
+            <select id="truckId" name="truckId"><option value="">— unassigned —</option></select>
           </div>
           <div>
             <label for="rateEur">Rate EUR (optional)</label>
@@ -240,6 +244,7 @@
     }
     $('loginCard').classList.add('hidden');
     $('app').classList.remove('hidden');
+    loadReference();
     loadTrips();
   }
 
@@ -254,6 +259,49 @@
       if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
       renderTrips(r.data && r.data.trips ? r.data.trips : []);
     });
+  }
+
+  function option(value, label) {
+    return '<option value="' + esc(value) + '">' + esc(label) + '</option>';
+  }
+
+  // Reference lists for the create-trip form. Only dispatch-capable roles may
+  // read them; a driver (403) simply gets the create card hidden.
+  function loadReference() {
+    return api('/api/reference', { token: token() }).then(function (r) {
+      if (r.status === 403) { $('createCard').classList.add('hidden'); return; }
+      if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
+      fillReference((r.data && r.data.reference) || {});
+    });
+  }
+
+  function fillReference(ref) {
+    var orders = ref.orders || [];
+    var drivers = ref.drivers || [];
+    var trucks = ref.trucks || [];
+    $('createCard').classList.remove('hidden');
+
+    $('orderId').innerHTML = '<option value="">— select order —</option>' + orders.map(function (o) {
+      var customer = o.customer ? o.customer.name : '';
+      var label = (customer ? customer + ' · ' : '') +
+        (o.origin || '?') + ' → ' + (o.destination || '?') +
+        (o.cargo ? ' · ' + o.cargo : '') +
+        (o.status ? ' [' + o.status + ']' : '');
+      return option(o.id, label);
+    }).join('');
+
+    $('driverId').innerHTML = '<option value="">— unassigned —</option>' + drivers.map(function (d) {
+      return option(d.id, d.name || d.id);
+    }).join('');
+
+    $('truckId').innerHTML = '<option value="">— unassigned —</option>' + trucks.map(function (t) {
+      var label = [t.plate, t.euroClass, t.dimensions].filter(Boolean).join(' · ');
+      return option(t.id, label || t.id);
+    }).join('');
+
+    if (!orders.length) {
+      setMsg('No orders available for this org — create an order first.', 'err');
+    }
   }
 
   function renderTrips(trips) {
@@ -368,7 +416,38 @@
         '<table><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>' + expRows + '</tbody></table>' +
       '<div class="section-title">P&amp;L</div>' +
         '<p class="pnl ' + pnlClass + '">' + money(pnl) + '</p>' +
-        '<p class="muted">Rate ' + money(t.rateEur) + ' − expenses ' + money(totals.expensesEur) + '</p>';
+        '<p class="muted">Rate ' + money(t.rateEur) + ' − expenses ' + money(totals.expensesEur) + '</p>' +
+      '<div class="section-title">Customer tracking</div>' +
+        '<p class="muted">Share a read-only link: route, status and timeline, no login and no PII.</p>' +
+        '<button class="ghost small" id="trackLinkBtn" type="button">Create tracking link</button>' +
+        '<p class="muted" id="trackLinkOut">No link created yet.</p>';
+
+    // Injected above, so look it up inside the drawer body rather than with the
+    // $-helper, which would need the id to exist in the static document.
+    var linkBtn = $('drawerBody').querySelector('#trackLinkBtn');
+    if (linkBtn) {
+      linkBtn.addEventListener('click', function () { createTrackLink(t.id, linkBtn); });
+    }
+  }
+
+  // Board task #5: mint a shareable, login-free tracking link for this trip.
+  // Owner/dispatcher only — the API answers 403 for any other role.
+  function createTrackLink(id, btn) {
+    btn.disabled = true;
+    var out = $('drawerBody').querySelector('#trackLinkOut');
+    out.textContent = 'Creating…';
+    api('/api/trips/' + encodeURIComponent(id) + '/track-link', { method: 'POST', token: token() })
+      .then(function (r) {
+        btn.disabled = false;
+        if (r.status !== 201) { out.textContent = errorText(r.status, r.data); return; }
+        var link = (r.data && r.data.link) || {};
+        var url = new URL(link.url, window.location.origin).href;
+        out.innerHTML = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        out.textContent = 'Network error: ' + err.message;
+      });
   }
 
   function refreshOpenDrawer(id) {
@@ -408,15 +487,20 @@
   $('createForm').addEventListener('submit', function (e) {
     e.preventDefault();
     clearMsg();
-    var body = { orderId: $('orderId').value.trim() };
-    var driverId = $('driverId').value.trim();
+    var orderId = $('orderId').value;
+    if (!orderId) { setMsg('Select an order before creating a trip.', 'err'); return; }
+    var body = { orderId: orderId };
+    var driverId = $('driverId').value;
+    var truckId = $('truckId').value;
     var rate = $('rateEur').value.trim();
     if (driverId) body.driverId = driverId;
+    if (truckId) body.truckId = truckId;
     if (rate !== '') body.rateEur = Number(rate);
     api('/api/trips', { method: 'POST', token: token(), body: body }).then(function (r) {
       if (r.status !== 201) { setMsg(errorText(r.status, r.data), 'err'); return; }
       setMsg('Trip created (' + (r.data.trip && r.data.trip.id) + ').', 'ok');
       $('createForm').reset();
+      $('orderId').value = '';
       loadTrips();
     }).catch(function (err) { setMsg('Network error: ' + err.message, 'err'); });
   });

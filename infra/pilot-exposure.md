@@ -27,6 +27,7 @@ Everything terminates on nginx; the upstreams are loopback-only.
 | `/api/waitlist` | `127.0.0.1:8787` | `roadwisefleet-waitlist.service` | **Legacy** waitlist microservice. Exact-match location. |
 | `/pilot/`, `/pilot/*.html` | `127.0.0.1:8080` | `roadwise-api.service` (`@fastify/static`, prefix `/pilot/`) | Non-indexable preview surface. |
 | `/pilot` (no slash) | — | nginx `301` → `/pilot/` | |
+| `/track/<token>` | `127.0.0.1:8080` | `roadwise-api.service` | Public, unauthenticated customer tracking link (board #5). **Not reachable off-host today** — the prod vhost proxies only `/api/` and `/pilot/`; the `location /track/` block is prepared in [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf) and lands with this change. |
 | `/api/*` (except `/api/waitlist`) | `127.0.0.1:8080` | `roadwise-api.service` | Pilot API: `/api/auth/*`, `/api/trips*`, `/api/waitlist` (not reached — see below). |
 | `/health` | — | `404` (nginx) | The API's `/health` is **not** exposed publicly, by design. |
 
@@ -243,8 +244,9 @@ only needs the API restart, not `deploy.sh`.
 Enabling it is a two-step change, in this order:
 
 1. install `conf.d/roadwisefleet-limits.conf` (zones are http-context only);
-2. uncomment the three `limit_req zone=... burst=... nodelay;` lines in
-   `nginx/roadwisefleet.conf`, then `nginx -t && systemctl reload nginx`.
+2. uncomment the four `limit_req zone=... burst=... nodelay;` lines in
+   `nginx/roadwisefleet.conf` (`/api/waitlist`, `/pilot/`, `/track/`, `/api/`),
+   then `nginx -t && systemctl reload nginx`.
 
 Step 1 alone is inert. Reversing is just re-commenting the lines.
 
