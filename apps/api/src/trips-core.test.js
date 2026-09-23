@@ -31,6 +31,7 @@ function makeFakePrisma() {
     trucks: [{ id: 't1', orgId: 'org1' }],
     trips: /** @type {any[]} */ ([]),
     events: /** @type {any[]} */ ([]),
+    docs: /** @type {any[]} */ ([]),
   };
   const match = (row, where) => {
     for (const [k, v] of Object.entries(where ?? {})) {
@@ -71,6 +72,15 @@ function makeFakePrisma() {
         state.events.push(data);
         return data;
       },
+    },
+    document: {
+      count: async ({ where }) =>
+        state.docs.filter((d) => {
+          if (d.tripId !== where.tripId) return false;
+          if (where.docType?.in && !where.docType.in.includes(d.docType)) return false;
+          if (where.status?.in && !where.status.in.includes(d.status)) return false;
+          return true;
+        }).length,
     },
     $transaction: async (ops) => Promise.all(ops),
   };
@@ -247,6 +257,29 @@ test('dispatcher and owner can create and transition any trip in the org', async
     assert.equal(moved.ok, true);
     assert.equal(moved.trip.status, 'ASSIGNED');
   }
+});
+
+test('transitionTrip requires a POD/eCMR document before POD_UPLOADED', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+  for (const to of ['ASSIGNED', 'LOADED', 'IN_TRANSIT', 'DELIVERED']) {
+    const step = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to, actor: OWNER });
+    assert.equal(step.ok, true, `expected ${to} to be legal`);
+  }
+
+  const blocked = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'POD_UPLOADED', actor: OWNER });
+  assert.deepEqual(blocked, { ok: false, error: 'pod_required' });
+  assert.equal((await prisma.trip.findFirst({ where: { id } })).status, 'DELIVERED');
+
+  prisma.state.docs.push({ tripId: id, docType: 'pod', status: 'UPLOADED' });
+  const allowed = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'POD_UPLOADED', actor: OWNER });
+  assert.equal(allowed.ok, true);
+  assert.equal(allowed.trip.status, 'POD_UPLOADED');
 });
 
 test('an actor with no permissions is denied by default', async () => {

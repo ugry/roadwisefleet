@@ -10,7 +10,8 @@
  * Every function takes a `prisma`-like object as its first argument; the real
  * `PrismaClient` and the test fake both satisfy the small surface used here:
  * `trip.findFirst/findMany/create/update`, `order.findFirst`,
- * `user.findFirst`, `truck.findFirst`, `statusEvent.create`, `$transaction`.
+ * `user.findFirst`, `truck.findFirst`, `statusEvent.create`, `document.count`,
+ * `$transaction`.
  *
  * Mutating functions also take an `actor` (`{ userId, permissions }`) and
  * enforce RBAC here, next to the tenancy check, so a caller cannot persist a
@@ -21,6 +22,7 @@
 
 import { canCreateTrip, canTransitionTrip } from './auth/permissions.js';
 import { canTransition, isTripStatus } from './trip-status.js';
+import { hasPodDocument } from './documents.js';
 
 /**
  * @typedef {Object} TripsClient
@@ -110,7 +112,7 @@ export async function createTrip(prisma, { orgId, body, actor }) {
  * @returns {Promise<
  *   { ok: true, trip: any } |
  *   { ok: false, error: 'forbidden' } |
- *   { ok: false, error: 'not_found' | 'invalid_status' } |
+ *   { ok: false, error: 'not_found' | 'invalid_status' | 'pod_required' } |
  *   { ok: false, error: 'invalid_transition', from: string, to: string }
  * >}
  */
@@ -130,6 +132,12 @@ export async function transitionTrip(prisma, { orgId, tripId, to, actor }) {
   if (!isTripStatus(target)) return { ok: false, error: 'invalid_status' };
   if (!canTransition(from, target)) {
     return { ok: false, error: 'invalid_transition', from, to: target };
+  }
+
+  // Board task #3: a trip can only reach POD_UPLOADED once a POD/eCMR document
+  // has actually been uploaded (or verified).
+  if (target === 'POD_UPLOADED' && !(await hasPodDocument(prisma, { tripId }))) {
+    return { ok: false, error: 'pod_required' };
   }
 
   const [trip] = await prisma.$transaction([

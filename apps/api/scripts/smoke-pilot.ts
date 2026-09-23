@@ -136,6 +136,72 @@ async function main() {
     statuses: driverTrips.json?.trips?.map((t: { status: string }) => t.status),
   };
 
+  // Documents / POD (board task #3). The trip is DELIVERED; POD_UPLOADED must be
+  // refused until a POD/eCMR document exists, the assigned driver uploads one,
+  // the owner verifies it, and the gate then opens.
+  const POD_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  const gateBefore = await call(base, 'POST', `/api/trips/${tripId}/status`, driverToken, { status: 'POD_UPLOADED' });
+  results.podGateBeforeUpload = { expected: 400, status: gateBefore.status, body: gateBefore.json };
+
+  const driverUpload = await call(base, 'POST', `/api/trips/${tripId}/documents`, driverToken, {
+    docType: 'pod',
+    filename: 'pod-photo.png',
+    mimeType: 'image/png',
+    dataBase64: POD_PNG,
+  });
+  const documentId = driverUpload.json?.document?.id as string;
+  results.driverUploadPod = {
+    expected: 201,
+    status: driverUpload.status,
+    docStatus: driverUpload.json?.document?.status,
+    leaksStorageKey: Boolean(driverUpload.json?.document?.storageKey),
+  };
+
+  const badType = await call(base, 'POST', `/api/trips/${tripId}/documents`, driverToken, {
+    docType: 'pod',
+    filename: 'notes.txt',
+    mimeType: 'text/plain',
+    dataBase64: POD_PNG,
+  });
+  results.uploadUnsupportedType = { expected: 400, status: badType.status, body: badType.json };
+
+  const wrongDriverUpload = await call(base, 'POST', `/api/trips/${tripId}/documents`, otherDriverToken, {
+    docType: 'pod',
+    filename: 'pod-photo.png',
+    mimeType: 'image/png',
+    dataBase64: POD_PNG,
+  });
+  results.uploadWrongDriver = { expected: 403, status: wrongDriverUpload.status, body: wrongDriverUpload.json };
+
+  const docList = await call(base, 'GET', `/api/trips/${tripId}/documents`, driverToken);
+  results.documentList = {
+    expected: 200,
+    status: docList.status,
+    count: docList.json?.documents?.length,
+    leaksStorageKey: (docList.json?.documents ?? []).some((d: { storageKey?: unknown }) => d.storageKey !== undefined),
+  };
+
+  const docListUnauth = await call(base, 'GET', `/api/trips/${tripId}/documents`);
+  results.documentListUnauthenticated = { expected: 401, status: docListUnauth.status };
+
+  const ownerVerify = await call(base, 'PATCH', `/api/documents/${documentId}`, adminToken, { status: 'VERIFIED' });
+  results.ownerVerifyDocument = {
+    expected: 200,
+    status: ownerVerify.status,
+    docStatus: ownerVerify.json?.document?.status,
+  };
+
+  const driverVerify = await call(base, 'PATCH', `/api/documents/${documentId}`, driverToken, { status: 'VERIFIED' });
+  results.driverVerifyDocument = { expected: 403, status: driverVerify.status, body: driverVerify.json };
+
+  const gateAfter = await call(base, 'POST', `/api/trips/${tripId}/status`, driverToken, { status: 'POD_UPLOADED' });
+  results.podGateAfterUpload = {
+    expected: 200,
+    status: gateAfter.status,
+    tripStatus: gateAfter.json?.trip?.status,
+  };
+
   console.log(JSON.stringify(results, null, 2));
 }
 
