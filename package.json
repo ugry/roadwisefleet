@@ -13,6 +13,7 @@
     "db:migrate": "pnpm --filter @roadwisefleet/api db:migrate",
     "db:status": "pnpm --filter @roadwisefleet/api db:status",
     "db:seed": "pnpm --filter @roadwisefleet/api db:seed",
+    "db:reset": "pnpm --filter @roadwisefleet/api db:reset",
     "smoke": "pnpm --filter @roadwisefleet/api smoke",
     "handoff": "pnpm --filter @roadwisefleet/api handoff",
     "deploy": "./deploy.sh"
