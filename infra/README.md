@@ -22,7 +22,11 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `systemd/pilot-backup-verify.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply nightly backup freshness + artifact-integrity check. |
 | `scripts/pilot-uptime-check.sh` | `/usr/local/bin/` | Probes `/`, `/pilot/`, `/api/trips`, `/api/waitlist`, `/health`; mails `ugur@` on failure. |
 | `scripts/pilot-backup-verify.sh` | `/usr/local/bin/` | `pg_restore --list` / gzip / tar integrity + freshness; mails `ugur@` on failure. |
-| `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container (live volume untouched). |
+| `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container (live volume untouched). Now also restores the uploads archive and checks every file against its sha256 manifest (`--with-uploads`). |
+| `scripts/pilot-uploads-backup.sh` | `/usr/local/bin/` | **Board #46** — archives the document upload directory (POD/eCMR bytes) + sha256 manifest (both 0600), 30-day retention, refuses to write an empty archive. Runbook: [`uploads.md`](./uploads.md). |
+| `systemd/pilot-uploads-backup.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply daily 03:45 UTC uploads backup (after the 03:15 pg dump). |
+| `scripts/pilot-disk-check.sh` | `/usr/local/bin/` | **Board #46** — disk headroom (T9/T10) + file count/bytes + a standing "no upload is world-readable" check; hourly timer, alert cooldown. |
+| `systemd/pilot-disk-check.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply hourly disk/uploads check. |
 | `logrotate/roadwisefleet` | `/etc/logrotate.d/roadwisefleet` | Logrotate drop-in for pilot log files. |
 | `firewall/ufw-pilot.sh` | `/opt/roadwisefleet/firewall/` | Reviewed, idempotent firewall rule set (default-deny inbound; 22/80/443 only). `apply` / `status` / `rollback`. |
 | `deploy.md` | — | Runbook: the automatic deploy path (board #31). **§10 = the current single-environment deployer** (merge → live pilot → health check → auto-rollback); §4–§7 are the superseded staging design (not installed). |
@@ -67,6 +71,7 @@ Known drift risk: certbot rewrites the site file on renewal/creation — pull it
 | [`monitoring/README.md`](./monitoring/README.md) | Monitoring stack inventory (Gatus/VictoriaMetrics/node_exporter/Grafana/relay), **config-as-code gap** (configs live on elilavps1 — not transcribable from here), owned thresholds/checks T1–T8. |
 | [`monitoring/runbook.md`](./monitoring/runbook.md) | Monitoring operations: routine probes, silence/extend a check, alert round-trip test, relay Matrix token rotation, restore procedures, change control. |
 | [`deploy.md`](./deploy.md) | The automatic deploy path (board #31): §10 single-environment deployer (merge → live pilot → auto-rollback); §4–§7 staging design, superseded. |
+| [`uploads.md`](./uploads.md) | Driver document transport (board #46/F7b): upload path + limits, live storage state, findings U1–U6, storage/permission contract, retention policy draft, disk + backup/restore inclusion. |
 
 > The `scripts/`, `logrotate/` and `firewall/` files are **ready-to-apply
 > artifacts**: they are reviewed here but not installed on the host. Installing

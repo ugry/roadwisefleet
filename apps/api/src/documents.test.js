@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -394,6 +394,23 @@ test('writeDocumentFile writes under the root and removeDocumentFile cleans up',
     const escape = await writeDocumentFile(root, '../escape.txt', Buffer.from('x'));
     assert.deepEqual(escape, { ok: false, error: 'invalid_storage_key' });
     assert.equal(await removeDocumentFile(root, '../escape.txt'), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('stored documents are not world-readable (board #46)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rwf-doc-mode-'));
+  try {
+    const written = await writeDocumentFile(root, 't1/pod/doc-2-pod.jpg', Buffer.from('photo'));
+    assert.equal(written.ok, true);
+
+    // A POD photo can carry a customer's address and signature: no "other" bits.
+    const fileMode = (await stat(written.path)).mode & 0o777;
+    assert.equal(fileMode & 0o007, 0, `file mode ${fileMode.toString(8)} is world-accessible`);
+
+    const dirMode = (await stat(join(root, 't1', 'pod'))).mode & 0o777;
+    assert.equal(dirMode & 0o007, 0, `dir mode ${dirMode.toString(8)} is world-accessible`);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
