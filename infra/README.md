@@ -9,8 +9,9 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `nginx/snippets/roadwisefleet-headers-static.conf` | `/etc/nginx/snippets/` | HSTS + CSP + nosniff/frame/referrer/permissions headers for the landing pages. |
 | `nginx/snippets/roadwisefleet-headers-pilot.conf` | `/etc/nginx/snippets/` | Stricter headers for `/pilot/`, including `X-Robots-Tag: noindex, nofollow`. |
 | `nginx/snippets/roadwisefleet-headers-api.conf` | `/etc/nginx/snippets/` | Headers for proxied API responses. |
-| `nginx/conf.d/roadwisefleet-limits.conf` | `/etc/nginx/conf.d/` | Per-IP `limit_req` zones (http context). Install before enabling the `limit_req` lines in the site file. |
+| `nginx/conf.d/roadwisefleet-limits.conf` | `/etc/nginx/conf.d/` | Per-IP `limit_req` zones (http context). Install **before** the site file — the four `limit_req` lines in it are enabled as of board #45. |
 | `checks/pilot-exposure-check.sh` | run from a checkout | Read-only before/after verification sweep. |
+| `checks/nginx-limits-preflight.sh` | run from a checkout | Read-only, board #45: verifies every enabled `limit_req zone=` has a declared zone (repo + live), prints the install order. Run before any nginx reload. |
 | `pilot-exposure.md` | — | Runbook: routing, topology, reboot resilience, deploy/rollback, health checks, logs, credentials. |
 | `pilot-api.md` | — | Runbook: pilot API unit, config, ops, update steps, hardening. |
 | `pilot-db.md` | — | Runbook: Postgres/Redis containers and backups. |
@@ -40,6 +41,7 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `systemd/roadwise-deploy-staging.{service,timer}` | `/etc/systemd/system/` | 5-minute pull-deploy job for staging. |
 | `nginx/roadwisefleet-staging.conf` | `/etc/nginx/sites-available/roadwisefleet-staging.conf` | `staging.roadwisefleet.com` vhost behind basic auth, proxies 127.0.0.1:8081. |
 | `../services/waitlist/roadwisefleet-waitlist.service` | `/etc/systemd/system/roadwisefleet-waitlist.service` | systemd unit for the legacy waitlist microservice. |
+| `../services/waitlist/server.js` | `/opt/roadwisefleet/waitlist/server.js` | Waitlist microservice. Per-IP limiter keys on the real client (`X-Real-IP`, trusted only from a loopback peer) as of board #45; regression suite `server.test.js` runs in the `api-tests` CI job. |
 | `../services/waitlist/backup.sh` | `/opt/roadwisefleet/waitlist/backup.sh` | Nightly waitlist backup (tar.gz to `/var/backups/roadwisefleet`, 14-day retention), run by the `roadwisefleet-backup.timer` unit. |
 
 Apply nginx changes (requires owner approval; `nginx -t` fails closed):
