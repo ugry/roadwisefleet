@@ -9,14 +9,21 @@
  * no heavy deps. Supply the password with `--password=<value>` or
  * `SEED_PASSWORD`; otherwise a random one is generated and printed once.
  *
+ * Pass `--reset` to first delete every pilot-org trip that the seed does not
+ * own (and its dependent rows), so a demo starts from exactly the two seeded
+ * trips (GitHub issue #12). The reset runs before the upserts below.
+ *
  *   pnpm --filter @roadwisefleet/api db:seed -- --password=...
+ *   pnpm --filter @roadwisefleet/api db:reset -- --password=...
  */
 import { randomBytes } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import '../src/env.js'; // loads apps/api/.env into process.env
 import { hashPassword } from '../src/auth/password.js';
+import { planDemoReset } from '../src/demo-reset.js';
 
 const ORG_ID = 'pilot-org';
+const RESET = process.argv.includes('--reset');
 const PASSWORD_ARG = process.argv.find((a) => a.startsWith('--password='))?.slice('--password='.length);
 
 const password = PASSWORD_ARG || process.env.SEED_PASSWORD || randomBytes(12).toString('base64url');
@@ -48,7 +55,39 @@ const ORDERS = [
 
 const prisma = new PrismaClient();
 
+/**
+ * Delete every pilot-org trip the seed does not own, plus its dependent rows.
+ * `planDemoReset` (pure, see src/demo-reset.js) decides what is residual; this
+ * function only performs the writes. Returns the number of trips removed.
+ */
+async function resetResidualTrips(): Promise<number> {
+  const trips = await prisma.trip.findMany({ where: { orgId: ORG_ID }, select: { id: true } });
+  const { remove } = planDemoReset(trips);
+
+  if (remove.length === 0) {
+    console.log('Reset: no residual trips to remove.');
+    return 0;
+  }
+
+  const where = { tripId: { in: remove } };
+  await prisma.$transaction([
+    prisma.statusEvent.deleteMany({ where }),
+    prisma.gpsPing.deleteMany({ where }),
+    prisma.expense.deleteMany({ where }),
+    prisma.document.deleteMany({ where }),
+    prisma.settlement.deleteMany({ where }),
+    prisma.tripStop.deleteMany({ where }),
+    prisma.tripDriver.deleteMany({ where }),
+    prisma.trip.deleteMany({ where: { id: { in: remove } } }),
+  ]);
+
+  console.log(`Reset: removed ${remove.length} residual trip(s): ${remove.join(', ')}`);
+  return remove.length;
+}
+
 async function main() {
+  if (RESET) await resetResidualTrips();
+
   const passwordHash = hashPassword(password);
 
   const org = await prisma.org.upsert({
