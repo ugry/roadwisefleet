@@ -35,6 +35,12 @@ ExecStart=/usr/local/bin/pnpm --filter @roadwisefleet/api start
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
+# PROPOSED, NOT LIVE (board #46, finding U1): 0640 files / 0750 dirs for stored
+# POD/eCMR documents. The app now requests those modes itself
+# (apps/api/src/documents.js); UMask=0027 is defence in depth and also covers the
+# Postgres/Redis data where they are rootless. Add only in the owner-approved
+# window together with the upload-directory move — infra/uploads.md §4.
+# UMask=0027
 
 [Install]
 WantedBy=multi-user.target

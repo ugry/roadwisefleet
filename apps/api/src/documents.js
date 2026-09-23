@@ -373,6 +373,12 @@ export async function hasPodDocument(prisma, { tripId }) {
 /**
  * Write bytes under `root` at `storageKey` (creating parent dirs). Refuses any
  * key that would resolve outside the root.
+ *
+ * Permissions (board eila/tasks#46): directories are created 0750 and files are
+ * written 0640. A POD photo or an eCMR can carry a customer's name, address and
+ * signature, and the pilot host has more than one account — document bytes must
+ * never be world-readable. `mode` is further restricted by the process umask,
+ * so the effective mode can only be tighter than this. See infra/uploads.md.
  * @param {string} root
  * @param {string} storageKey
  * @param {Buffer | Uint8Array} bytes
@@ -381,8 +387,8 @@ export async function hasPodDocument(prisma, { tripId }) {
 export async function writeDocumentFile(root, storageKey, bytes) {
   const target = resolveWithin(root, storageKey);
   if (!target) return { ok: false, error: 'invalid_storage_key' };
-  await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, bytes);
+  await mkdir(dirname(target), { recursive: true, mode: 0o750 });
+  await writeFile(target, bytes, { mode: 0o640 });
   return { ok: true, path: target };
 }
 
