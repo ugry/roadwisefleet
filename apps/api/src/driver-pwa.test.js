@@ -108,7 +108,7 @@ test('buildTourCard shapes route, cargo, truck, rate and the ETA placeholder', (
   assert.deepEqual(card.truck, { plate: 'RW-001', euroClass: 'Euro 6' });
   assert.equal(card.rateEur, 1450);
   assert.equal(card.eta, null);
-  assert.match(card.etaLabel, /not available/i, 'the pilot must not invent an ETA');
+  assert.equal(card.etaKey, 'driver.etaUnavailable', 'the pilot must not invent an ETA');
   assert.deepEqual(card.nextStatuses, ['POD_UPLOADED']);
   assert.equal(card.requiredMissing, 1, 'the POD gate is one requirement, not two');
   assert.equal(card.podSatisfied, false);
@@ -192,11 +192,11 @@ test('normalizeCapture allows a missing GPS fix but not a malformed one', () => 
   assert.equal(driverCore.normalizeCapture({ capturedAt: new Date(now + 72 * 3600 * 1000).toISOString(), now }).error, 'invalid_capture');
 });
 
-test('captureGeoLabel formats a fix and stays silent without one', () => {
-  assert.equal(driverCore.captureGeoLabel({ lat: 52.5200, lng: 13.4050, accuracyM: 12 }), '52.5200, 13.4050 ±12 m');
-  assert.equal(driverCore.captureGeoLabel({ lat: 1, lng: 2, accuracyM: null }), '1.0000, 2.0000');
-  assert.equal(driverCore.captureGeoLabel({ lat: null, lng: null }), null);
-  assert.equal(driverCore.captureGeoLabel(null), null);
+test('captureCoords hands the page numbers, never a sentence', () => {
+  assert.deepEqual(driverCore.captureCoords({ lat: 52.5200, lng: 13.4050, accuracyM: 12 }), { lat: '52.5200', lng: '13.4050', accuracyM: 12 });
+  assert.deepEqual(driverCore.captureCoords({ lat: 1, lng: 2, accuracyM: null }), { lat: '1.0000', lng: '2.0000', accuracyM: null });
+  assert.equal(driverCore.captureCoords({ lat: null, lng: null }), null);
+  assert.equal(driverCore.captureCoords(null), null);
 });
 
 test('isUsableFix rejects a uselessly coarse or absent position', () => {
@@ -285,13 +285,15 @@ test('syncIndicator reports one clear state for the header chip', () => {
   const items = [statusItem('a', 1)];
   assert.equal(driverCore.syncIndicator([], { online: true }).state, 'synced');
   assert.equal(driverCore.syncIndicator(items, { online: false }).state, 'offline');
-  assert.match(driverCore.syncIndicator(items, { online: false }).label, /1 change waiting/);
+  assert.equal(driverCore.syncIndicator(items, { online: false }).labelKey, 'driver.sync.offline');
+  assert.equal(driverCore.syncIndicator(items, { online: false }).pending, 1);
   assert.equal(driverCore.syncIndicator(items, { online: true, syncing: true }).state, 'syncing');
   assert.equal(driverCore.syncIndicator(items, { online: true, lastError: 'boom' }).state, 'error');
   const pending = driverCore.syncIndicator(items, { online: true });
   assert.equal(pending.state, 'pending');
   assert.equal(pending.pending, 1);
-  assert.match(driverCore.syncIndicator([], { online: true }).label, /synced/i);
+  assert.equal(pending.labelKey, 'driver.sync.pending');
+  assert.equal(driverCore.syncIndicator([], { online: true }).labelKey, 'driver.sync.synced');
 });
 
 test('queueItemUrl/Method map a queued item onto the documents and status APIs', () => {
@@ -328,10 +330,12 @@ test('every manifest icon exists and is a PNG of the declared size', () => {
   }
 });
 
-test('the service worker caches the shell and never caches API data', () => {
-  assert.match(SW, /var CACHE_NAME = 'rwf-driver-shell-v1'/);
+test('the service worker caches the shell (i18n included) and never caches API data', () => {
+  assert.match(SW, /var CACHE_NAME = 'rwf-driver-shell-v2'/);
   assert.match(SW, /\.\/driver\.html/);
   assert.match(SW, /\.\/lib\/driver-core\.js/);
+  assert.match(SW, /\.\/lib\/i18n\.js/);
+  assert.match(SW, /\.\/locales\/de\.json/, 'a driver must be able to switch language offline');
   assert.match(SW, /caches\.delete/, 'old caches must be dropped on activate');
   assert.match(SW, /url\.pathname\.indexOf\('\/api\/'\) === 0/, 'API requests must be excluded from the shell cache');
 });
@@ -363,7 +367,21 @@ test('the page drives every next legal status through the shared core', () => {
 test('the page only ever reads the driver’s own trips from /api/driver/trips', () => {
   assert.match(PAGE, /'\/api\/driver\/trips'/);
   assert.ok(!/'\/api\/trips\?/.test(PAGE), 'the driver page must not list all org trips');
-  assert.match(PAGE, /window\.confirm\('Confirm: mark this trip as /);
+  assert.match(PAGE, /window\.confirm\(t\('driver\.confirmStatus'/, 'the confirmation text is translated');
+});
+
+test('the driver page renders every string from the locale catalogues', () => {
+  // Board task #6: no English literal is rendered directly — text nodes and
+  // placeholders carry a data-i18n binding, and the dynamic strings come from
+  // the translator. `i18n.test.js` owns the full-page scan; this keeps the PWA
+  // suite honest about its own page.
+  assert.match(PAGE, /<script src="lib\/i18n\.js"><\/script>/);
+  assert.match(PAGE, /<script src="lib\/i18n-ui\.js"><\/script>/);
+  assert.match(PAGE, /window\.RoadwiseI18nUI\.init\(/);
+  assert.match(PAGE, /t\('driver\.updateStatus'\)/);
+  assert.match(PAGE, /statusLabel\(/);
+  assert.match(PAGE, /actionLabel\(/);
+  assert.ok(!/var ACTION_LABELS = \{/.test(PAGE), 'the action labels moved into the catalogues');
 });
 
 test('offline captures are queued, not dropped, and the browser storage degrades safely', () => {

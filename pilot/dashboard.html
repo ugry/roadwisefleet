@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RoadwiseFleet — Pilot Dashboard</title>
+<title data-i18n="dash.title"></title>
 <style>
   :root{
     --navy-950: oklch(0.20 0.04 258);
@@ -32,6 +32,9 @@
   header.top .spacer{flex:1}
   header.top nav a{color:var(--on-dark);opacity:.85;margin-left:14px;text-decoration:none;font-size:13px}
   header.top nav a:hover{opacity:1;text-decoration:underline}
+  header.top .lang-slot label.lang{display:flex;align-items:center;gap:6px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;opacity:.85}
+  header.top select.lang-switcher{font-family:inherit;font-size:13px;padding:5px 7px;border-radius:6px;border:1px solid var(--navy-950);
+    background:var(--on-dark);color:var(--ink)}
   main{max-width:1100px;margin:0 auto;padding:26px 20px 60px}
   h1{font-family:var(--font-display);font-weight:600;font-size:28px;letter-spacing:.01em;margin:0 0 4px}
   .muted{color:var(--muted);font-size:13px}
@@ -90,87 +93,96 @@
 </head>
 <body>
 <header class="top">
-  <span class="brand">RoadwiseFleet</span>
-  <span class="tag">Pilot</span>
+  <span class="brand" data-i18n="brand.name"></span>
+  <span class="tag" data-i18n="common.pilotTag"></span>
   <span class="spacer"></span>
+  <span class="lang-slot" id="langSlot"></span>
   <nav>
-    <a href="driver.html">Driver view</a>
-    <a href="index.html">Pilot home</a>
+    <a href="driver.html" data-i18n="nav.driver"></a>
+    <a href="index.html" data-i18n="nav.pilotHome"></a>
   </nav>
 </header>
 <main>
-  <h1>Dispatch dashboard</h1>
-  <p class="muted">Live against the pilot API. Sessions are kept in this tab only.</p>
+  <h1 data-i18n="nav.dashboard"></h1>
+  <p class="muted" data-i18n="dash.lead"></p>
 
   <div id="globalMsg" class="msg"></div>
 
   <section id="loginCard" class="card">
-    <h2>Sign in</h2>
+    <h2 data-i18n="common.signIn"></h2>
     <form id="loginForm" autocomplete="on">
       <div class="row">
         <div>
-          <label for="email">Email</label>
-          <input id="email" name="email" type="email" required autocomplete="username" placeholder="admin@pilot.roadwisefleet.test">
+          <label for="email" data-i18n="common.email"></label>
+          <input id="email" name="email" type="email" required autocomplete="username" data-i18n-placeholder="login.emailPlaceholder">
         </div>
         <div>
-          <label for="password">Password</label>
+          <label for="password" data-i18n="common.password"></label>
           <input id="password" name="password" type="password" required autocomplete="current-password">
         </div>
       </div>
-      <div style="margin-top:14px"><button class="primary" type="submit">Sign in</button></div>
+      <div style="margin-top:14px"><button class="primary" type="submit" data-i18n="common.signIn"></button></div>
     </form>
   </section>
 
   <section id="app" class="hidden">
-    <p class="who">Signed in as <strong id="whoName">—</strong> <span id="whoRole"></span> · <a href="#" id="logout">Sign out</a></p>
+    <p class="who"><span data-i18n="common.signedInAs"></span> <strong id="whoName"></strong> <span id="whoRole"></span> · <a href="#" id="logout" data-i18n="common.signOut"></a></p>
 
     <div class="card" id="createCard">
-      <h2>Create trip</h2>
+      <h2 data-i18n="dash.createTrip"></h2>
       <form id="createForm">
         <div class="row">
           <div>
-            <label for="orderId">Order (required)</label>
-            <select id="orderId" name="orderId" required><option value="">Loading…</option></select>
+            <label for="orderId" data-i18n="dash.orderRequired"></label>
+            <select id="orderId" name="orderId" required><option value="" data-i18n="common.loading"></option></select>
           </div>
           <div>
-            <label for="driverId">Driver (optional)</label>
-            <select id="driverId" name="driverId"><option value="">— unassigned —</option></select>
+            <label for="driverId" data-i18n="dash.driverOptional"></label>
+            <select id="driverId" name="driverId"><option value="" data-i18n="dash.unassigned"></option></select>
           </div>
           <div>
-            <label for="truckId">Truck (optional)</label>
-            <select id="truckId" name="truckId"><option value="">— unassigned —</option></select>
+            <label for="truckId" data-i18n="dash.truckOptional"></label>
+            <select id="truckId" name="truckId"><option value="" data-i18n="dash.unassigned"></option></select>
           </div>
           <div>
-            <label for="rateEur">Rate EUR (optional)</label>
+            <label for="rateEur" data-i18n="dash.rateOptional"></label>
             <input id="rateEur" name="rateEur" type="number" min="0" step="0.01" placeholder="1200">
           </div>
         </div>
-        <div style="margin-top:14px"><button class="primary" type="submit">Create trip</button></div>
+        <div style="margin-top:14px"><button class="primary" type="submit" data-i18n="dash.createTrip"></button></div>
       </form>
     </div>
 
     <div class="card">
-      <h2>Trips</h2>
-      <div style="margin-bottom:10px"><button class="ghost small" id="refresh" type="button">Refresh</button></div>
+      <h2 data-i18n="dash.trips"></h2>
+      <div style="margin-bottom:10px"><button class="ghost small" id="refresh" type="button" data-i18n="common.refresh"></button></div>
       <table>
         <thead>
-          <tr><th>Route</th><th>Driver</th><th>Status</th><th>Rate</th><th>Transition</th></tr>
+          <tr>
+            <th data-i18n="dash.colRoute"></th>
+            <th data-i18n="dash.colDriver"></th>
+            <th data-i18n="common.status"></th>
+            <th data-i18n="dash.colRate"></th>
+            <th data-i18n="dash.colTransition"></th>
+          </tr>
         </thead>
-        <tbody id="tripRows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        <tbody id="tripRows"><tr><td colspan="5" class="muted" data-i18n="common.loading"></td></tr></tbody>
       </table>
     </div>
   </section>
 </main>
 
 <div id="overlay" class="overlay"></div>
-<aside id="drawer" class="drawer" aria-hidden="true" aria-label="Trip detail">
+<aside id="drawer" class="drawer" aria-hidden="true" data-i18n-aria-label="dash.tripDetail">
   <div class="drawer-head">
-    <h2 id="drawerTitle">Trip detail</h2>
-    <button class="ghost small" id="drawerClose" type="button">Close</button>
+    <h2 id="drawerTitle" data-i18n="dash.tripDetail"></h2>
+    <button class="ghost small" id="drawerClose" type="button" data-i18n="common.close"></button>
   </div>
-  <div class="drawer-body" id="drawerBody"><p class="muted">Select a trip to see its detail.</p></div>
+  <div class="drawer-body" id="drawerBody"><p class="muted" data-i18n="dash.selectTrip"></p></div>
 </aside>
 
+<script src="lib/i18n.js"></script>
+<script src="lib/i18n-ui.js"></script>
 <script>
 (function () {
   'use strict';
@@ -189,8 +201,19 @@
     CANCELLED: []
   };
 
+  // Board task #6: every string the page shows comes from the locale catalogues
+  // (pilot/locales/*.json). `i18n` is set by the boot below; until then the
+  // helper returns the key, which never renders because the boot runs first.
+  var i18n = null;
+  var openTripId = null;
+
   function $(id) { return document.getElementById(id); }
+  function t(key, params) { return i18n ? i18n.t(key, params) : key; }
+  function statusLabel(status) { return t('status.' + status); }
   function token() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+  function sessionUser() {
+    try { return JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; }
+  }
   function setMsg(text, kind) {
     var el = $('globalMsg');
     el.className = 'msg show ' + (kind || 'err');
@@ -199,12 +222,14 @@
   function clearMsg() { var el = $('globalMsg'); el.className = 'msg'; el.textContent = ''; }
 
   function errorText(status, data) {
-    if (status === 401) return 'Not authorised (401): please sign in again.';
-    if (status === 403) return 'Forbidden (403): your role may not perform this action.';
+    if (status === 401) return t('error.notAuthorised401');
+    if (status === 403) return t('error.forbidden403');
     var code = (data && data.error) || ('http_' + status);
-    if (code === 'invalid_transition') return 'Illegal transition (400): ' + data.from + ' -> ' + data.to + '.';
-    if (code === 'invalid_status') return 'Unknown status (400).';
-    return code + ' (' + status + ')';
+    if (code === 'invalid_transition') {
+      return t('error.invalidTransition', { from: statusLabel(data.from), to: statusLabel(data.to) });
+    }
+    if (code === 'invalid_status') return t('error.invalidStatus');
+    return t('error.http', { code: code, status: status });
   }
 
   function api(path, opts) {
@@ -223,10 +248,15 @@
     });
   }
 
+  // Currency/number/date formatting is locale-aware (board task #6).
   function money(v) {
-    if (v === null || v === undefined || v === '') return '—';
-    var n = Number(v);
-    return Number.isFinite(n) ? '€' + n.toFixed(2) : '—';
+    var formatted = i18n ? i18n.currency(v, 'EUR') : null;
+    return formatted === null ? t('common.none') : formatted;
+  }
+
+  function fmtDate(v) {
+    if (!v) return t('common.none');
+    return i18n ? i18n.dateTime(v) : String(v);
   }
 
   function esc(s) {
@@ -236,10 +266,9 @@
   }
 
   function showApp() {
-    var user = null;
-    try { user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); } catch (e) { user = null; }
+    var user = sessionUser();
     if (user) {
-      $('whoName').textContent = user.name || user.email || 'user';
+      $('whoName').textContent = user.name || user.email || '';
       $('whoRole').textContent = user.roleId ? '(' + user.roleId + ')' : '';
     }
     $('loginCard').classList.add('hidden');
@@ -281,7 +310,7 @@
     var trucks = ref.trucks || [];
     $('createCard').classList.remove('hidden');
 
-    $('orderId').innerHTML = '<option value="">— select order —</option>' + orders.map(function (o) {
+    $('orderId').innerHTML = option('', t('dash.selectOrder')) + orders.map(function (o) {
       var customer = o.customer ? o.customer.name : '';
       var label = (customer ? customer + ' · ' : '') +
         (o.origin || '?') + ' → ' + (o.destination || '?') +
@@ -290,40 +319,40 @@
       return option(o.id, label);
     }).join('');
 
-    $('driverId').innerHTML = '<option value="">— unassigned —</option>' + drivers.map(function (d) {
+    $('driverId').innerHTML = option('', t('dash.unassigned')) + drivers.map(function (d) {
       return option(d.id, d.name || d.id);
     }).join('');
 
-    $('truckId').innerHTML = '<option value="">— unassigned —</option>' + trucks.map(function (t) {
-      var label = [t.plate, t.euroClass, t.dimensions].filter(Boolean).join(' · ');
-      return option(t.id, label || t.id);
+    $('truckId').innerHTML = option('', t('dash.unassigned')) + trucks.map(function (t2) {
+      var label = [t2.plate, t2.euroClass, t2.dimensions].filter(Boolean).join(' · ');
+      return option(t2.id, label || t2.id);
     }).join('');
 
     if (!orders.length) {
-      setMsg('No orders available for this org — create an order first.', 'err');
+      setMsg(t('dash.noOrders'), 'err');
     }
   }
 
   function renderTrips(trips) {
     var body = $('tripRows');
     if (!trips.length) {
-      body.innerHTML = '<tr><td colspan="5" class="muted">No trips yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="5" class="muted">' + esc(t('dash.noTrips')) + '</td></tr>';
       return;
     }
-    body.innerHTML = trips.map(function (t) {
-      var order = t.order || {};
+    body.innerHTML = trips.map(function (trip) {
+      var order = trip.order || {};
       var route = esc(order.origin || '?') + ' → ' + esc(order.destination || '?');
-      var driver = t.driver ? esc(t.driver.name || t.driver.email || t.driverId) : (t.driverId ? esc(t.driverId) : '—');
-      var next = TRANSITIONS[t.status] || [];
+      var driver = trip.driver ? esc(trip.driver.name || trip.driver.email || trip.driverId) : (trip.driverId ? esc(trip.driverId) : t('common.none'));
+      var next = TRANSITIONS[trip.status] || [];
       var buttons = next.map(function (s) {
-        return '<button class="ghost small" data-trip="' + esc(t.id) + '" data-to="' + esc(s) + '">' + esc(s) + '</button>';
+        return '<button class="ghost small" data-trip="' + esc(trip.id) + '" data-to="' + esc(s) + '">' + esc(statusLabel(s)) + '</button>';
       }).join('');
-      return '<tr class="clickable" data-open="' + esc(t.id) + '">' +
+      return '<tr class="clickable" data-open="' + esc(trip.id) + '">' +
         '<td>' + route + '</td>' +
         '<td>' + driver + '</td>' +
-        '<td><span class="status s-' + esc(t.status) + '">' + esc(t.status) + '</span></td>' +
-        '<td>' + money(t.rateEur) + '</td>' +
-        '<td><div class="actions">' + (buttons || '<span class="muted">terminal</span>') + '</div></td>' +
+        '<td><span class="status s-' + esc(trip.status) + '">' + esc(statusLabel(trip.status)) + '</span></td>' +
+        '<td>' + money(trip.rateEur) + '</td>' +
+        '<td><div class="actions">' + (buttons || '<span class="muted">' + esc(t('common.terminal')) + '</span>') + '</div></td>' +
       '</tr>';
     }).join('');
     Array.prototype.forEach.call(body.querySelectorAll('button[data-trip]'), function (btn) {
@@ -340,12 +369,6 @@
     });
   }
 
-  function fmtDate(v) {
-    if (!v) return '—';
-    var d = new Date(v);
-    return isNaN(d.getTime()) ? String(v) : d.toLocaleString();
-  }
-
   function openDrawer() {
     $('drawer').classList.add('open');
     $('drawer').setAttribute('aria-hidden', 'false');
@@ -356,13 +379,15 @@
     $('drawer').classList.remove('open');
     $('drawer').setAttribute('aria-hidden', 'true');
     $('overlay').classList.remove('open');
+    openTripId = null;
   }
 
   // Trip detail (board task #2): one read-only GET /api/trips/:id, rendered into
   // the drawer. Org scoping is the API's job; here we only display what it returns.
   function loadTripDetail(id) {
-    $('drawerTitle').textContent = 'Trip ' + id;
-    $('drawerBody').innerHTML = '<p class="muted">Loading…</p>';
+    openTripId = id;
+    $('drawerTitle').textContent = t('dash.tripTitle', { id: id });
+    $('drawerBody').innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
     openDrawer();
     return api('/api/trips/' + encodeURIComponent(id), { token: token() }).then(function (r) {
       if (r.status !== 200) {
@@ -371,62 +396,62 @@
       }
       renderTripDetail(r.data && r.data.trip ? r.data.trip : {});
     }).catch(function (err) {
-      $('drawerBody').innerHTML = '<p class="msg err show">Network error: ' + esc(err.message) + '</p>';
+      $('drawerBody').innerHTML = '<p class="msg err show">' + esc(t('error.networkDetail', { detail: err.message })) + '</p>';
     });
   }
 
-  function renderTripDetail(t) {
-    var order = t.order || {};
-    var totals = t.totals || {};
+  function renderTripDetail(trip) {
+    var order = trip.order || {};
+    var totals = trip.totals || {};
     var pnl = totals.pnlEur;
     var pnlClass = (pnl === null || pnl === undefined) ? '' : (pnl < 0 ? 'neg' : 'pos');
 
-    var events = t.statusEvents || [];
+    var events = trip.statusEvents || [];
     var timeline = events.length ? '<ul class="timeline">' + events.map(function (e) {
       return '<li>' +
-        '<div class="tl-what">' + esc(e.from) + ' → ' + esc(e.to) + '</div>' +
+        '<div class="tl-what">' + esc(statusLabel(e.from)) + ' → ' + esc(statusLabel(e.to)) + '</div>' +
         '<div class="tl-when">' + esc(fmtDate(e.at)) + (e.actor ? ' · ' + esc(e.actor.name) : '') + '</div>' +
       '</li>';
-    }).join('') + '</ul>' : '<p class="empty">No status events yet.</p>';
+    }).join('') + '</ul>' : '<p class="empty">' + esc(t('dash.noEvents')) + '</p>';
 
-    var docs = t.documents || [];
+    var docs = trip.documents || [];
     var docRows = docs.length ? docs.map(function (d) {
-      return '<tr><td>' + esc(d.docType) + '</td><td>' + esc(d.status) + '</td><td>' + esc(fmtDate(d.uploadedAt)) + '</td></tr>';
-    }).join('') : '<tr><td colspan="3" class="empty">No documents.</td></tr>';
+      return '<tr><td>' + esc(t('doctype.' + d.docType)) + '</td><td>' + esc(t('docstatus.' + d.status)) + '</td><td>' + esc(fmtDate(d.uploadedAt)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="3" class="empty">' + esc(t('dash.noDocuments')) + '</td></tr>';
 
-    var expenses = t.expenses || [];
+    var expenses = trip.expenses || [];
     var expRows = expenses.length ? expenses.map(function (x) {
       return '<tr><td>' + esc(x.category) + '</td><td>' + money(x.amountEur) + '</td></tr>';
-    }).join('') : '<tr><td colspan="2" class="empty">No expenses.</td></tr>';
+    }).join('') : '<tr><td colspan="2" class="empty">' + esc(t('dash.noExpenses')) + '</td></tr>';
 
     $('drawerBody').innerHTML =
-      '<p><span class="status s-' + esc(t.status) + '">' + esc(t.status) + '</span></p>' +
+      '<p><span class="status s-' + esc(trip.status) + '">' + esc(statusLabel(trip.status)) + '</span></p>' +
       '<dl class="kv">' +
-        '<dt>Route</dt><dd>' + esc(order.origin || '?') + ' → ' + esc(order.destination || '?') + '</dd>' +
-        '<dt>Cargo</dt><dd>' + esc(order.cargo || '—') + '</dd>' +
-        '<dt>Customer</dt><dd>' + esc(order.customer ? order.customer.name : '—') + '</dd>' +
-        '<dt>Driver</dt><dd>' + esc(t.driver ? (t.driver.name || t.driver.email || t.driver.id) : '—') + '</dd>' +
-        '<dt>Truck</dt><dd>' + esc(t.truck ? (t.truck.plate || t.truck.id) : '—') + '</dd>' +
-        '<dt>Rate</dt><dd>' + money(t.rateEur) + '</dd>' +
+        '<dt>' + esc(t('dash.colRoute')) + '</dt><dd>' + esc(order.origin || '?') + ' → ' + esc(order.destination || '?') + '</dd>' +
+        '<dt>' + esc(t('dash.cargo')) + '</dt><dd>' + esc(order.cargo || t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('dash.customer')) + '</dt><dd>' + esc(order.customer ? order.customer.name : t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('common.driver')) + '</dt><dd>' + esc(trip.driver ? (trip.driver.name || trip.driver.email || trip.driver.id) : t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('dash.truck')) + '</dt><dd>' + esc(trip.truck ? (trip.truck.plate || trip.truck.id) : t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('common.rate')) + '</dt><dd>' + money(trip.rateEur) + '</dd>' +
       '</dl>' +
-      '<div class="section-title">Timeline</div>' + timeline +
-      '<div class="section-title">Documents</div>' +
-        '<table><thead><tr><th>Type</th><th>Status</th><th>Uploaded</th></tr></thead><tbody>' + docRows + '</tbody></table>' +
-      '<div class="section-title">Expenses</div>' +
-        '<table><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>' + expRows + '</tbody></table>' +
-      '<div class="section-title">P&amp;L</div>' +
+      '<div class="section-title">' + esc(t('dash.timeline')) + '</div>' + timeline +
+      '<div class="section-title">' + esc(t('dash.documents')) + '</div>' +
+        '<table><thead><tr><th>' + esc(t('common.type')) + '</th><th>' + esc(t('common.status')) + '</th><th>' + esc(t('dash.uploaded')) + '</th></tr></thead><tbody>' + docRows + '</tbody></table>' +
+      '<div class="section-title">' + esc(t('dash.expenses')) + '</div>' +
+        '<table><thead><tr><th>' + esc(t('dash.category')) + '</th><th>' + esc(t('dash.amount')) + '</th></tr></thead><tbody>' + expRows + '</tbody></table>' +
+      '<div class="section-title">' + esc(t('dash.pnl')) + '</div>' +
         '<p class="pnl ' + pnlClass + '">' + money(pnl) + '</p>' +
-        '<p class="muted">Rate ' + money(t.rateEur) + ' − expenses ' + money(totals.expensesEur) + '</p>' +
-      '<div class="section-title">Customer tracking</div>' +
-        '<p class="muted">Share a read-only link: route, status and timeline, no login and no PII.</p>' +
-        '<button class="ghost small" id="trackLinkBtn" type="button">Create tracking link</button>' +
-        '<p class="muted" id="trackLinkOut">No link created yet.</p>';
+        '<p class="muted">' + esc(t('dash.pnlFormula', { rate: money(trip.rateEur), expenses: money(totals.expensesEur) })) + '</p>' +
+      '<div class="section-title">' + esc(t('dash.trackingTitle')) + '</div>' +
+        '<p class="muted">' + esc(t('dash.trackingHint')) + '</p>' +
+        '<button class="ghost small" id="trackLinkBtn" type="button">' + esc(t('dash.createTrackLink')) + '</button>' +
+        '<p class="muted" id="trackLinkOut">' + esc(t('dash.noLink')) + '</p>';
 
     // Injected above, so look it up inside the drawer body rather than with the
     // $-helper, which would need the id to exist in the static document.
     var linkBtn = $('drawerBody').querySelector('#trackLinkBtn');
     if (linkBtn) {
-      linkBtn.addEventListener('click', function () { createTrackLink(t.id, linkBtn); });
+      linkBtn.addEventListener('click', function () { createTrackLink(trip.id, linkBtn); });
     }
   }
 
@@ -435,7 +460,7 @@
   function createTrackLink(id, btn) {
     btn.disabled = true;
     var out = $('drawerBody').querySelector('#trackLinkOut');
-    out.textContent = 'Creating…';
+    out.textContent = t('dash.creating');
     api('/api/trips/' + encodeURIComponent(id) + '/track-link', { method: 'POST', token: token() })
       .then(function (r) {
         btn.disabled = false;
@@ -446,14 +471,12 @@
       })
       .catch(function (err) {
         btn.disabled = false;
-        out.textContent = 'Network error: ' + err.message;
+        out.textContent = t('error.networkDetail', { detail: err.message });
       });
   }
 
   function refreshOpenDrawer(id) {
-    if ($('drawer').classList.contains('open') && $('drawerTitle').textContent === 'Trip ' + id) {
-      loadTripDetail(id);
-    }
+    if (openTripId === id && $('drawer').classList.contains('open')) loadTripDetail(id);
   }
 
   function transition(id, to, btn) {
@@ -462,10 +485,10 @@
     api('/api/trips/' + encodeURIComponent(id) + '/status', { method: 'POST', token: token(), body: { status: to } })
       .then(function (r) {
         if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); }
-        else { setMsg('Trip ' + id + ' -> ' + to + '.', 'ok'); }
+        else { setMsg(t('dash.tripMoved', { id: id, to: statusLabel(to) }), 'ok'); }
         return loadTrips().then(function () { refreshOpenDrawer(id); });
       })
-      .catch(function (err) { setMsg('Network error: ' + err.message, 'err'); })
+      .catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); })
       .then(function () { btn.disabled = false; });
   }
 
@@ -478,17 +501,19 @@
         sessionStorage.setItem(TOKEN_KEY, r.data.token);
         sessionStorage.setItem(USER_KEY, JSON.stringify(r.data.user || null));
         $('password').value = '';
-        showApp();
-        setMsg('Signed in.', 'ok');
+        // Board task #6: the login response carries the org's default locale.
+        if (i18n && typeof i18n.setUser === 'function') i18n.setUser(r.data.user);
+        else showApp();
+        setMsg(t('common.signedIn'), 'ok');
       })
-      .catch(function (err) { setMsg('Network error: ' + err.message, 'err'); });
+      .catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); });
   });
 
   $('createForm').addEventListener('submit', function (e) {
     e.preventDefault();
     clearMsg();
     var orderId = $('orderId').value;
-    if (!orderId) { setMsg('Select an order before creating a trip.', 'err'); return; }
+    if (!orderId) { setMsg(t('dash.selectOrderFirst'), 'err'); return; }
     var body = { orderId: orderId };
     var driverId = $('driverId').value;
     var truckId = $('truckId').value;
@@ -498,11 +523,11 @@
     if (rate !== '') body.rateEur = Number(rate);
     api('/api/trips', { method: 'POST', token: token(), body: body }).then(function (r) {
       if (r.status !== 201) { setMsg(errorText(r.status, r.data), 'err'); return; }
-      setMsg('Trip created (' + (r.data.trip && r.data.trip.id) + ').', 'ok');
+      setMsg(t('dash.tripCreated', { id: r.data.trip && r.data.trip.id }), 'ok');
       $('createForm').reset();
       $('orderId').value = '';
       loadTrips();
-    }).catch(function (err) { setMsg('Network error: ' + err.message, 'err'); });
+    }).catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); });
   });
 
   $('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
@@ -514,10 +539,24 @@
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(USER_KEY);
     clearMsg();
+    closeDrawer();
     showLogin();
   });
 
-  if (token()) showApp(); else showLogin();
+  // Board task #6: boot i18n BEFORE anything renders, so no key ever reaches
+  // the screen. The org locale from the login response is the tenant default;
+  // the user's own language wins over it (see pilot/lib/i18n.js).
+  var user = sessionUser();
+  window.RoadwiseI18nUI.init({
+    mount: '#langSlot',
+    user: user,
+    org: user && user.locale,
+    onApply: function (ui) {
+      i18n = ui;
+      if (token()) showApp(); else showLogin();
+      if (openTripId && $('drawer').classList.contains('open')) loadTripDetail(openTripId);
+    }
+  });
 })();
 </script>
 </body>

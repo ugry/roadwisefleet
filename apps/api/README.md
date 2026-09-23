@@ -16,7 +16,8 @@ pilot seed, minimal token auth and the core trip loop are wired.
   The seed also supports `--reset` (see "Pilot demo reset" below).
 - `scripts/waitlist-handoff.ts` — manual waitlist → account handoff (see below).
 - `../../pilot/` — the pilot-only web surface served by this API under `/pilot/`
-  (repo-root dir, separate from the production `web/`).
+  (repo-root dir, separate from the production `web/`). Its UI strings — EN/DE/PL/TR
+  — live in `pilot/locales/` (see "Internationalisation" below).
 
 ## Run
 ```bash
@@ -60,8 +61,8 @@ Pure logic (state machine, scrypt password hashing, token signing/verification,
 RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
 Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
 demo-reset planning, tracking-link signing/shaping, document capture validation,
-driver-PWA tour card/checklist/offline queue) runs on the Node.js native test
-runner with no install:
+driver-PWA tour card/checklist/offline queue, locale resolution and the pilot i18n
+catalogues) runs on the Node.js native test runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -90,7 +91,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | Route | Auth | Purpose |
 |---|---|---|
 | `GET /health` | — | liveness |
-| `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token |
+| `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
 | `GET /api/trips` | bearer, `trip:read` | dashboard trip list for the token's org |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer, driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); a trip in another org is `404`, never a leak |
@@ -235,7 +236,8 @@ The API serves the static pilot pages from the repo-root `pilot/` directory via
 `@fastify/static` (`src/app.ts`, prefix `/pilot/`), so the pages are same-origin
 with `/api/*` — no new port and no nginx. Production `web/` is untouched.
 
-- `pilot/index.html` — landing linking to the two pages.
+- `pilot/index.html` — landing linking to the two pages, with the language
+  switcher in the header.
 - `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
   form (order/driver/truck dropdowns fed by `GET /api/reference`, plus a rate
   input — no raw IDs), status-transition controls, a click-a-row trip drawer
@@ -253,6 +255,49 @@ Open `http://127.0.0.1:8080/pilot/` after `pnpm dev`. The pages use vanilla
 `fetch`; no build step and no external CDN. The dashboard keeps the bearer token
 in `sessionStorage`, the driver app in `localStorage` (so an installed PWA
 reopens offline) — see the driver-PWA section above.
+
+### Internationalisation (board task #6)
+The pilot UI ships four locales — **EN / DE / PL / TR** — and no UI string is
+hardcoded in `pilot/*.html` any more. Every visible string is a key rendered from
+a catalogue:
+
+- `pilot/locales/<lang>.json` — one catalogue per supported locale, keyed against
+  the English one. `src/i18n.test.js` fails if a catalogue misses a key, carries an
+  empty/placeholder value, drops a `{placeholder}` or is just copied English.
+- `pilot/lib/i18n.js` — the pure runtime (dependency-free, ES5 for cheap Android
+  WebViews): locale normalisation, `?lang=` parsing, the resolution order below,
+  `{name}` interpolation, CLDR plural categories and the date/number/currency
+  hooks. Loaded twice on purpose — as a classic script in the browser and by the
+  test suite — exactly like `driver-core.js`.
+- `pilot/lib/i18n-ui.js` — the only DOM-aware piece: applies the
+  `data-i18n` / `data-i18n-placeholder` / `data-i18n-title` / `data-i18n-aria-label`
+  / `data-i18n-content` / `data-i18n-value` attributes, renders the
+  `<select id="langSwitcher">` into each page's `#langSlot`, and boots the page.
+- `src/i18n.js` — the server half of the same contract: normalises `Org.locale`
+  (the tenant default) and `User.lang` (the person's preference) — both free-text
+  columns — so an unsupported value (`fr`, `de-DE`, `""`) is skipped rather than
+  forwarded to the UI.
+
+A page load resolves the locale as "first supported value wins":
+
+1. `?lang=` (an explicit link or switcher choice)
+2. the choice remembered in `localStorage` (`rwf.lang`)
+3. the user's own language (from the login response)
+4. the org's default locale
+5. the browser's languages
+6. `en`
+
+A `?lang=` choice sticks (it is written to `localStorage`), so navigating between
+the pilot pages does not lose it. The login response carries `locale` (org
+default), `lang` (the person's preference) and `locales` (the supported list);
+the dashboard and driver pages re-apply the org default after sign-in unless the
+person already chose a language. A missing translation falls back to English and
+then to the key itself, so a catalogue gap can never blank out the UI.
+
+> **Known limitation:** the API's *server-side* error `detail` strings (the
+> `400`/`403` bodies, e.g. `invalid_transition`) are still English. Only the pilot
+> UI is localised in this task; localising server messages needs the request's
+> `Accept-Language` threaded through the route layer.
 
 ## Waitlist → account handoff
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the
