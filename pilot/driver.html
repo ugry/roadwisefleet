@@ -51,8 +51,20 @@
   .status{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;background:var(--bg);border:1px solid var(--border);color:var(--ink);text-transform:uppercase}
   .status.s-DELIVERED,.status.s-POD_UPLOADED,.status.s-INVOICED,.status.s-SETTLED{color:var(--success);border-color:var(--success)}
   .status.s-CANCELLED{color:var(--danger);border-color:var(--danger)}
+  .status.s-VERIFIED{color:var(--success);border-color:var(--success)}
+  .status.s-REJECTED{color:var(--danger);border-color:var(--danger)}
+  .status.s-UPLOADED{color:var(--accent-deep);border-color:var(--accent-deep)}
   .status.s-IN_TRANSIT,.status.s-LOADED{color:var(--accent-deep);border-color:var(--accent-deep)}
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .docs{margin-top:14px;border-top:1px solid var(--border);padding-top:12px}
+  .docs .section-title{font-family:var(--font-display);font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
+  .doclist table{width:100%;border-collapse:collapse;font-size:13px}
+  .doclist th,.doclist td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}
+  .doclist th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+  .upload{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+  .upload select{padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+  .upload input[type=file]{font-size:13px;max-width:230px}
+  .upload .hint{font-size:12px;color:var(--muted);width:100%}
   .msg{padding:10px 12px;border-radius:7px;margin:12px 0;font-size:13px;display:none;white-space:pre-wrap}
   .msg.show{display:block}
   .msg.err{background:oklch(0.55 0.19 26 / .08);border:1px solid var(--danger);color:var(--danger)}
@@ -112,6 +124,24 @@
     CANCELLED: []
   };
 
+  // Document upload (board task #3). The API is authoritative on type, size and
+  // role; these are only so the driver gets an early, friendly message.
+  var MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // mirrors the API default (MAX_UPLOAD_BYTES)
+  var DOC_TYPES = [
+    ['pod', 'POD'],
+    ['ecmr', 'eCMR'],
+    ['e_irsaliye', 'e-İrsaliye'],
+    ['invoice', 'Invoice'],
+    ['driver_license', 'Driving licence'],
+    ['cpc', 'Driver CPC'],
+    ['medical', 'Medical certificate'],
+    ['insurance', 'Insurance'],
+    ['tacho_file', 'Tachograph file']
+  ];
+  var DOC_OPTIONS = DOC_TYPES.map(function (d) {
+    return '<option value="' + esc(d[0]) + '">' + esc(d[1]) + '</option>';
+  }).join('');
+
   function $(id) { return document.getElementById(id); }
   function token() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
   function setMsg(text, kind) {
@@ -127,6 +157,13 @@
     var code = (data && data.error) || ('http_' + status);
     if (code === 'invalid_transition') return 'Rejected transition (400): ' + data.from + ' -> ' + data.to + '.';
     if (code === 'invalid_status') return 'Unknown status (400).';
+    if (code === 'pod_required') return 'Upload a POD or eCMR document before marking the trip POD_UPLOADED.';
+    if (code === 'unsupported_type') return 'Unsupported file type (400). Use a JPEG, PNG, WebP, HEIC or PDF.';
+    if (code === 'file_too_large') return 'File too large (400). The maximum is 10 MiB.';
+    if (code === 'invalid_size') return 'The file is empty (400).';
+    if (code === 'invalid_doc_type') return 'Unknown document type (400).';
+    if (code === 'invalid_upload') return 'The upload payload was rejected (400).';
+    if (code === 'invalid_filename') return 'The filename was rejected (400).';
     return code + ' (' + status + ')';
   }
 
@@ -193,7 +230,7 @@
         ? t.statusEvents[t.statusEvents.length - 1]
         : null;
       var updated = last && last.happenedAt ? new Date(last.happenedAt).toLocaleString() : '—';
-      return '<div class="trip">' +
+      return '<div class="trip" data-trip-card="' + esc(t.id) + '">' +
         '<div class="route">' + esc(order.origin || '?') + ' → ' + esc(order.destination || '?') + '</div>' +
         '<div class="meta">' +
           '<span><span class="status s-' + esc(t.status) + '">' + esc(t.status) + '</span></span>' +
@@ -201,6 +238,16 @@
           '<span>Last update: ' + esc(updated) + '</span>' +
         '</div>' +
         '<div class="actions">' + (buttons || '<span class="muted">No further transitions.</span>') + '</div>' +
+        '<div class="docs">' +
+          '<div class="section-title">Documents</div>' +
+          '<div class="doclist" data-docs="' + esc(t.id) + '"><p class="muted">Loading…</p></div>' +
+          '<div class="upload">' +
+            '<select data-doctype="' + esc(t.id) + '" aria-label="Document type">' + DOC_OPTIONS + '</select>' +
+            '<input type="file" data-file="' + esc(t.id) + '" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" aria-label="Document file">' +
+            '<button class="primary small" data-upload="' + esc(t.id) + '" type="button">Upload</button>' +
+            '<span class="hint">A POD or eCMR is required before POD_UPLOADED · JPEG/PNG/WebP/HEIC/PDF · max 10 MiB</span>' +
+          '</div>' +
+        '</div>' +
       '</div>';
     }).join('');
     Array.prototype.forEach.call(list.querySelectorAll('button[data-trip]'), function (btn) {
@@ -208,6 +255,87 @@
         transition(btn.getAttribute('data-trip'), btn.getAttribute('data-to'), btn);
       });
     });
+    Array.prototype.forEach.call(list.querySelectorAll('button[data-upload]'), function (btn) {
+      btn.addEventListener('click', function () { uploadDocument(btn.getAttribute('data-upload'), btn); });
+    });
+    trips.forEach(function (t) { loadDocs(t.id); });
+  }
+
+  // Attribute lookup by value — never interpolate an id into a CSS selector.
+  function byData(attr, value) {
+    var nodes = document.querySelectorAll('[' + attr + ']');
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].getAttribute(attr) === value) return nodes[i];
+    }
+    return null;
+  }
+
+  function loadDocs(id) {
+    return api('/api/trips/' + encodeURIComponent(id) + '/documents', { token: token() }).then(function (r) {
+      var host = byData('data-docs', id);
+      if (!host) return;
+      if (r.status !== 200) { host.innerHTML = '<p class="muted">' + esc(errorText(r.status, r.data)) + '</p>'; return; }
+      renderDocs(host, (r.data && r.data.documents) || []);
+    }).catch(function (err) {
+      var host = byData('data-docs', id);
+      if (host) host.innerHTML = '<p class="muted">' + esc(err.message) + '</p>';
+    });
+  }
+
+  function renderDocs(host, docs) {
+    if (!docs.length) { host.innerHTML = '<p class="muted">No documents uploaded yet.</p>'; return; }
+    host.innerHTML = '<table><thead><tr><th>Type</th><th>Status</th><th>Uploaded</th></tr></thead><tbody>' +
+      docs.map(function (d) {
+        return '<tr><td>' + esc(d.docType) + '</td>' +
+          '<td><span class="status s-' + esc(d.status) + '">' + esc(d.status) + '</span></td>' +
+          '<td>' + esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : '—') + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  function readBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('could not read the file')); };
+      reader.onload = function () {
+        var url = String(reader.result || '');
+        var comma = url.indexOf(',');
+        resolve(comma >= 0 ? url.slice(comma + 1) : '');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Upload one document (board task #3): the file is read as base64 and POSTed
+  // as JSON, so the pilot needs no multipart dependency. The API enforces the
+  // doc type, the size cap and the role; the checks here are only for UX.
+  function uploadDocument(id, btn) {
+    clearMsg();
+    var card = byData('data-trip-card', id);
+    var sel = card ? card.querySelector('select[data-doctype]') : null;
+    var input = card ? card.querySelector('input[data-file]') : null;
+    var file = input && input.files ? input.files[0] : null;
+    if (!file) { setMsg('Choose a file to upload first.', 'err'); return; }
+    if (file.size <= 0) { setMsg('That file is empty.', 'err'); return; }
+    if (file.size > MAX_UPLOAD_BYTES) { setMsg('That file is larger than 10 MiB.', 'err'); return; }
+    btn.disabled = true;
+    readBase64(file).then(function (b64) {
+      return api('/api/trips/' + encodeURIComponent(id) + '/documents', {
+        method: 'POST',
+        token: token(),
+        body: {
+          docType: sel ? sel.value : 'pod',
+          filename: file.name,
+          mimeType: file.type || '',
+          dataBase64: b64
+        }
+      });
+    }).then(function (r) {
+      if (r.status !== 201) { setMsg(errorText(r.status, r.data), 'err'); return loadDocs(id); }
+      setMsg('Uploaded ' + (sel ? sel.value : 'document') + ' for trip ' + id + '.', 'ok');
+      if (input) input.value = '';
+      return loadDocs(id);
+    }).catch(function (err) { setMsg('Network error: ' + err.message, 'err'); })
+      .then(function () { btn.disabled = false; });
   }
 
   function transition(id, to, btn) {
