@@ -1,0 +1,21 @@
+# Ready-to-apply artifact — timer for the uploads-directory backup (board eila/tasks#46).
+#
+# NOT installed by CI. Install to /etc/systemd/system/pilot-uploads-backup.timer
+# (mode 0644) and `systemctl enable --now pilot-uploads-backup.timer`.
+#
+# 03:45 UTC daily: after the Postgres dump (03:15, roadwise-pg-backup.timer) and
+# its verification, so the DB rows and the document bytes are taken in the same
+# quiet window and the two archives belong to the same point in time.
+# Persistent=true: a missed run (host down at 03:45) catches up on next boot.
+
+[Unit]
+Description=Run the RoadwiseFleet uploads backup daily at 03:45 UTC
+
+[Timer]
+OnCalendar=*-*-* 03:45:00
+AccuracySec=5min
+Persistent=true
+Unit=pilot-uploads-backup.service
+
+[Install]
+WantedBy=timers.target
