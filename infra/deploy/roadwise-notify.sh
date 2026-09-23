@@ -3,10 +3,12 @@
 # promotion notice, and the deploy failure alert. Board task eila/tasks#31.
 #
 # Installed at /usr/local/bin/roadwise-notify.sh. Called by
-# roadwise-deploy.sh (staging) and roadwise-promote.sh (production).
+# roadwise-deploy-site.sh (the live pilot, single environment) and
+# roadwise-promote.sh (production). roadwise-deploy.sh (staging) is superseded
+# by the 2026-09-23 re-scope (board #31: no staging).
 #
 # Usage:
-#   roadwise-notify.sh ready  <sha> <url>       # staging is green -> "READY TO TEST"
+#   roadwise-notify.sh ready  <sha> <url>       # deploy green -> "READY TO TEST"
 #   roadwise-notify.sh update <sha> <url> [<note>]  # production promoted (+ approval ref)
 #   roadwise-notify.sh alert  <message...>      # deploy failed / rolled back
 #
@@ -87,7 +89,7 @@ esac
 
 case "$kind" in
   ready)
-    text="READY TO TEST — staging is green at ${sha} (${url}). Nothing to deploy: open the link and test that build."
+    text="READY TO TEST — the pilot is live and healthy at ${sha} (${url}). Nothing to deploy: open the link and test that build."
     ;;
   update)
     text="PRODUCTION UPDATED to ${sha} (${url}) — promoted after approval${note:+ (${note})} and verified healthy."

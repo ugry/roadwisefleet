@@ -24,8 +24,10 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container (live volume untouched). |
 | `logrotate/roadwisefleet` | `/etc/logrotate.d/roadwisefleet` | Logrotate drop-in for pilot log files. |
 | `firewall/ufw-pilot.sh` | `/opt/roadwisefleet/firewall/` | Reviewed, idempotent firewall rule set (default-deny inbound; 22/80/443 only). `apply` / `status` / `rollback`. |
-| `deploy.md` | — | Runbook: the automatic deploy path (merge → staging → health check → auto-rollback → "ready to test"; promotion owner-gated). Board task #31. |
-| `deploy/roadwise-deploy.sh` | `/usr/local/bin/roadwise-deploy.sh` | The one sanctioned deployer (`staging`/`status`/`rollback`); CI-gated pull deploy with rollback. |
+| `deploy.md` | — | Runbook: the automatic deploy path (board #31). **§10 = the current single-environment deployer** (merge → live pilot → health check → auto-rollback); §4–§7 are the superseded staging design (not installed). |
+| `deploy/roadwise-deploy-site.sh` | `/usr/local/bin/roadwise-deploy-site.sh` | **Current** deployer: pull `main` → CI-green gate → in-place checkout of `/opt/roadwisefleet/api` → migrate → restart → health check → auto-rollback. `deploy`/`status`/`rollback`. See `deploy.md` §10. |
+| `systemd/roadwise-deploy-site.{service,timer}` | `/etc/systemd/system/` | 5-minute pull-deploy job for the live pilot site (board #31 re-scope). Ready-to-apply, not installed. |
+| `deploy/roadwise-deploy.sh` | `/usr/local/bin/roadwise-deploy.sh` | **Superseded (staging)** by the 2026-09-23 re-scope; kept for reference. CI-gated pull deploy with rollback. |
 | `deploy/roadwise-notify.sh` | `/usr/local/bin/roadwise-notify.sh` | "READY TO TEST" / "PRODUCTION UPDATED" signal + deploy-failure alerts. Matrix is the transport usable from elilavps2 (the relay is loopback-only on elilavps1); exit 3/4 = nothing delivered, never a silent skip (0600 env). |
 | `deploy/roadwise-promote.sh` | `/usr/local/bin/roadwise-promote.sh` | Owner-gated staging → production promotion with automatic revert on failed health check. |
 | `deploy/staging.env.example` | `/opt/roadwisefleet/staging/.env` | Key names only for the staging environment (values live on the host, 0600). |
@@ -62,7 +64,7 @@ Known drift risk: certbot rewrites the site file on renewal/creation — pull it
 | [`firewall/README.md`](./firewall/README.md) | Host firewall config-as-code: reviewed `ufw` rules, apply/rollback, order of operations. |
 | [`monitoring/README.md`](./monitoring/README.md) | Monitoring stack inventory (Gatus/VictoriaMetrics/node_exporter/Grafana/relay), **config-as-code gap** (configs live on elilavps1 — not transcribable from here), owned thresholds/checks T1–T8. |
 | [`monitoring/runbook.md`](./monitoring/runbook.md) | Monitoring operations: routine probes, silence/extend a check, alert round-trip test, relay Matrix token rotation, restore procedures, change control. |
-| [`deploy.md`](./deploy.md) | The automatic deploy path (board #31): merge → staging → health check → auto-rollback → "ready to test"; owner-gated promotion to production. |
+| [`deploy.md`](./deploy.md) | The automatic deploy path (board #31): §10 single-environment deployer (merge → live pilot → auto-rollback); §4–§7 staging design, superseded. |
 
 > The `scripts/`, `logrotate/` and `firewall/` files are **ready-to-apply
 > artifacts**: they are reviewed here but not installed on the host. Installing

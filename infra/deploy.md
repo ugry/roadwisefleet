@@ -9,6 +9,11 @@ or run on any host.** Every file referenced here is reviewed in the repo only.
 Installing is a production change that needs owner approval and a change window
 (see §4 and §9). The DevOps agent holds no host write access.
 
+> **Re-scope 2026-09-23 (§10):** the owner removed staging — the live pilot *is*
+> the test environment. The deployable path is now the single-environment deployer
+> in **§10**; the staging-shaped §4–§7 artifacts are **superseded and not
+> installed**.
+
 **Secrets:** no credential value appears in this document, in the artifacts, in
 the units, or in any log produced by them. Settings come from 0600
 EnvironmentFiles; the deployer sources them and never echoes them.
@@ -265,6 +270,137 @@ Nothing above has been executed on the host; nothing is claimed as done.
 | B6 | **Digest wiring** — pointing `/opt/eila/owner_digest.py` at `ready-to-test.txt` (or the JSON). Orchestrator-owned file; I did not touch it. | orchestrator |
 | B7 | **Deploy privilege** — decision on the root pull-deploy risk in §7.1. | owner |
 
+> **Re-scope 2026-09-23:** for the site-direct path (§10) B1 (install window) and
+> B7 (root deployer) are closed by the owner, B3 is resolved (`@alerts-bot`) and
+> B4 is dropped (no staging surface). B2/B5/B6 apply only to the superseded
+> staging design.
+
+## 10. Site-direct deploy — merge → live pilot (re-scope, 2026-09-23)
+
+**Owner re-scope** (`eila/tasks#31`, board comment 406; Matrix ~19:48 UTC): there
+is **no staging environment** — the live pilot **is** the test environment
+(*"we don't need staging it's not production, so whole site is staging"*). The
+staging-shaped artifacts in §3–§7 (release symlink, `roadwise-staging-api` on
+8081, `roadwisefleet_staging` DB, `roadwise-promote.sh`) are therefore **not
+installed** and are superseded for the pilot route; the §6 promotion step is
+dropped for now. Owner decisions that closed blockers: **B1** install window
+(~45 min, root, elilavps2), **B3** notifier = the existing `@alerts-bot` in
+`#eila`, **B7** root deployer accepted. **B4** (staging surface) is dropped.
+
+### 10.1 Artifacts
+
+| File | Host path after install | Role |
+|---|---|---|
+| `deploy/roadwise-deploy-site.sh` | `/usr/local/bin/roadwise-deploy-site.sh` | the single-environment deployer: `deploy` \| `status` \| `rollback [<sha>]` |
+| `systemd/roadwise-deploy-site.service` | `/etc/systemd/system/roadwise-deploy-site.service` | oneshot deploy job (root) |
+| `systemd/roadwise-deploy-site.timer` | `/etc/systemd/system/roadwise-deploy-site.timer` | the 5-minute poll |
+
+It reuses the reviewed helpers (`log`/`die`/state/`ci_is_green`/`wait_healthy`/
+`notify`) and `roadwise-notify.sh` from PR #29; the staging release/symlink logic
+is deliberately not used.
+
+### 10.2 Target and behaviour
+
+Hard-coded defaults, overridable via the unit's `Environment=`:
+
+| Knob | Default |
+|---|---|
+| `RWF_SITE_DIR` | `/opt/roadwisefleet/api` (in-place git checkout, not a symlink) |
+| `RWF_SITE_UNIT` | `roadwise-api.service` |
+| `RWF_SITE_PORT` | `8080` (`127.0.0.1`) |
+| `RWF_SITE_URL` | `https://roadwisefleet.com/pilot/` |
+| `RWF_SITE_STATE_FILE` | `/var/lib/roadwisefleet/deploy-site-state.json` |
+| database | `roadwisefleet` (via the app `.env`) |
+
+1. `flock` single instance; `git fetch` `main` in the checkout; target = newest `main` commit.
+2. **CI-green gate** — only a commit whose `ci.yml` run concluded `success`.
+3. **Idempotent** — target already deployed and `/health` + `/pilot/` both 200 → silent `exit 0`.
+4. Deploy: record previous SHA → `git checkout --force <sha>` → `CI=true pnpm install --frozen-lockfile` → `prisma migrate deploy` (additive-only) → `systemctl restart roadwise-api.service` → health-check `/health` **and** `/pilot/`.
+5. **Auto-rollback** — any failed step reverts the checkout to the previous SHA, reinstalls, restarts, re-checks health, and alerts.
+6. **Notify** — `roadwise-notify.sh ready <sha> <url>` on success, `alert` on failure/rollback. No credential on a command line or in a log.
+
+### 10.3 State contract
+
+`/var/lib/roadwisefleet/deploy-site-state.json` (separate from the staging
+`deploy-state.json`; written atomically; contains no secrets):
+
+```json
+{
+  "surface": "site",
+  "sha": "<live commit>",
+  "short_sha": "<7>",
+  "previous_sha": "<previous commit>",
+  "status": "ready | rolled_back | failed | down | pending",
+  "deployed_at": "<UTC ISO-8601>",
+  "url": "https://roadwisefleet.com/pilot/",
+  "notify": "sent | not-sent-no-transport | not-sent-transport-failed | not-sent-error-<rc>"
+}
+```
+
+`status=ready` with `notify=not-sent-*` means the pilot is fine but nobody was told.
+
+### 10.4 Install (owner-approved window, root on elilavps2)
+
+Prerequisite: the checkout `/opt/roadwisefleet/api` already exists (it does — main `5cbebb1`).
+
+```bash
+# 1. scripts + units (config-as-code -> host)
+sudo install -m 0755 infra/deploy/roadwise-deploy-site.sh /usr/local/bin/
+sudo install -m 0644 infra/systemd/roadwise-deploy-site.service /etc/systemd/system/
+sudo install -m 0644 infra/systemd/roadwise-deploy-site.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# 2. notifier credential (0600) -- see §9 B3; without it notify=not-sent-no-transport
+sudo install -d -m 0755 /etc/roadwisefleet
+sudo install -m 0600 infra/deploy/notify.env.example /etc/roadwisefleet/notify.env
+sudo editor /etc/roadwisefleet/notify.env      # fill values, never commit
+
+# 3. first deploy by hand, in front of a human
+sudo systemctl start roadwise-deploy-site.service
+sudo journalctl -u roadwise-deploy-site.service -n 100 --no-pager
+sudo /usr/local/bin/roadwise-deploy-site.sh status
+
+# 4. verify the transport: 0 = delivered, 3 = nothing configured, 4 = delivery failed
+sudo /usr/local/bin/roadwise-notify.sh alert "TEST — site-deploy install verification, please ignore"; echo "notify exit: $?"
+
+# 5. enable the poll only once 3–4 are green
+sudo systemctl enable --now roadwise-deploy-site.timer
+systemctl list-timers roadwise-deploy-site.timer
+```
+
+### 10.5 Rollback
+
+- **Automatic:** every failed step reverts the checkout to the recorded previous
+  SHA, reinstalls, restarts and re-checks `/health` + `/pilot/`, then alerts.
+  Migrations are **additive-only** and are not reverted.
+- **Manual:** `sudo /usr/local/bin/roadwise-deploy-site.sh rollback [<sha>]`
+  (defaults to `previous_sha` from the state file).
+- **Roll back the installation:** `systemctl disable --now roadwise-deploy-site.timer`
+  and remove the three files in §10.1. The app checkout and `roadwise-api.service`
+  are left as they are.
+
+### 10.6 Acceptance mapping (re-scoped task #31)
+
+| Acceptance criterion | How it is met | Status |
+|---|---|---|
+| Merge → live pilot updates, no human action | 5-min timer + CI-green gate + in-place deploy | **artifact only — not installed** |
+| Failure → auto-rollback + alert fires | `rollback_to()` on install/migrate/health failure + `notify alert` | **artifact only — needs the install window** |
+| Owner notified → tests without a command | `ready <sha> <url>` to `#eila` + `deploy-site-state.json` | **needs the notifier (B3) at install** |
+| No staging created | no second unit/port/database/symlink; the pilot checkout is deployed in place | designed |
+
+Nothing above has been executed on the host; nothing is claimed as done.
+
+### 10.7 Known considerations
+
+- **Root pull-deploy** executes merged code as root (§7.1; owner accepted, B7).
+  The control upstream is branch protection + required review on `main`.
+- **Checkout ownership:** `/opt/roadwisefleet/api` is `debian`-owned while the
+  unit runs as root, so `git` is called with `-c safe.directory=...` and touched
+  files may become root-owned. Read-only for the `debian` service under the
+  default umask; if that ever breaks, move the build steps to `debian` (§7.7).
+- **No staging fallback:** a bad merge reaches the live pilot; the safety net is
+  the CI-green gate + auto-rollback, not a second environment (owner's choice).
+
 ## 11. Review follow-up (PR #29, overseer request-changes 2026-09-23)
 
 The overseer's review found four defects in the first revision. All four are
@@ -285,6 +421,7 @@ mutating step so those alerts can name what staging still runs.
 ## 12. Related documents
 
 - [`pilot-api.md`](./pilot-api.md) — the production API unit and its update steps.
+- [`deploy/roadwise-deploy-site.sh`](./deploy/roadwise-deploy-site.sh) — the current sanctioned deployer (§10); the staging deployer in §3 is superseded.
 - [`pilot-db.md`](./pilot-db.md) — Postgres/Redis and backups.
 - [`pilot-exposure.md`](./pilot-exposure.md) — public routing and the nginx apply/rollback procedure.
 - [`monitoring/README.md`](./monitoring/README.md) — the alert path (relay → `#eila-alerts`) this deployer uses.
