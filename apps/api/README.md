@@ -13,6 +13,7 @@ pilot seed, minimal token auth and the core trip loop are wired.
   auto-loading `.env`, which also avoids the "conflict between env vars" error
   from having both `apps/api/.env` and `prisma/.env` on disk.
 - `scripts/seed-pilot.ts`, `scripts/smoke-pilot.ts` — pilot seed and end-to-end smoke.
+  The seed also supports `--reset` (see "Pilot demo reset" below).
 - `scripts/waitlist-handoff.ts` — manual waitlist → account handoff (see below).
 - `../../pilot/` — the pilot-only web surface served by this API under `/pilot/`
   (repo-root dir, separate from the production `web/`).
@@ -34,10 +35,31 @@ committed fallback. The operator sets a strong value in the environment or
 development and tests only, `ALLOW_INSECURE_AUTH_SECRET=1` (or `NODE_ENV=test`)
 uses an ephemeral random secret for that process. Never commit a secret.
 
+## Pilot demo reset
+QA/acceptance runs leave extra trips in the pilot org, so the public demo shows
+more rows than the seed defines (GitHub issue #12). The reset path removes every
+pilot-org trip the seed does **not** own — together with its dependent rows
+(documents, status events, GPS pings, expenses, settlement, stops, driver links)
+— and then re-applies the idempotent seed. The seeded `pilot-trip-1` and
+`pilot-trip-2` are never touched.
+
+```bash
+# wipe residual demo trips, then re-seed to exactly the two seeded trips
+pnpm --filter @roadwisefleet/api db:reset -- --password=...
+
+# equivalent, explicit form
+pnpm --filter @roadwisefleet/api db:seed -- --reset --password=...
+```
+
+The decision logic is pure and dependency-free (`src/demo-reset.js`, covered by
+`src/demo-reset.test.js`); the script only performs the writes. The reset is
+scoped to the pilot org (`pilot-org`) — it never touches another org's data.
+
 ## Test
 Pure logic (state machine, scrypt password hashing, token signing/verification,
 RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
-Prisma client) runs on the Node.js native test runner with no install:
+Prisma client, pilot demo-reset planning) runs on the Node.js native test runner
+with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
