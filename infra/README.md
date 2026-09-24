@@ -12,6 +12,7 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `nginx/conf.d/roadwisefleet-limits.conf` | `/etc/nginx/conf.d/` | Per-IP `limit_req` zones (http context). Install **before** the site file — the four `limit_req` lines in it are enabled as of board #45. |
 | `checks/pilot-exposure-check.sh` | run from a checkout | Read-only before/after verification sweep. |
 | `checks/nginx-limits-preflight.sh` | run from a checkout | Read-only, board #45: verifies every enabled `limit_req zone=` has a declared zone (repo + live), prints the install order. Run before any nginx reload. |
+| `checks/pilot-csp-check.sh` | run from a checkout | Read-only, board #65: asserts the pilot CSP covers every resource the pilot HTML/JS declares (CSP fallback semantics) and that the lockdown tokens are intact. `--live` compares the live headers; `--self-test` proves it catches the broken policy. Runs in the `pilot-csp-check` CI job. |
 | `pilot-exposure.md` | — | Runbook: routing, topology, reboot resilience, deploy/rollback, health checks, logs, credentials. |
 | `pilot-api.md` | — | Runbook: pilot API unit, config, ops, update steps, hardening. |
 | `pilot-db.md` | — | Runbook: Postgres/Redis containers and backups. |
