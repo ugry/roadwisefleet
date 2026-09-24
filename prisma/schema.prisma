@@ -95,6 +95,10 @@ model Order {
   destination String
   cargo       String?
   status      String   @default("DRAFT") // DRAFT | BOOKED | DISPATCHED | COMPLETED | CANCELLED
+  // Planned delivery time, promised to the customer. The on-time KPI compares
+  // `Trip.deliveredAt` against this (board tasks #33/#40). Nullable: orders
+  // created before the column existed, and orders with no promised time.
+  plannedAt   DateTime?
   createdAt   DateTime @default(now())
 
   trips Trip[]
@@ -112,6 +116,10 @@ model Trip {
   truck     Truck?   @relation(fields: [truckId], references: [id])
   status    String   @default("DRAFT") // state machine §7 of the diagrams doc
   rateEur   Decimal? @db.Decimal(12, 2)
+  // Actual delivery time, set when the trip reaches DELIVERED. The on-time KPI
+  // compares it against `Order.plannedAt` (board tasks #33/#40). Nullable:
+  // trips that never delivered, and trips delivered before the column existed.
+  deliveredAt DateTime?
   createdAt DateTime @default(now())
 
   documents    Document[]

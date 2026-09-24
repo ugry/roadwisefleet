@@ -56,6 +56,7 @@ test('the app assets are served with their real content types', async () => {
     ['/app/app.js', /javascript/],
     ['/app/lib/app-core.js', /javascript/],
     ['/app/lib/dispatch.js', /javascript/],
+    ['/app/lib/dashboard.js', /javascript/],
     ['/app/locales/en.json', /application\/json/],
     ['/app/index.html', /text\/html/],
   ];
@@ -70,6 +71,8 @@ test('the app assets are served with their real content types', async () => {
   assert.match(core.payload, /RoadwiseAppCore/);
   const dispatch = await app.inject({ method: 'GET', url: '/app/lib/dispatch.js' });
   assert.match(dispatch.payload, /RoadwiseDispatch/);
+  const dashboard = await app.inject({ method: 'GET', url: '/app/lib/dashboard.js' });
+  assert.match(dashboard.payload, /RoadwiseDashboard/);
 });
 
 test('a missing asset 404s as JSON — HTML is never served as JavaScript', async () => {
