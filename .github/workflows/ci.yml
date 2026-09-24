@@ -113,6 +113,23 @@ jobs:
       - name: Self-test pilot-api-error-watch.sh (board #44)
         run: bash infra/scripts/pilot-api-error-watch.sh --self-test
 
+  restore-drill-selftest:
+    name: Restore drill self-test (no host, no network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #62: the three restore-drill defects (stale UPLOAD_DIR in the
+      # units, the SCRATCH_PORT=5433 collision with the host postgresql@17-main
+      # cluster, and the missing dump-role bootstrap) were all found and patched
+      # on the host AFTER the artifacts were merged, so CI had never validated
+      # them. This drives the real script with a stubbed podman, a fixture
+      # plain-SQL dump and a fixture uploads archive: no host, no network, no
+      # root, no Postgres. The api-error-watch self-test lives in the
+      # `infra-scripts` job (PR #37); once that lands the two can share a job.
+      - name: Self-test pilot-restore-drill.sh (board #62)
+        run: bash infra/scripts/pilot-restore-drill.sh --self-test
+
   pilot-csp-check:
     name: Pilot CSP vs. pilot assets (#65)
     runs-on: ubuntu-latest

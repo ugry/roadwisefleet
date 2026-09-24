@@ -122,7 +122,7 @@ approval and root, which this agent does not hold.
 | [`systemd/pilot-uptime-check.service`](./systemd/pilot-uptime-check.service), [`…timer`](./systemd/pilot-uptime-check.timer) | `/etc/systemd/system/` | runs the above every 5 min |
 | [`scripts/pilot-backup-verify.sh`](./scripts/pilot-backup-verify.sh) | `/usr/local/bin/` | §3.3 + B1 — dump exists, non-empty, <26 h old, and `pg_restore --list`/gzip/tar integrity check; waitlist tarball freshness + `tar -tzf` |
 | [`systemd/pilot-backup-verify.service`](./systemd/pilot-backup-verify.service), [`…timer`](./systemd/pilot-backup-verify.timer) | `/etc/systemd/system/` | runs the above nightly at 04:15 UTC (after both backups) |
-| [`scripts/pilot-restore-drill.sh`](./scripts/pilot-restore-drill.sh) | `/usr/local/bin/` | §4 — automated restore into a throwaway container on `127.0.0.1:5433` with a runtime-random scratch password; never touches `roadwise-pgdata` |
+| [`scripts/pilot-restore-drill.sh`](./scripts/pilot-restore-drill.sh) | `/usr/local/bin/` | §4 — automated restore into a throwaway container on the **first free port in 5440–5479** (`SCRATCH_PORT=auto`; never 5432/5433 — the host `postgresql@17-main` cluster owns 5433) with a runtime-random scratch password and the dump's owner roles bootstrapped first (board #62); never touches `roadwise-pgdata` |
 | [`logrotate/roadwisefleet`](./logrotate/roadwisefleet) | `/etc/logrotate.d/` | §3 log hygiene — weekly, 8 rotations, `copytruncate` |
 | [`scripts/pilot-uploads-backup.sh`](./scripts/pilot-uploads-backup.sh) + [`systemd/pilot-uploads-backup.{service,timer}`](./systemd/pilot-uploads-backup.service) | `/usr/local/bin/`, `/etc/systemd/system/` | **board #46** — archives the document upload directory (POD/eCMR bytes) daily 03:45 UTC with a sha256 manifest; the DB dump protects the rows, this protects the bytes |
 | [`scripts/pilot-disk-check.sh`](./scripts/pilot-disk-check.sh) + [`systemd/pilot-disk-check.{service,timer}`](./systemd/pilot-disk-check.service) | `/usr/local/bin/`, `/etc/systemd/system/` | **board #46** — hourly disk-headroom check (T9/T10) and a standing "no upload is world-readable" assertion. Runbook: [`uploads.md`](./uploads.md) |
@@ -160,8 +160,10 @@ live volume. The procedure is implemented as
 [`scripts/pilot-restore-drill.sh`](./scripts/pilot-restore-drill.sh):
 
 ```bash
-# on host, as root — newest dump, scratch container on 127.0.0.1:5433,
-# random scratch password, live volume untouched, container removed on exit
+# on host, as root — newest dump, scratch container on the first free port in
+# 5440–5479 (never 5432/5433), random scratch password, live volume untouched,
+# container removed on exit. Board #62: the drill bootstraps the dump's owner
+# roles before loading, so a plain SQL dump needs no hand patch.
 sudo /usr/local/bin/pilot-restore-drill.sh
 ```
 
@@ -180,7 +182,14 @@ missing archive a failure; `--no-uploads` skips the half. See
 
 | Date (UTC) | Dump file | Tables | Rows | Uploads (files / checksums) | Result |
 |---|---|---|---|---|---|
-| — | — | — | — | — | *no drill run yet* |
+| 2026-09-23 23:5x | `roadwisefleet-20260923-031501.sql.gz` | 22 | 125 (12 trips / 2 documents) | 25 files / 16,676,315 B / 25-of-25 sha256 OK | **PASS** — run by the Team Leader in the B1 window (board #46/#43); provenance: his board comment, not first-hand. It ran with `SCRATCH_PORT=5434` because the then-current default collided with the host cluster — the defect now fixed in the artifact (board #62). |
+
+**2026-09-24 (board #62) — the artifacts vs. that drill.** The host carried a hand patch for three
+defects the window exposed (stale `UPLOAD_DIR` in the units, the 5433 scratch-port collision, the
+missing dump-role bootstrap). This change puts the fixes in the repo and asserts them in CI
+(`restore-drill-selftest`), so a clean reinstall reproduces the passing drill **without a hand
+patch**. The *running* host copy is still the hand patch: reinstalling from a clean checkout is
+itself a host change (uploads.md §9 B5).
 
 ## 5. Status
 

@@ -23,7 +23,7 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `systemd/pilot-backup-verify.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply nightly backup freshness + artifact-integrity check. |
 | `scripts/pilot-uptime-check.sh` | `/usr/local/bin/` | Probes `/`, `/pilot/`, `/api/trips`, `/api/waitlist`, `/health`; mails `ugur@` on failure. |
 | `scripts/pilot-backup-verify.sh` | `/usr/local/bin/` | `pg_restore --list` / gzip / tar integrity + freshness; mails `ugur@` on failure. |
-| `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container (live volume untouched). Now also restores the uploads archive and checks every file against its sha256 manifest (`--with-uploads`). |
+| `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container on the **first free port in 5440–5479** (auto; never 5432/5433 — board #62) with the dump's owner roles bootstrapped first. Live volume untouched. Also restores the uploads archive and checks every file against its sha256 manifest (`--with-uploads`). `--self-test` runs in the `restore-drill-selftest` CI job. |
 | `scripts/pilot-uploads-backup.sh` | `/usr/local/bin/` | **Board #46** — archives the document upload directory (POD/eCMR bytes) + sha256 manifest (both 0600), 30-day retention, refuses to write an empty archive. Runbook: [`uploads.md`](./uploads.md). |
 | `systemd/pilot-uploads-backup.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply daily 03:45 UTC uploads backup (after the 03:15 pg dump). |
 | `scripts/pilot-disk-check.sh` | `/usr/local/bin/` | **Board #46** — disk headroom (T9/T10) + file count/bytes + a standing "no upload is world-readable" check; hourly timer, alert cooldown. |

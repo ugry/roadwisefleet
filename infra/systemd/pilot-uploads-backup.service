@@ -6,6 +6,11 @@
 # Install to /etc/systemd/system/pilot-uploads-backup.service (mode 0644).
 # No credential values appear here: the archive and manifest are written 0600 by
 # the script itself (umask 077).
+#
+# board #62: UPLOAD_DIR default is the POST-MOVE path (/var/lib/roadwisefleet/
+# uploads). A reinstall that pointed this backup back at the pre-move
+# /opt/roadwisefleet/api/var/uploads — abandoned since the B1 host apply — would
+# archive an empty/abandoned directory and silently stop protecting the bytes.
 
 [Unit]
 Description=RoadwiseFleet uploads-directory backup (POD/eCMR document bytes)
@@ -16,8 +21,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/pilot-uploads-backup.sh
+# The uploads path can be overridden without editing this unit —
+# /etc/roadwisefleet/uploads.env (0600, root) is optional and its settings win
+# over Environment=. See infra/uploads.md §4/§7.
+EnvironmentFile=-/etc/roadwisefleet/uploads.env
 Environment=ALERT_MAIL=ugur@elilaltd.com
-Environment=UPLOAD_DIR=/opt/roadwisefleet/api/var/uploads
+Environment=UPLOAD_DIR=/var/lib/roadwisefleet/uploads
 Environment=BACKUP_DIR=/var/backups/roadwisefleet/uploads
 Environment=KEEP_DAYS=30
 # A failed backup is an alert, not a crash loop.
