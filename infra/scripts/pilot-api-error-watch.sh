@@ -144,11 +144,11 @@ handle() { # handle <key> <bad 0|1> <threshold> <alert text> <recovery text>
 # probes
 # ---------------------------------------------------------------------------
 probe() { # probe <url> -> "<http_code> <time_total>"
+  local url="$1" out
   if [ -n "$PROBE_HELPER" ]; then
     "$PROBE_HELPER" "$url"
     return 0
   fi
-  local out
   out="$("$CURL_BIN" -sS -o /dev/null -w '%{http_code} %{time_total}' \
         --max-time "$HTTP_TIMEOUT" "$url" 2>/dev/null)" || out="conn-err 0"
   printf '%s\n' "$out"
@@ -513,13 +513,19 @@ else
     fi
 
     detail="${five} of ${total} requests in the last ${WINDOW_SECS}s returned 5xx (${ratio_pct}%, thresholds ${MIN_5XX_COUNT} count / ${MIN_5XX_RATIO_PCT}%); upstream 502/503/504: ${up}; newest nginx error: ${err_line}${skew_note}"
+    # `handle`'s 3rd argument is the number of CONSECUTIVE bad runs, not the 5xx
+    # count: the threshold below already requires MIN_5XX_COUNT 5xx inside the
+    # 5-minute window, so the breadth lives there. Passing MIN_5XX_COUNT here
+    # would delay a first qualifying burst to the 3rd consecutive 2-minute check
+    # (~6 min) and contradict the acceptance ("a forced 500 alerts exactly once").
+    # Flap control for this signal is the per-signal ALERT_COOLDOWN_MIN, not runs.
     if [ "$five_bad" = 1 ]; then
-      handle http-5xx 1 "$MIN_5XX_COUNT" \
+      handle http-5xx 1 1 \
         "API 5xx RATE: ${detail}. ${RUNBOOK}" \
         "RECOVERED: API 5xx rate back to normal (${detail})."
       log "http-5xx: BAD (${detail})"
     else
-      handle http-5xx 0 "$MIN_5XX_COUNT" "" \
+      handle http-5xx 0 1 "" \
         "RECOVERED: API 5xx rate back to normal."
       log "http-5xx: ok (${five}/${total} in ${WINDOW_SECS}s, upstream ${up})"
       if [ -n "$newest_up" ]; then
