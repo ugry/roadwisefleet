@@ -109,10 +109,14 @@
     },
     {
       id: 'dispatch',
+      // Implemented by board task #35 (F4): a create-trip form driven by the
+      // org's own reference lists. Reassignment (F5 / #36) lands on the trip
+      // detail screen, not here, so this route has no pending task left.
       path: '/app/dispatch',
       i18n: 'nav.dispatch',
       roles: ['owner', 'dispatcher'],
-      task: 'F4/F5 · board #35/#36'
+      view: 'dispatch',
+      task: null
     },
     {
       id: 'documents',
@@ -356,6 +360,11 @@
     }
     if (route.view === 'trip-detail') {
       return { title: translate('trips.detailTitle'), body: translate('common.loading'), task: null };
+    }
+    // Implemented view (board task #35, F4): the real form is rendered by
+    // app.js; the core only supplies the title and an honest loading body.
+    if (route.view === 'dispatch') {
+      return { title: translate('nav.dispatch'), body: translate('common.loading'), task: null };
     }
     return {
       title: translate(route.i18n),
