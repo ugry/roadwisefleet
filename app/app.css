@@ -394,6 +394,67 @@ table.trips-table tr.clickable:hover { background: oklch(0.98 0.003 250); }
 .pnl.pos { color: oklch(0.45 0.13 158); }
 .pnl.neg { color: var(--danger); }
 
+/* ------------------------------------------- dashboard home (F2) ---
+ * The KPI strip is three taps into the trips list; the alerts strip is one
+ * row per entity that needs attention; the activity feed is today's status
+ * events, newest first. All content comes from GET /api/dashboard. */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 6px;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  color: inherit;
+  text-decoration: none;
+}
+a.kpi:hover { border-color: var(--accent-deep); }
+.kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.kpi-value { font-family: var(--font-display); font-size: 30px; line-height: 1.1; }
+.kpi-value.is-empty { color: var(--muted); font-size: 22px; }
+.kpi-note { font-size: 12px; color: var(--muted); }
+
+.alert-strip { display: flex; flex-direction: column; gap: 6px; }
+.alert-row {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+.alert-row.sev-high { border-left-color: var(--danger); }
+.alert-row.sev-medium { border-left-color: var(--accent-deep); }
+a.alert-row:hover { border-color: var(--accent-deep); }
+.alert-kind { font-weight: 600; font-size: 14px; }
+
+ul.activity { list-style: none; margin: 0; padding: 0; }
+ul.activity li { border-bottom: 1px solid var(--border); }
+ul.activity li:last-child { border-bottom: 0; }
+ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: inherit; text-decoration: none; }
+.act-what { font-weight: 600; font-size: 14px; }
+.act-when { display: block; font-size: 12px; color: var(--muted); }
+.primary-link { color: var(--accent-deep); font-weight: 600; }
+
+@media (max-width: 700px) {
+  .kpi-strip { grid-template-columns: minmax(0, 1fr); }
+}
+
 .field select:focus { border-color: var(--accent-deep); }
 .field input[readonly] { background: var(--bg); color: var(--muted); }
 .field-error {

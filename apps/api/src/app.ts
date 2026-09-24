@@ -6,6 +6,7 @@ import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { tripRoutes } from './routes/trips.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 import { referenceRoutes } from './routes/reference.js';
 import { documentRoutes } from './routes/documents.js';
 import { trackPageRoutes, trackRoutes } from './routes/track.js';
@@ -30,6 +31,7 @@ export function buildServer() {
   app.register(authRoutes, { prefix: '/api' });
   app.register(waitlistRoutes, { prefix: '/api' });
   app.register(tripRoutes, { prefix: '/api' });
+  app.register(dashboardRoutes, { prefix: '/api' });
   app.register(referenceRoutes, { prefix: '/api' });
   app.register(documentRoutes, { prefix: '/api' });
   app.register(trackRoutes, { prefix: '/api' });
