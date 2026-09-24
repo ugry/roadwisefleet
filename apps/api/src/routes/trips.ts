@@ -76,7 +76,11 @@ export async function tripRoutes(app: FastifyInstance) {
       actor: { userId: user.id, permissions },
     });
     if (!result.ok) {
-      return reply.code(statusForError(result.error)).send({ error: result.error });
+      // Board task #66: forward the field-level `detail` so a rejected field
+      // (e.g. a malformed `plannedAt`) reads as what to fix, not just a code.
+      return reply
+        .code(statusForError(result.error))
+        .send({ error: result.error, ...(result.detail ? { detail: result.detail } : {}) });
     }
     return reply.code(201).send({ trip: result.trip });
   });
