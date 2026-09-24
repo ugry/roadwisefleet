@@ -151,6 +151,8 @@ STUB
   run_verify
   check "a fresh, complete backup set verifies OK" "$RC" "0"
   check "no alert is sent for a healthy set" "$(mails)" "0"
+  check "the healthy run says so in its own output" \
+    "$(printf '%s\n' "$OUT" | grep -c 'verify end: OK' || true)" "1"
 
   # 2. ACCEPTANCE: deleting the newest backup is detected by the freshness
   #    check and alerts (a stale older archive becomes the newest)
@@ -200,6 +202,8 @@ STUB
   check "all gaps are deduplicated into exactly one alert" "$(mails)" "1"
   check "the sent alert carries the alert subject" \
     "$(sent '\[ALERT\] RoadwiseFleet backup verification failed')" "1"
+  check "the failing run reports the failure on its own output" \
+    "$(printf '%s\n' "$OUT" | grep -c 'verify end: FAILED' || true)" "1"
 
   rm -rf "$tmp"
   printf 'self-test: %d passed, %d failed\n' "$tests_pass" "$tests_fail"
