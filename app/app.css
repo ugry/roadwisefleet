@@ -1,0 +1,447 @@
+/* RoadwiseFleet Fleet Manager — application shell styles (board task #32).
+ *
+ * Same palette and typography as the pilot surfaces so the product reads as one
+ * thing. Layout targets the two widths the acceptance criteria name — 375px
+ * (a dispatcher's phone) and 1440px (the office screen): the side navigation
+ * collapses to a scrollable strip under 900px and the login card is a single
+ * column at every width.
+ *
+ * No external font or CDN: the pilot host has no outbound dependency and a
+ * cheap Android WebView must render this offline.
+ */
+:root {
+  --navy-950: oklch(0.20 0.04 258);
+  --navy-900: oklch(0.25 0.04 258);
+  --bg: oklch(0.985 0.003 250);
+  --surface: oklch(1 0 0);
+  --ink: oklch(0.24 0.05 258);
+  --muted: oklch(0.48 0.02 255);
+  --border: oklch(0.90 0.006 255);
+  --accent: oklch(0.80 0.165 82);
+  --accent-deep: oklch(0.47 0.130 62);
+  --danger: oklch(0.55 0.19 27);
+  --on-dark: oklch(0.985 0.002 250);
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --shadow-card: 0 1px 2px oklch(0.2 0.04 258 / .05), 0 10px 30px oklch(0.2 0.04 258 / .06);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+[hidden] { display: none !important; }
+
+/* Visible focus everywhere — the login screen must be usable from the keyboard. */
+:focus-visible {
+  outline: 3px solid var(--accent-deep);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--accent);
+  color: var(--navy-950);
+  padding: 10px 14px;
+  z-index: 10;
+  font-weight: 700;
+}
+.skip-link:focus { left: 8px; top: 8px; }
+
+/* ---------------------------------------------------------------- login --- */
+.login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  padding: 28px 24px 24px;
+}
+.login-card h1 { font-family: var(--font-display); font-size: 26px; margin: 14px 0 6px; }
+.login-card .lead { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+
+.brand-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.tag {
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--accent-deep);
+}
+.topbar .tag, .topbar .brand { color: var(--on-dark); }
+.topbar .tag { color: var(--accent); }
+
+.field { margin-bottom: 16px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.field input {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.field input:focus { border-color: var(--accent-deep); }
+
+button { font: inherit; cursor: pointer; }
+button.primary {
+  width: 100%;
+  background: var(--accent);
+  color: var(--navy-950);
+  border: 1px solid var(--accent-deep);
+  border-radius: 8px;
+  padding: 11px 16px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+button.primary[disabled] { opacity: .6; cursor: progress; }
+button.ghost {
+  background: transparent;
+  color: var(--on-dark);
+  border: 1px solid var(--on-dark);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 14px;
+}
+.helper { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+.alert {
+  background: oklch(0.96 0.03 27);
+  border: 1px solid var(--danger);
+  color: oklch(0.35 0.14 27);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  font-size: 14px;
+}
+.noscript { padding: 24px; }
+
+/* ------------------------------------------------------------ app shell --- */
+.topbar {
+  background: var(--navy-950);
+  color: var(--on-dark);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+}
+.topbar .spacer { flex: 1 1 auto; }
+.topbar .who { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.topbar .who strong { font-weight: 600; }
+.role-badge {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.lang-slot { display: flex; align-items: center; font-size: 12px; }
+.lang-slot label.lang { display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: .08em; color: var(--on-dark); }
+select.lang-switcher {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--navy-950);
+  background: var(--on-dark);
+  color: var(--ink);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 0;
+  min-height: calc(100vh - 62px);
+}
+.sidenav {
+  background: var(--navy-900);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidenav .nav-item {
+  display: block;
+  color: var(--on-dark);
+  text-decoration: none;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  border-left: 3px solid transparent;
+}
+.sidenav .nav-item:hover { background: oklch(0.32 0.04 258); }
+.sidenav .nav-item.is-active {
+  background: oklch(0.30 0.05 258);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+.content { padding: 22px 20px 40px; max-width: 1100px; }
+.content h1 { font-family: var(--font-display); font-size: 28px; margin: 0 0 8px; }
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+}
+.panel .lead { color: var(--muted); margin: 0 0 12px; }
+.panel .task-note {
+  display: inline-block;
+  background: oklch(0.96 0.05 82);
+  border: 1px solid var(--accent);
+  color: var(--accent-deep);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 12px;
+  letter-spacing: .04em;
+}
+.empty-state {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 26px 18px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state .title { font-family: var(--font-display); font-size: 20px; color: var(--ink); margin: 0 0 6px; }
+
+/* ------------------------------------------- trips list & detail (F3) --- */
+.crumbs { margin: 0 0 6px; font-size: 13px; }
+.crumbs a { color: var(--accent-deep); }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 0 0 14px;
+}
+.filters .field { margin: 0; flex: 1 1 150px; min-width: 130px; }
+.filters .field-grow { flex: 2 1 220px; }
+.filters select,
+.filters input {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* ------------------------------------------------ dispatch form (F4) ---
+ * Board task #35: the create-trip form. Same card look as the other panels;
+ * selects get the input treatment so the form reads as one control set. The
+ * form is one column at every width (no fixed width that could break 375px).
+ */
+.dispatch-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  max-width: 36rem;
+}
+.field select,
+.field input[readonly] {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.filters-actions { display: flex; gap: 8px; align-items: center; }
+.filters-actions button.primary { width: auto; padding: 9px 16px; }
+.filters-actions button.ghost,
+.table-actions button.ghost {
+  color: var(--ink);
+  border-color: var(--border);
+}
+.table-actions { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+
+table.trips-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+table.trips-table th,
+table.trips-table td {
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+table.trips-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+table.trips-table tr.clickable { cursor: pointer; }
+table.trips-table tr.clickable:hover { background: oklch(0.98 0.003 250); }
+
+.status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.status.s-DELIVERED,
+.status.s-POD_UPLOADED,
+.status.s-INVOICED,
+.status.s-SETTLED { color: var(--accent-deep); border-color: var(--accent-deep); }
+.status.s-CANCELLED { color: var(--danger); border-color: var(--danger); }
+
+.muted { color: var(--muted); font-size: 13px; }
+.empty { color: var(--muted); font-size: 13px; }
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin: 20px 0 8px;
+  color: var(--navy-900);
+}
+.kv {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 6px 12px;
+  font-size: 14px;
+  margin: 6px 0;
+}
+.kv dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin: 0;
+  padding-top: 3px;
+}
+.kv dd { margin: 0; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { position: relative; padding: 0 0 14px 18px; border-left: 2px solid var(--border); }
+.timeline li:last-child { border-left-color: transparent; }
+.timeline li::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.tl-what { font-weight: 600; }
+.tl-when { font-size: 12px; color: var(--muted); }
+.pnl { font-family: var(--font-display); font-size: 24px; margin: 0; }
+.pnl.pos { color: oklch(0.45 0.13 158); }
+.pnl.neg { color: var(--danger); }
+
+.field select:focus { border-color: var(--accent-deep); }
+.field input[readonly] { background: var(--bg); color: var(--muted); }
+.field-error {
+  color: oklch(0.42 0.16 27);
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+.alert.success {
+  background: oklch(0.96 0.05 150);
+  border-color: oklch(0.55 0.12 150);
+  color: oklch(0.33 0.09 150);
+}
+.dispatch-form .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.dispatch-form .form-actions .helper { margin: 0; }
+.dispatch-form button.primary { width: auto; padding: 11px 18px; }
+
+/* 375px: one column, navigation becomes a horizontal strip. */
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .sidenav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 8px;
+    gap: 6px;
+    border-bottom: 1px solid var(--navy-950);
+  }
+  .sidenav .nav-item { white-space: nowrap; border-left: 0; border-bottom: 3px solid transparent; }
+  .sidenav .nav-item.is-active { border-bottom-color: var(--accent); }
+  .content { padding: 16px 14px 32px; }
+  .topbar { gap: 10px; }
+  .topbar .who { flex: 1 1 100%; }
+}
+
+@media (max-width: 420px) {
+  .login-card { padding: 22px 16px 18px; }
+  .login-card h1 { font-size: 22px; }
+}
+
+/* Narrow screens: the filter bar stacks and a wide trips table scrolls
+   horizontally rather than pushing the layout wider than the viewport. */
+@media (max-width: 700px) {
+  .filters .field,
+  .filters .field-grow { flex: 1 1 100%; }
+  table.trips-table { display: block; overflow-x: auto; }
+}

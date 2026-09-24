@@ -273,21 +273,46 @@ only needs the API restart, not `deploy.sh`.
 | Postgres/Redis logs | `journalctl -u roadwise-pg -f` / `journalctl -u roadwise-redis -f` (podman → journald) |
 | Backups | `/var/backups/roadwisefleet/` (`postgres/`, waitlist `tar.gz`), 14-day retention |
 
-## 7. Rate limiting (prepared, not enabled)
+## 7. Rate limiting (enabled in code; applies with the owner window)
 
 `infra/nginx/conf.d/roadwisefleet-limits.conf` defines per-IP zones
-(`rwf_waitlist` 5 r/m, `rwf_api` 30 r/s, `rwf_pilot` 20 r/s, `limit_req_status 429`).
-Enabling it is a two-step change, in this order:
+(`rwf_waitlist` 5 r/m, `rwf_api` 30 r/s, `rwf_pilot` 20 r/s, `limit_req_status 429`) and
+the four `limit_req zone=... burst=... nodelay;` lines in
+`nginx/roadwisefleet.conf` (`/api/waitlist`, `/pilot/`, `/track/`, `/api/`) are now
+**uncommented in the repo** (board #45). The live host is unchanged — this lands
+in the same owner-approved reload that carries the #7 headers/www→apex change
+and the #41 `client_max_body_size` line, because one reload applies all three.
 
-1. install `conf.d/roadwisefleet-limits.conf` (zones are http-context only);
-2. uncomment the four `limit_req zone=... burst=... nodelay;` lines in
-   `nginx/roadwisefleet.conf` (`/api/waitlist`, `/pilot/`, `/track/`, `/api/`),
-   then `nginx -t && systemctl reload nginx`.
+Install order (strict — the zones file first, or `nginx -t` refuses the reload
+with `unknown limit_req_zone`):
+
+1. `sudo install -m 0644 infra/nginx/conf.d/roadwisefleet-limits.conf /etc/nginx/conf.d/`
+2. `sudo install -m 0644 infra/nginx/roadwisefleet.conf /etc/nginx/sites-available/roadwisefleet.conf`
+3. `sudo nginx -t` (must print `test is successful`), then `sudo systemctl reload nginx`
+
+Run `bash infra/checks/nginx-limits-preflight.sh` first: it verifies in the repo
+that every enabled `limit_req zone=X` has a declared `limit_req_zone`, checks the
+live copies when run on the host, and prints the exact install order. Rollback is
+re-commenting the four lines and reloading.
 
 Step 1 is **done** (installed 2026-09-23 22:51 UTC with the exposure window — it
 is inert on its own). Step 2 is still pending: it is board `eila/tasks#45` and
 needs the owner's go for one more reload. Reversing is just re-commenting the
 lines.
+
+**Why both nginx and the app limiter exist (decision, board #45).** The app
+limiter in `services/waitlist/server.js` was *fixed*, not removed:
+
+* the nginx zones are not live yet, so removing the app limiter would leave the
+  public signup endpoint with **zero** throttling in the meantime;
+* the fixed app limiter keys on the real client (`X-Real-IP`, trusted **only**
+  from a loopback peer, i.e. our own nginx; a direct caller's headers are
+  ignored), so it is per-IP correct and cannot be spoofed around;
+* nginx stays the outer layer (`$binary_remote_addr`, 5 r/m + burst), the app
+  limiter the inner one — defence in depth on a public, unauthenticated write.
+
+Proof that the app limiter is no longer global: `services/waitlist/server.test.js`
+(two client IPs, independent buckets) runs in the `api-tests` CI job.
 
 ## 8. Security headers
 
@@ -302,6 +327,13 @@ add HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
 are live on the host and verified from an external host (§1). The upload-location
 snippet include is the one added on 2026-09-23 with the board-#41
 `client_max_body_size 25m` block.
+
+**Known follow-up (board `eila/tasks#65`, found 2026-09-24 01:24 UTC after the
+`#43` deploy):** the pilot vhost's policy as applied has `default-src 'none'` and
+a `script-src` without `'self'`/`manifest-src`/`worker-src`, so the pilot's own
+`lib/*.js` and the driver PWA cannot boot on the public surface (the loopback
+origin sets no CSP, which is why it was not seen locally). Fix is confined to the
+header snippet plus one nginx reload — again an owner window, not a page change.
 
 **CSP choice and evidence.** The pages are static files with inline `<style>` and
 inline `<script>`, so `'unsafe-inline'` is required in `script-src`/`style-src`
@@ -327,9 +359,9 @@ hard-to-reverse, policy-level decision and needs a subdomain audit first.
 
 | ID | Item | Owner |
 |---|---|---|
-| O1 | **DONE 2026-09-23 22:51 UTC** — header/redirect/zones window applied and verified from an external host (§1). | ops + owner |
+| O1 | **DONE 2026-09-23 22:51 UTC** — header/redirect/zones window applied and verified from an external host (§1). The zones file is installed (step 1 of §7); enabling the four `limit_req` lines is step 2, still pending the owner's reload (board `eila/tasks#45`). | ops + owner |
 | O2 | `www` HTTPS redirect **fixed 2026-09-23** (`301`); the `<link rel="canonical">` tag is still a page change. | dev (canonical) |
-| O3 | Waitlist limiter is effectively global behind the proxy (`req.socket.remoteAddress` is always `127.0.0.1`) — see `conf.d` notes; nginx-side limiting is the interim fix. | **developer** (`services/waitlist/server.js`) |
+| O3 | Waitlist limiter **was** effectively global behind the proxy (`req.socket.remoteAddress` is always `127.0.0.1`). **Fixed in code (board #45):** it keys on `X-Real-IP` when — and only when — the peer is loopback, else on the peer address, with the `node:test` regression in the `api-tests` CI job. nginx-side zones are the outer layer (§7). | ~~developer~~ done (ops) / enable in the owner window |
 | O4 | `GET /api/waitlist` with the admin token returns the whole waitlist in one JSON body, unauthenticated-by-default-rate-limit and unthrottled. Acceptable for a pilot; it should move behind the pilot API's auth and get a rate limit before any real launch. | ops (rate limit) / dev (auth) |
 | O5 | GitHub Pages publishes a byte-identical copy of the landing pages that posts to the production waitlist API, with no `canonical`/`noindex` (issue #2, F3). | dev / marketing |
 | O6 | `/robots.txt` and `/sitemap.xml` are 404 (issue #2, F5). | dev |

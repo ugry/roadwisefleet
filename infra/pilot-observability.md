@@ -124,17 +124,24 @@ approval and root, which this agent does not hold.
 | [`systemd/pilot-backup-verify.service`](./systemd/pilot-backup-verify.service), [`…timer`](./systemd/pilot-backup-verify.timer) | `/etc/systemd/system/` | runs the above nightly at 04:15 UTC (after both backups) |
 | [`scripts/pilot-restore-drill.sh`](./scripts/pilot-restore-drill.sh) | `/usr/local/bin/` | §4 — automated restore into a throwaway container on `127.0.0.1:5433` with a runtime-random scratch password; never touches `roadwise-pgdata` |
 | [`logrotate/roadwisefleet`](./logrotate/roadwisefleet) | `/etc/logrotate.d/` | §3 log hygiene — weekly, 8 rotations, `copytruncate` |
+| [`scripts/pilot-uploads-backup.sh`](./scripts/pilot-uploads-backup.sh) + [`systemd/pilot-uploads-backup.{service,timer}`](./systemd/pilot-uploads-backup.service) | `/usr/local/bin/`, `/etc/systemd/system/` | **board #46** — archives the document upload directory (POD/eCMR bytes) daily 03:45 UTC with a sha256 manifest; the DB dump protects the rows, this protects the bytes |
+| [`scripts/pilot-disk-check.sh`](./scripts/pilot-disk-check.sh) + [`systemd/pilot-disk-check.{service,timer}`](./systemd/pilot-disk-check.service) | `/usr/local/bin/`, `/etc/systemd/system/` | **board #46** — hourly disk-headroom check (T9/T10) and a standing "no upload is world-readable" assertion. Runbook: [`uploads.md`](./uploads.md) |
 
 Install (as root, after approval):
 ```bash
-install -m 0755 infra/scripts/pilot-uptime-check.sh   /usr/local/bin/
-install -m 0755 infra/scripts/pilot-backup-verify.sh  /usr/local/bin/
-install -m 0755 infra/scripts/pilot-restore-drill.sh  /usr/local/bin/
+install -m 0755 infra/scripts/pilot-uptime-check.sh    /usr/local/bin/
+install -m 0755 infra/scripts/pilot-backup-verify.sh   /usr/local/bin/
+install -m 0755 infra/scripts/pilot-restore-drill.sh   /usr/local/bin/
+install -m 0755 infra/scripts/pilot-uploads-backup.sh  /usr/local/bin/
+install -m 0755 infra/scripts/pilot-disk-check.sh      /usr/local/bin/
 install -m 0644 infra/systemd/pilot-uptime-check.{service,timer}   /etc/systemd/system/
 install -m 0644 infra/systemd/pilot-backup-verify.{service,timer}  /etc/systemd/system/
+install -m 0644 infra/systemd/pilot-uploads-backup.{service,timer} /etc/systemd/system/
+install -m 0644 infra/systemd/pilot-disk-check.{service,timer}     /etc/systemd/system/
 install -m 0644 infra/logrotate/roadwisefleet /etc/logrotate.d/roadwisefleet
 systemctl daemon-reload
-systemctl enable --now pilot-uptime-check.timer pilot-backup-verify.timer
+systemctl enable --now pilot-uptime-check.timer pilot-backup-verify.timer \
+                       pilot-uploads-backup.timer pilot-disk-check.timer
 ```
 
 **Acceptance mapping for `eila/tasks#10`:**
@@ -163,11 +170,17 @@ drill log below. (The `pg_restore --list` artifact check now also runs nightly �
 see `pilot-backup-verify.sh` — so a corrupt dump fails a unit instead of only
 being found during a real incident.)
 
+**Document bytes (board #46):** the same script now also restores the uploads
+archive and verifies every file against its sha256 manifest, so a drill proves
+the trip row *and* its POD photo come back. Use `--with-uploads` to make a
+missing archive a failure; `--no-uploads` skips the half. See
+[`uploads.md`](./uploads.md) §7.
+
 **Drill log** (append one row per drill):
 
-| Date (UTC) | Dump file | Tables | Rows | Result |
-|---|---|---|---|---|
-| — | — | — | — | *no drill run yet* |
+| Date (UTC) | Dump file | Tables | Rows | Uploads (files / checksums) | Result |
+|---|---|---|---|---|---|
+| — | — | — | — | — | *no drill run yet* |
 
 ## 5. Status
 

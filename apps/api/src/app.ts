@@ -9,6 +9,7 @@ import { tripRoutes } from './routes/trips.js';
 import { referenceRoutes } from './routes/reference.js';
 import { documentRoutes } from './routes/documents.js';
 import { trackPageRoutes, trackRoutes } from './routes/track.js';
+import { appRoutes } from './routes/app.js';
 import { serverOptions } from './server-options.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
@@ -36,6 +37,11 @@ export function buildServer() {
   // Public customer tracking page: root path `/track/:token` (no auth, not
   // under /pilot/), so a shared link reads like a customer-facing URL.
   app.register(trackPageRoutes);
+
+  // Fleet Manager (board task #32, FAv1-F1): the authenticated app shell at
+  // `/app/`, plus its SPA fallback. Files come from <repo>/app; the app talks to
+  // the same-origin `/api/*` routes above.
+  app.register(appRoutes);
 
   // Pilot-only web surface. Served from the API itself so the pages are
   // same-origin with `/api/*` (no new port, no nginx). The root is locked to
