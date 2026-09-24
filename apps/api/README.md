@@ -65,8 +65,9 @@ RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
 Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
 demo-reset planning, tracking-link signing/shaping, document capture validation,
 driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard and
-static-serving rules, locale resolution and the pilot i18n catalogues) runs on the
-Node.js native test runner with no install:
+static-serving rules, the Fleet Manager dispatch form (option labels, validation,
+payload and error mapping), locale resolution and the pilot i18n catalogues) runs
+on the Node.js native test runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -327,7 +328,11 @@ Static, dependency-free, no build step and no CDN, served by the API itself
 - `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
   `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
   routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
-  `pageshow`.
+  `pageshow`. It also renders the implemented views (dispatch, board task #35).
+- `app/lib/dispatch.js` — the pure create-trip form logic (board task #35): option
+  labels that never leak a raw id, pre-submit validation, the exact
+  `POST /api/trips` payload, and the API-error-to-catalogue-key mapping. Loaded as
+  a classic script in the browser and by `src/dispatch-form.test.js` in CI.
 - `app/locales/en.json` — the English catalogue. The shell reuses the pilot's
   `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime (board task #6), so the
   language hook and switcher already exist; EN ships first and additional
@@ -356,9 +361,24 @@ Behaviour:
   (HTML is never served as JavaScript). Deep links return the shell so the client
   router can run.
 
-Tests: `src/app-core.test.js` + `src/app-shell.test.js` run in the no-install CI
-job; `test/app-shell.test.ts` adds the HTTP-level `app.inject()` checks under
-`pnpm test:router`.
+- **Dispatch (board task #35, F4).** `/app/dispatch` is the create-trip form:
+  `/api/reference` returns the org's orders, drivers, trucks and customers in one
+  round-trip (`trip:create`, so a driver gets `403`), and the form turns them into
+  dropdowns — no raw id is ever typed. The customer is shown read-only, from the
+  selected order, and a payload whose customer does not match the order is
+  refused. Validation runs before the request (order chosen and known; optional
+  driver/truck known; rate a non-negative number); the body handed to
+  `POST /api/trips` is exactly `{ orderId, driverId, truckId, rateEur }` with
+  `null` for the unset optionals. Every server failure is mapped to a catalogue
+  message that names the field to fix — `invalid_input` keeps the server's
+  `detail`. A new trip is created as `DRAFT`; assigning and moving it is the
+  trip-detail/status flow. **Not in this task:** `pickup`/`deliver` timestamps
+  (needs the on-time columns from board #40, which the schema does not have yet)
+  and required-document selection (the F6 documents UI, board #37).
+
+Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/dispatch-form.test.js`
+run in the no-install CI job; `test/app-shell.test.ts` adds the HTTP-level
+`app.inject()` checks under `pnpm test:router`.
 
 > **Deployment note:** production nginx proxies only `/api/`, `/pilot/` and
 > `/track/` to the API, so `/app/` needs a `location /app/` block before the Fleet
