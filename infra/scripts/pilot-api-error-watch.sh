@@ -242,18 +242,23 @@ STUB
   chmod +x "$tmp/probe" "$tmp/systemctl"
 
   # fixture log writer: make_log <file> <ok> <5xx> <upstream>
+  # NOTE: the file is $1 and the counts are $2/$3/$4 (with set -u, read them with
+  # a default). An earlier revision read the file from $2, so every call wrote to
+  # a file literally named after the first count and never created access.log —
+  # the watcher then saw an unreadable log and skipped the 5xx/latency signals,
+  # which is why those assertions could not pass.
   make_log() {
-    : > "$2"
+    : > "$1"
     local ts i
     ts="$(date -u -d '-30 seconds' '+%d/%b/%Y:%H:%M:%S +0000')"
+    for (( i=0; i<${2:-0}; i++ )); do
+      printf '203.0.113.7 - - [%s] "GET /pilot/ HTTP/1.1" 200 512 "-" "curl/8"\n' "$ts" >> "$1"
+    done
     for (( i=0; i<${3:-0}; i++ )); do
-      printf '203.0.113.7 - - [%s] "GET /pilot/ HTTP/1.1" 200 512 "-" "curl/8"\n' "$ts" >> "$2"
+      printf '203.0.113.7 - - [%s] "POST /api/trips HTTP/1.1" 500 42 "-" "curl/8"\n' "$ts" >> "$1"
     done
     for (( i=0; i<${4:-0}; i++ )); do
-      printf '203.0.113.7 - - [%s] "POST /api/trips HTTP/1.1" 500 42 "-" "curl/8"\n' "$ts" >> "$2"
-    done
-    for (( i=0; i<${5:-0}; i++ )); do
-      printf '203.0.113.7 - - [%s] "GET /api/trips HTTP/1.1" 502 0 "-" "curl/8"\n' "$ts" >> "$2"
+      printf '203.0.113.7 - - [%s] "GET /api/trips HTTP/1.1" 502 0 "-" "curl/8"\n' "$ts" >> "$1"
     done
   }
 
