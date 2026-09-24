@@ -91,6 +91,9 @@ export function shapeTripDetail(trip) {
         destination: trip.order.destination,
         cargo: trip.order.cargo ?? null,
         status: trip.order.status,
+        // Planned delivery time (board task #40): the promise the on-time KPI
+        // needs (board task #33). Null when it was never recorded.
+        plannedAt: trip.order.plannedAt ?? null,
         customer: trip.order.customer
           ? {
               id: trip.order.customer.id,
@@ -161,6 +164,9 @@ export function shapeTripDetail(trip) {
     status: trip?.status,
     rateEur,
     createdAt: trip?.createdAt,
+    // Actual delivery time (board task #40). Null when the trip has not been
+    // delivered (or was delivered before the column existed).
+    deliveredAt: trip?.deliveredAt ?? null,
     order,
     driver,
     truck,
