@@ -67,8 +67,8 @@ demo-reset planning, tracking-link signing/shaping, document capture validation,
 driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard and
 static-serving rules, the Fleet Manager dispatch form (option labels, validation,
 payload and error mapping), trip-list filter validation, trips-view filter/query/CSV
-shaping, user/driver credential-field stripping, locale resolution and the pilot
-i18n catalogues) runs on the
+shaping, the dashboard KPIs/alerts/activity shaping and its view model, user/driver
+credential-field stripping, locale resolution and the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
 ```bash
@@ -92,6 +92,9 @@ re-derived with direct Prisma queries, and the CSV export is checked row-for-row
 It also asserts the credential discipline (board task #63): the raw DB row still
 holds a driver `passwordHash`, while no credential key appears anywhere in the
 `/api/trips`, trip-detail, `/api/drivers` or `/api/reference` responses.
+Finally it re-derives every dashboard KPI with its own Prisma query (board task #33)
+and proves the on-time / pending-pay arithmetic is non-vacuous by creating real rows
+inside a transaction that is rolled back, so the pilot is never mutated.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -111,7 +114,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); driver objects never carry credential fields (board task #63) |
-| `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer, driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); a trip in another org is `404`, never a leak |
+| `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a trip in another org is `404`, never a leak |
+| `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
@@ -445,6 +449,49 @@ and P&L from Prisma and checks the CSV; the deterministic DOM harness
 > `/track/` to the API, so `/app/` needs a `location /app/` block before the Fleet
 > Manager is reachable on roadwisefleet.com. The API side is complete and testable
 > on the loopback; the nginx change is an infra request (not part of this code).
+
+### Dashboard home (board task #33, FAv1-F2)
+`/app/` (Overview) is the dashboard: a KPI strip, an alerts strip and today's
+activity feed, all from `GET /api/dashboard`. There is no mock data — every number
+is a database aggregate over the caller's org, and each KPI reports the aggregate it
+came from (`kpis.*.query`) so it can be re-derived:
+
+| KPI | Definition (one DB aggregate) | Drills into |
+|---|---|---|
+| Active trips | `COUNT(*)` trips in the org whose status is not terminal (`SETTLED`, `CANCELLED`) | `/app/trips?status=…` (all active statuses) |
+| On-time % | among delivered trips with both `Trip.deliveredAt` and `Order.plannedAt`, the share delivered at or before the planned time; `null` (shown as `—`) when no trip is comparable | `/app/trips?status=DELIVERED,POD_UPLOADED,INVOICED,SETTLED` |
+| Pending pay | `SUM(rateEur)` over the org's `INVOICED` trips (invoiced, not yet settled; F10 extends this to the settlement ledger) | `/app/trips?status=INVOICED` |
+
+Alerts are also DB-derived and each one links to the trip it names: a trip in
+`ASSIGNED`/`LOADED`/`IN_TRANSIT` with no driver, a compliance document (not
+`REJECTED`) whose `expiresAt` is past or within 30 days, and a `PENDING`
+settlement. The activity feed is today's `StatusEvent` rows (UTC), newest first,
+each linking to its trip. The whole payload is returned through
+`stripCredentialFields()` (board task #63), so the actor names in the feed can never
+carry credential columns.
+
+RBAC: `GET /api/dashboard` needs `reports:read` (owner / dispatcher / accountant).
+A driver holds `trip:read` but not `reports:read`; their home is `/app/my-trips` and
+the app points them there instead of calling the endpoint
+(`app-core.js#canReadReports`).
+
+Pure logic lives in `src/dashboard.js` (the queries + shaping) and
+`app/lib/dashboard.js` (the view model: KPI cards, alert rows, activity rows).
+Tests: `src/dashboard.test.js` + `src/dashboard-view.test.js` in the no-install CI
+job; `test/dashboard.test.ts` (`pnpm test:router`) re-derives each KPI from Prisma;
+`scratch/verify-dashboard.js` drives the real `app.js` end to end.
+
+### Delivery timestamps (board tasks #33/#40)
+The on-time KPI needs two timestamps that the schema did not have:
+`Order.plannedAt` (the promised delivery time) and `Trip.deliveredAt` (the actual
+delivery time). They arrive together in ONE migration,
+`prisma/migrations/20260924120000_add_delivery_timestamps/migration.sql` — purely
+additive and nullable, so existing rows are unaffected and the migration reverses by
+dropping the two columns (the rollback statements are in the migration file as a
+comment; Prisma has no down migration). It was applied on the pilot DB with
+`pnpm --filter @roadwisefleet/api exec prisma migrate deploy`, after which
+`prisma migrate status` reports "Database schema is up to date!". Both fields are
+surfaced in `GET /api/trips/:id` (trip `deliveredAt`, order `plannedAt`).
 
 ## Waitlist → account handoff
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the
