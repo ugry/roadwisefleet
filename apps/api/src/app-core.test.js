@@ -205,6 +205,17 @@ test('roleKey never leaks a raw role id it does not know', () => {
   assert.equal(appCore.roleKey(undefined), 'role.unknown');
 });
 
+test('the reports capability mirrors the API roles (board task #33)', () => {
+  assert.deepEqual([...appCore.REPORTS_ROLES].sort(), ['accountant', 'dispatcher', 'owner']);
+  assert.equal(appCore.canReadReports('owner'), true);
+  assert.equal(appCore.canReadReports('dispatcher'), true);
+  assert.equal(appCore.canReadReports('accountant'), true);
+  // A driver holds trip:read but not reports:read — the dashboard 403s for them.
+  assert.equal(appCore.canReadReports('driver'), false);
+  assert.equal(appCore.canReadReports('admin'), false);
+  assert.equal(appCore.canReadReports(null), false);
+});
+
 test('the session keys are app-scoped, not shared with the pilot', () => {
   assert.equal(appCore.TOKEN_KEY, 'rwf.app.token');
   assert.equal(appCore.USER_KEY, 'rwf.app.user');

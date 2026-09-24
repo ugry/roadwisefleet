@@ -45,6 +45,14 @@
   /** The seeded roles. Anything else is unknown and treated as unauthenticated. */
   var ROLES = ['owner', 'dispatcher', 'accountant', 'driver'];
 
+  /**
+   * Roles that hold `reports:read` in the seeded capability map (mirrors
+   * `apps/api/src/auth/permissions.js` and the seed). The dashboard home
+   * (board task #33, F2) is a reports surface, so a driver — whose home is
+   * `/app/my-trips` — may open the Overview route but not the KPI payload.
+   */
+  var REPORTS_ROLES = ['owner', 'dispatcher', 'accountant'];
+
   /** Role labels (i18n keys). The app never prints a raw role id. */
   var ROLE_KEYS = {
     owner: 'role.owner',
@@ -86,6 +94,9 @@
       path: HOME_PATH,
       i18n: 'nav.overview',
       roles: ['owner', 'dispatcher', 'accountant', 'driver'],
+      // Implemented by board task #33 (F2): the dashboard is the app home. The
+      // real content is rendered by app.js from `GET /api/dashboard`.
+      view: 'dashboard',
       task: null
     },
     {
@@ -269,6 +280,16 @@
     });
   }
 
+  /**
+   * Does this role hold `reports:read` (so the KPI dashboard may be loaded)?
+   * Deny by default: an unknown role never does.
+   * @param {unknown} role
+   * @returns {boolean}
+   */
+  function canReadReports(role) {
+    return isKnownRole(role) && REPORTS_ROLES.indexOf(role) !== -1;
+  }
+
   /** @param {unknown} role @returns {boolean} */
   function canOpen(role, pathname) {
     if (!isKnownRole(role)) return false;
@@ -350,8 +371,10 @@
     if (route.id === 'not-found') {
       return { title: translate('error.notFoundTitle'), body: translate('error.notFoundBody'), task: null };
     }
-    if (route.id === 'overview') {
-      return { title: translate('overview.title'), body: translate('overview.body'), task: null };
+    // Implemented view (board task #33, F2): the dashboard home. The core only
+    // supplies the title and an honest loading body; app.js renders the KPIs.
+    if (route.view === 'dashboard') {
+      return { title: translate('overview.title'), body: translate('common.loading'), task: null };
     }
     // Implemented views (board task #34): the real content is rendered by
     // app.js; the core only supplies the title and an honest loading body.
@@ -425,6 +448,7 @@
     TOKEN_KEY: TOKEN_KEY,
     USER_KEY: USER_KEY,
     ROLES: ROLES,
+    REPORTS_ROLES: REPORTS_ROLES,
     ROLE_KEYS: ROLE_KEYS,
     ROLE_HOME: ROLE_HOME,
     ROUTES: ROUTES,
@@ -439,6 +463,7 @@
     routeForPath: routeForPath,
     navFor: navFor,
     canOpen: canOpen,
+    canReadReports: canReadReports,
     guardDecision: guardDecision,
     navHtml: navHtml,
     panelFor: panelFor,
