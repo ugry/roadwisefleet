@@ -80,8 +80,11 @@ was applied by me.
 | T8 | Flapping | not specified | require **3 consecutive failures** before alerting, recovery notification **on**, mail cooldown **60 min** | one-off 5xx/timeout bursts on a single VPS produce false pages; the 60-min cooldown is already used by `pilot-uptime-check.sh` |
 | **T9** | **Pilot document-upload filesystem** (board #46) | none | alert **> 80 %** warn, **> 90 %** crit, and hard-fail below **2 GB free**; report file count + total bytes every run | the Postgres dump and the document bytes share `/`; a full filesystem takes the API, Postgres **and** the upload path down at once, and today nothing watches it. Implemented as `../scripts/pilot-disk-check.sh` + `../systemd/pilot-disk-check.{service,timer}` (**ready-to-apply, not installed**); runbook `../uploads.md` §6 |
 | **T10** | **Uploads archive freshness** (board #46) | sees T6 | alert if the newest `uploads-*.tar.gz` is older than **26 h** or has no manifest | the DB dump protects the `Document` rows only; without this the POD photo bytes have no backup and a lost archive is invisible. Checked by `../scripts/pilot-backup-verify.sh` (extended) after `../scripts/pilot-uploads-backup.sh` runs |
+| T11 | API 5xx rate | **none** (a forced 5xx is invisible) | alert when **≥ 3 requests and ≥ 5 %** of the last **300 s** are 5xx, or **≥ 1** upstream 502/503/504 with ≥ 3 5xx; include the newest nginx error-log line | `../scripts/pilot-api-error-watch.sh` (signal `http-5xx`). Ratio **and** count together: a single 500 on a quiet pilot is not an incident, a burst is |
+| T12 | API process down / restarting | **none** | alert after **2 consecutive** bad checks; a restart is reported only at **≥ 3 restarts per interval** (a deliberate `systemctl restart` is not an alert); a down API is one alert, not one per symptom | `CONSEC_FAILS=2` × the 2-minute timer ⇒ a stopped API alerts in ~4 min, which is the #44 acceptance |
+| T13 | Pilot latency | **none** | alert when `https://roadwisefleet.com/pilot/` exceeds **3 s** on **3 consecutive** checks | latency creep is the cheapest early warning of a saturated VPS; reachability itself stays with Gatus (T7) |
 
-**Ownership proposal:** DevOps owns *check definitions + thresholds* (T1–T8);
+**Ownership proposal:** DevOps owns *check definitions + thresholds* (T1–T13);
 alert *delivery* (relay + Matrix bot) stays with the orchestrator/owner, because
 the bot token is not my credential.
 
@@ -106,3 +109,53 @@ the bot token is not my credential.
 **Not verifiable from here (stated, not hidden):** the alert round-trip through
 the relay (needs the Matrix bot token), the live Gatus check list, the
 VictoriaMetrics/Grafana provisioning, and all elilavps1 file state (§2).
+
+## 5. API error visibility (board #44, FAv1-F9d)
+
+**Problem:** a 5xx on the pilot API is invisible unless a human happens to hit it
+— the 1 MB upload rejection sat in the nginx log unnoticed. Gatus (T7) proves
+*reachability*; nothing watched *what the API answered*.
+
+**Delivered as config-as-code (artifact only, nothing installed):**
+
+| File | Role | Destination |
+|---|---|---|
+| `../scripts/pilot-api-error-watch.sh` | signals `api-up`, `http-5xx`, `latency`, `log-unreadable`; one alert per incident, one recovery, per-signal 60-min cooldown; `--self-test` runs in CI | `/usr/local/bin/` |
+| `../systemd/pilot-api-error-watch.service` | oneshot; runs as **root** because the nginx logs are `0640 root:adm` (an unprivileged run would go blind — hence the `log-unreadable` signal instead of silence) | `/etc/systemd/system/` |
+| `../systemd/pilot-api-error-watch.timer` | every **2 minutes** (T12 needs ≤ 5 min detection) | `/etc/systemd/system/` |
+
+**Alert path — reused, not rebuilt:** the script calls the deployer's existing
+notifier `../deploy/roadwise-notify.sh` (`alert <message>`; Matrix is the
+transport that works from elilavps2, the relay is loopback-only on elilavps1). If
+the notifier is missing or has no transport it logs **`alert NOT delivered`**
+loudly — it never pretends to page. One signal, one message: while `api-up` is
+bad, the 5xx and latency signals are suppressed because the outage is their cause.
+
+**Install (owner window, root on elilavps2):**
+
+```bash
+sudo install -m 0755 infra/scripts/pilot-api-error-watch.sh /usr/local/bin/
+sudo install -m 0644 infra/systemd/pilot-api-error-watch.service \
+                    infra/systemd/pilot-api-error-watch.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo /usr/local/bin/pilot-api-error-watch.sh status     # no state yet = never ran
+sudo systemctl start pilot-api-error-watch.service      # one manual run, read the journal
+sudo /usr/local/bin/roadwise-notify.sh alert "TEST — API error watch install verification, please ignore"
+sudo systemctl enable --now pilot-api-error-watch.timer
+```
+
+**Acceptance mapping (task #44):**
+
+| Criterion | Status |
+|---|---|
+| A forced 500 raises **exactly one** deduplicated alert through the existing path (Matrix `#eila-alerts` + owner mail) | **not demonstrated live** — the *decision* is CI-proven (`--self-test`: one alert per incident, dedup while it persists); delivery needs the install window + the notifier transport |
+| Recovery is announced | **not demonstrated live** (logic unit-tested: exactly one recovery message) |
+| A stopped API raises an alert within 5 minutes | **not demonstrated live** — designed 2-min timer × 2 consecutive checks ≈ 4 min |
+| The check does not spam during a restart | **not demonstrated live** (logic unit-tested: a single restart never alerts; only ≥ 3 restarts per interval do) |
+
+**Open items:** B1 install window + owner merge (the units are protected paths);
+B2 notifier transport configured; B3 the live nginx `log_format`/log clock is not
+readable from my vantage point — the script assumes the standard `combined` format
+in **UTC** and, if the 300 s window matches nothing while the file has lines,
+logs a loud WARN and falls back to the last 2000 lines rather than reporting a
+false "all clear".
