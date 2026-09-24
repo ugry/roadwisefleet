@@ -67,7 +67,8 @@ demo-reset planning, tracking-link signing/shaping, document capture validation,
 driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard and
 static-serving rules, the Fleet Manager dispatch form (option labels, validation,
 payload and error mapping), trip-list filter validation, trips-view filter/query/CSV
-shaping, locale resolution and the pilot i18n catalogues) runs on the
+shaping, user/driver credential-field stripping, locale resolution and the pilot
+i18n catalogues) runs on the
 Node.js native test runner with no install:
 
 ```bash
@@ -88,6 +89,9 @@ a deep link returns the shell, the assets carry their real content types and a
 missing asset or a traversal attempt is a `404`. Finally it drives the trips-list
 filters (board task #34) against the pilot database: filter counts and the P&L are
 re-derived with direct Prisma queries, and the CSV export is checked row-for-row.
+It also asserts the credential discipline (board task #63): the raw DB row still
+holds a driver `passwordHash`, while no credential key appears anywhere in the
+`/api/trips`, trip-detail, `/api/drivers` or `/api/reference` responses.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -106,7 +110,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /health` | — | liveness |
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
-| `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34) |
+| `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer, driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); a trip in another org is `404`, never a leak |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
@@ -140,6 +144,26 @@ get `403`, exactly like `POST /api/trips`. The loaders live in
 route layer is `src/routes/reference.ts`. `User` has no `active` column, so
 "active drivers" maps to the schema's lock state: a driver whose `lockedUntil`
 is in the future is excluded.
+
+### Credential-free user payloads (board task #63)
+`GET /api/trips` used to load the driver relation with a bare include, so every
+`trips[].driver` object carried `passwordHash` (scrypt), `totpSecret`,
+`failedLoginCount` and `lockedUntil` — credential material no role should ever
+read. The schema is unchanged; the fix has two layers, both in
+`src/user-payload.js` (pure, covered by `src/user-payload.test.js`):
+
+1. `publicUserSelect()` — an explicit Prisma `select` (all `User` columns except
+   the four credential fields) used by `listOrgTrips`, so the columns are never
+   read out of the database in the first place;
+2. `stripCredentialFields()` — a recursive route-boundary serialiser applied to the
+   `/api/trips`, `/api/trips/:id`, `/api/driver/trips`, `/api/drivers` and
+   `/api/reference` responses, so a future user `include` cannot reintroduce the
+   leak unnoticed. It copies plain objects/arrays only, so `Date`/`Decimal`
+   values are preserved and the dispatcher payload is otherwise unchanged.
+
+`findCredentialFields()` returns every credential key path in a payload (empty
+means clean) and backs the DB-backed assertion in
+`apps/api/test/user-payload.test.ts`.
 
 ### Documents / POD (board task #3)
 The `Document` model is now used. Uploads are JSON base64 (no multipart

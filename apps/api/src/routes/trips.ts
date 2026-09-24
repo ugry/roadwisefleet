@@ -7,6 +7,7 @@ import { statusForError } from '../http-errors.js';
 import { createTrip, listDriverTrips, listOrgTrips, transitionTrip } from '../trips-core.js';
 import { getTripDetail } from '../trip-detail.js';
 import { parseTripFilters, serializeTripFilters } from '../trip-filters.js';
+import { stripCredentialFields } from '../user-payload.js';
 
 /*
  * Trips API — real auth (signed bearer token) replaces the former `x-org-id`
@@ -42,7 +43,9 @@ export async function tripRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: parsed.error, detail: parsed.detail });
     }
     const trips = await listOrgTrips(prisma, { orgId: user.orgId, filters: parsed.filters });
-    return reply.send({ trips, filters: serializeTripFilters(parsed.filters) });
+    // Board task #63: belt-and-braces serialiser at the route boundary — even a
+    // future `include` on a user relation can never leak credential fields.
+    return reply.send(stripCredentialFields({ trips, filters: serializeTripFilters(parsed.filters) }));
   });
 
   // Trip detail (board task #2): the drawer payload — order/customer, driver,
@@ -60,7 +63,7 @@ export async function tripRoutes(app: FastifyInstance) {
     if (!result.ok) {
       return reply.code(statusForError(result.error)).send({ error: result.error });
     }
-    return reply.send({ trip: result.trip });
+    return reply.send(stripCredentialFields({ trip: result.trip }));
   });
 
   app.post('/trips', { preHandler: auth }, async (req, reply) => {
@@ -108,6 +111,6 @@ export async function tripRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'forbidden' });
     }
     const trips = await listDriverTrips(prisma, { orgId: user.orgId, driverId: user.id });
-    return reply.send({ trips });
+    return reply.send(stripCredentialFields({ trips }));
   });
 }
