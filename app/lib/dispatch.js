@@ -4,7 +4,8 @@
  * The form the dispatcher actually uses: pick an order, a driver and a truck
  * from the org's own lists (`GET /api/reference`) instead of typing raw ids, and
  * hand the API exactly the body it documents (`POST /api/trips` takes
- * `orderId`, `driverId`, `truckId`, `rateEur`).
+ * `orderId`, `driverId`, `truckId`, `rateEur` and the optional `plannedAt` — the
+ * promised delivery time recorded on the order, board task #66).
  *
  * Loaded twice, on purpose, exactly like `app-core.js`:
  *   - in the browser, as a classic script (`<script src="lib/dispatch.js">`),
@@ -150,8 +151,14 @@
   /**
    * The exact JSON body `POST /api/trips` documents. Empty optional fields are
    * `null`, not `''`, so the API's own validation sees what it expects.
-   * @param {{ orderId?: unknown, driverId?: unknown, truckId?: unknown, rateEur?: unknown }} values
-   * @returns {{ orderId: string, driverId: string|null, truckId: string|null, rateEur: number|null }}
+   *
+   * `plannedAt` (board task #66) is the one optional field that is OMITTED when
+   * empty rather than sent as `null`: it is the promised delivery time recorded
+   * on the order, and the API treats "absent" and "null" as "no plan". Sending
+   * it only when the dispatcher actually chose a time keeps the original F4
+   * contract byte-for-byte for a form that leaves it blank.
+   * @param {{ orderId?: unknown, driverId?: unknown, truckId?: unknown, rateEur?: unknown, plannedAt?: unknown }} values
+   * @returns {{ orderId: string, driverId: string|null, truckId: string|null, rateEur: number|null, plannedAt?: string }}
    */
   function buildCreateTripPayload(values) {
     var v = values || {};
@@ -160,12 +167,27 @@
       var n = Number(v.rateEur);
       if (isFinite(n) && n >= 0) rate = n;
     }
-    return {
+    var payload = {
       orderId: text(v.orderId),
       driverId: text(v.driverId) || null,
       truckId: text(v.truckId) || null,
       rateEur: rate
     };
+    var planned = plannedIso(v.plannedAt);
+    if (planned) payload.plannedAt = planned;
+    return payload;
+  }
+
+  /**
+   * Coerce a form date/time (`datetime-local` value or any Date-parseable string)
+   * to an ISO-8601 instant, or null when empty/invalid. Empty means "no plan".
+   * @param {unknown} value
+   * @returns {string|null}
+   */
+  function plannedIso(value) {
+    if (value === null || value === undefined || text(value) === '') return null;
+    var d = new Date(text(value));
+    return isNaN(d.getTime()) ? null : d.toISOString();
   }
 
   /**
@@ -213,13 +235,20 @@
       errors.customerId = 'dispatch.error.customerMismatch';
     }
 
+    // The promised delivery time (board task #66) is optional; a value that is
+    // present but not a real date/time is refused rather than sent and rejected.
+    var plannedInput = text(v.plannedAt);
+    if (plannedInput && !plannedIso(plannedInput)) {
+      errors.plannedAt = 'dispatch.error.plannedAt';
+    }
+
     for (var key in errors) {
       if (Object.prototype.hasOwnProperty.call(errors, key)) return { ok: false, errors: errors };
     }
 
     return {
       ok: true,
-      payload: buildCreateTripPayload({ orderId: orderId, driverId: driverId, truckId: truckId, rateEur: rateEur }),
+      payload: buildCreateTripPayload({ orderId: orderId, driverId: driverId, truckId: truckId, rateEur: rateEur, plannedAt: plannedInput }),
       order: order,
       rateEur: rateEur
     };
@@ -276,6 +305,7 @@
     optionEntries: optionEntries,
     findById: findById,
     buildCreateTripPayload: buildCreateTripPayload,
+    plannedIso: plannedIso,
     validateDispatchForm: validateDispatchForm,
     createTripErrorKey: createTripErrorKey,
     errorDetail: errorDetail

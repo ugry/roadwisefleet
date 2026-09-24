@@ -47,7 +47,15 @@ function makeFakePrisma() {
   };
   const client = {
     state,
-    order: { findFirst: async ({ where }) => state.orders.find((o) => match(o, where)) ?? null },
+    order: {
+      findFirst: async ({ where }) => state.orders.find((o) => match(o, where)) ?? null,
+      update: async ({ where, data }) => {
+        const idx = state.orders.findIndex((o) => o.id === where.id);
+        const updated = { ...state.orders[idx], ...data };
+        state.orders[idx] = updated;
+        return updated;
+      },
+    },
     user: { findFirst: async ({ where }) => state.users.find((u) => match(u, where)) ?? null },
     truck: { findFirst: async ({ where }) => state.trucks.find((t) => match(t, where)) ?? null },
     trip: {
@@ -90,7 +98,7 @@ function makeFakePrisma() {
 test('normalizeCreateTripInput requires an orderId and validates rateEur', () => {
   assert.deepEqual(normalizeCreateTripInput({ orderId: 'o1' }), {
     ok: true,
-    value: { orderId: 'o1', driverId: null, truckId: null, rateEur: null },
+    value: { orderId: 'o1', driverId: null, truckId: null, rateEur: null, plannedAt: null },
   });
   assert.equal(normalizeCreateTripInput(null).ok, false);
   assert.equal(normalizeCreateTripInput({}).error, 'invalid_input');
@@ -100,8 +108,73 @@ test('normalizeCreateTripInput requires an orderId and validates rateEur', () =>
   const ok = normalizeCreateTripInput({ orderId: ' o1 ', driverId: 'd1', truckId: 't1', rateEur: '12.5' });
   assert.deepEqual(ok, {
     ok: true,
-    value: { orderId: 'o1', driverId: 'd1', truckId: 't1', rateEur: 12.5 },
+    value: { orderId: 'o1', driverId: 'd1', truckId: 't1', rateEur: 12.5, plannedAt: null },
   });
+});
+
+// --- board task #66: the delivery timestamps the on-time KPI reads ----------
+
+test('normalizeCreateTripInput accepts an optional plannedAt and refuses a bad one', () => {
+  const ok = normalizeCreateTripInput({ orderId: 'o1', plannedAt: '2026-09-25T08:00:00.000Z' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.value.plannedAt.toISOString(), '2026-09-25T08:00:00.000Z');
+  // Empty/absent is valid and means "no plan recorded" — optional data.
+  assert.equal(normalizeCreateTripInput({ orderId: 'o1' }).value.plannedAt, null);
+  assert.equal(normalizeCreateTripInput({ orderId: 'o1', plannedAt: '' }).value.plannedAt, null);
+  // Present but unparseable is refused, never silently stored.
+  assert.equal(normalizeCreateTripInput({ orderId: 'o1', plannedAt: 'not-a-date' }).error, 'invalid_input');
+});
+
+test('createTrip records the order planned delivery time when supplied (#66)', async () => {
+  const prisma = makeFakePrisma();
+  const when = new Date('2026-09-25T08:00:00.000Z');
+  const result = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1', plannedAt: when.toISOString() },
+    actor: OWNER,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(prisma.state.orders[0].plannedAt.getTime(), when.getTime(), 'the order carries the plan');
+  // Without it, the order is left untouched (still nullable/optional).
+  const prisma2 = makeFakePrisma();
+  await createTrip(prisma2, { orgId: 'org1', body: { orderId: 'o1' }, actor: OWNER });
+  assert.equal(prisma2.state.orders[0].plannedAt, undefined);
+});
+
+test('transitionTrip records deliveredAt only when the trip is delivered (#66)', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+
+  const assigned = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: OWNER });
+  assert.equal(assigned.trip.deliveredAt, undefined, 'a non-delivery move writes no delivery time');
+
+  for (const to of ['LOADED', 'IN_TRANSIT']) {
+    assert.equal((await transitionTrip(prisma, { orgId: 'org1', tripId: id, to, actor: OWNER })).ok, true);
+  }
+
+  const when = new Date('2026-09-24T10:00:00.000Z');
+  const delivered = await transitionTrip(prisma, {
+    orgId: 'org1',
+    tripId: id,
+    to: 'DELIVERED',
+    actor: OWNER,
+    now: when,
+  });
+  assert.equal(delivered.ok, true);
+  assert.equal(delivered.trip.status, 'DELIVERED');
+  assert.equal(delivered.trip.deliveredAt.getTime(), when.getTime(), 'the delivery instant is persisted');
+  // The stored row carries it too (not just the returned object).
+  assert.equal((await prisma.trip.findFirst({ where: { id } })).deliveredAt.getTime(), when.getTime());
+  // A rejected move never writes one.
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: 'ghost', to: 'DELIVERED', actor: OWNER })).error,
+    'not_found',
+  );
 });
 
 test('createTrip persists a DRAFT trip scoped to the org', async () => {
