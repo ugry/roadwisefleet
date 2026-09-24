@@ -130,6 +130,24 @@ jobs:
       - name: Self-test pilot-restore-drill.sh (board #62)
         run: bash infra/scripts/pilot-restore-drill.sh --self-test
 
+  pilot-csp-check:
+    name: Pilot CSP vs. pilot assets (#65)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #65: the /pilot/ CSP was applied without 'self', so every
+      # <script src="lib/..."> the pages load was blocked and the pilot never
+      # booted in a browser. This job rejects a PR whose pilot policy does not
+      # cover the resources the pilot HTML/JS actually declares (with CSP
+      # fallback semantics), and rejects one that "boots" by relaxing the
+      # lockdown. The self-test proves the checker catches the broken policy.
+      - name: Self-test the checker (fixtures, no host, no network)
+        run: bash infra/checks/pilot-csp-check.sh --self-test
+
+      - name: Check the repo policy against the pilot assets
+        run: bash infra/checks/pilot-csp-check.sh
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'

@@ -280,9 +280,24 @@ Proof that the app limiter is no longer global: `services/waitlist/server.test.j
 `Referrer-Policy` on any response; `www` served `200` instead of redirecting
 (issue #2, F1/F2).
 
-**Prepared (not yet applied):** the snippets in [`nginx/snippets/`](./nginx/snippets/)
-add HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-`Referrer-Policy` and CSP to the static site, the pilot surface and the API.
+**Applied 2026-09-23 22:51 UTC** (`nginx` reload in the owner window): the live
+responses now carry HSTS, `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy` and CSP on the static site, the pilot
+surface and the API (verified from the live headers).
+
+**Board #65 regression — fixed in the repo, awaiting the next reload.** The pilot
+snippet went live with a "self-contained" template CSP that allowed
+`script-src 'unsafe-inline'` but **not `'self'`**, so every
+`<script src="lib/i18n.js">` the pilot pages load was blocked and
+`/pilot/` + the driver PWA never booted (QA F-surface-1; the same policy also had
+no `manifest-src`/`worker-src` for `manifest.webmanifest`/`sw.js`). The snippet
+now carries `script-src 'self' 'unsafe-inline'`, `style-src 'self'
+'unsafe-inline'`, `worker-src 'self'` and `manifest-src 'self'` while keeping
+`default-src 'none'` and the rest of the lockdown. `infra/checks/pilot-csp-check.sh`
+asserts the policy against the pilot's real resource inventory in CI
+(`pilot-csp-check` job), so this class of failure cannot ship again. **The live
+header is still the broken one until the owner applies the corrected snippet**
+(the same window as #7/#41/#45; verify with the `--live` mode of the check).
 
 **CSP choice and evidence.** The pages are static files with inline `<style>` and
 inline `<script>`, so `'unsafe-inline'` is required in `script-src`/`style-src`
@@ -292,10 +307,16 @@ locks everything else down (`default-src 'none'` for the pilot,
 `frame-ancestors 'none'`, `base-uri 'none'`/`'self'`, `form-action 'self'`), and
 it is derived from the actual resource inventory:
 
-* no `<script src=...>` anywhere in `web/` or `pilot/` → no external script host;
-* only external hosts are `fonts.googleapis.com` (CSS) and `fonts.gstatic.com`
-  (fonts), both from the landing pages; the pilot pages load nothing external;
-* favicon is a `data:` URI, zero `<img>` elements → `img-src 'self' data:`;
+* `web/` has no `<script src=...>`; **`pilot/` loads `lib/i18n.js`,
+  `lib/i18n-ui.js` and `lib/driver-core.js` from same-origin paths since the i18n
+  change (`d3c9ddc`)** → `script-src`/`style-src` must include `'self'`
+  (the original inventory predates that change — board #65);
+* no external hosts at all on the pilot pages, and only `fonts.googleapis.com`
+  (CSS) + `fonts.gstatic.com` (fonts) from the landing pages;
+* `driver.html` declares `manifest.webmanifest` and registers `sw.js` →
+  `manifest-src 'self'` + `worker-src 'self'`;
+* favicon/icons are same-origin, plus a `data:` URI on the landing pages →
+  `img-src 'self' data:`;
 * `fetch()` targets are same-origin → `connect-src 'self'`;
 * no `eval()` / `new Function()` / `document.write()` → no `'unsafe-eval'`.
 
