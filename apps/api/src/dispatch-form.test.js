@@ -165,6 +165,39 @@ test('buildCreateTripPayload never forwards an out-of-range rate', () => {
   assert.equal(dispatch.buildCreateTripPayload({ orderId: 'a', rateEur: 0 }).rateEur, 0);
 });
 
+// --- planned delivery time (board task #66) ---------------------------------
+
+test('an empty planned time is omitted from the payload, not sent as null', () => {
+  const base = dispatch.buildCreateTripPayload({ orderId: 'a' });
+  assert.deepEqual(Object.keys(base).sort(), ['driverId', 'orderId', 'rateEur', 'truckId']);
+  assert.ok(!('plannedAt' in base), 'absent when blank — the original F4 contract is unchanged');
+});
+
+test('a chosen planned time is sent as an ISO-8601 instant', () => {
+  const payload = dispatch.buildCreateTripPayload({ orderId: 'a', plannedAt: '2026-09-25T08:00' });
+  assert.equal(payload.plannedAt, new Date('2026-09-25T08:00').toISOString());
+  assert.deepEqual(Object.keys(payload).sort(), ['driverId', 'orderId', 'plannedAt', 'rateEur', 'truckId']);
+  // A datetime-local value with seconds is preserved to the second.
+  assert.equal(
+    dispatch.buildCreateTripPayload({ orderId: 'a', plannedAt: '2026-09-25T08:30:15' }).plannedAt,
+    new Date('2026-09-25T08:30:15').toISOString()
+  );
+});
+
+test('a malformed planned time is refused before the request is sent', () => {
+  const bad = dispatch.validateDispatchForm({ orderId: 'ord_1', plannedAt: 'tomorrow-ish' }, REFERENCE);
+  assert.equal(bad.ok, false);
+  assert.equal(bad.errors.plannedAt, 'dispatch.error.plannedAt');
+  const good = dispatch.validateDispatchForm(
+    { orderId: 'ord_1', plannedAt: '2026-09-25T08:00' },
+    REFERENCE
+  );
+  assert.equal(good.ok, true);
+  assert.equal(good.payload.plannedAt, new Date('2026-09-25T08:00').toISOString());
+  // Blank is fine: the time is optional.
+  assert.equal(dispatch.validateDispatchForm({ orderId: 'ord_1', plannedAt: '' }, REFERENCE).ok, true);
+});
+
 // --- error mapping ----------------------------------------------------------
 
 test('every POST failure maps to a readable catalogue key, never a raw status', () => {
