@@ -68,7 +68,9 @@ driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard a
 static-serving rules, the Fleet Manager dispatch form (option labels, validation,
 payload and error mapping), trip-list filter validation, trips-view filter/query/CSV
 shaping, the dashboard KPIs/alerts/activity shaping and its view model, user/driver
-credential-field stripping, locale resolution and the pilot i18n catalogues) runs on the
+credential-field stripping, the delivery-timestamp writer (`deliveredAt` on the
+DELIVERED transition, the optional `plannedAt` on dispatch), locale resolution and
+the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
 ```bash
@@ -94,7 +96,10 @@ holds a driver `passwordHash`, while no credential key appears anywhere in the
 `/api/trips`, trip-detail, `/api/drivers` or `/api/reference` responses.
 Finally it re-derives every dashboard KPI with its own Prisma query (board task #33)
 and proves the on-time / pending-pay arithmetic is non-vacuous by creating real rows
-inside a transaction that is rolled back, so the pilot is never mutated.
+inside a transaction that is rolled back, so the pilot is never mutated. It also drives
+the delivery-timestamp writer (board task #66) through the real status-transition path
+and asserts the KPI sample/value move and equal a direct DB query, all inside a rolled-back
+transaction.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -116,8 +121,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a trip in another org is `404`, never a leak |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
-| `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
-| `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
+| `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required); the optional `plannedAt` (ISO-8601) records the promised delivery time on the order in the same transaction (board task #66) |
+| `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66), in the same transaction as the status event; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
 | `GET /api/reference` | bearer, `trip:create` | every create-trip option list in one call (orders, drivers, trucks, customers) |
 | `GET /api/orders` | bearer, `trip:create` | org orders with the customer name folded in |
@@ -368,7 +373,8 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   `pageshow`. It also renders the implemented views (dispatch, board task #35).
 - `app/lib/dispatch.js` — the pure create-trip form logic (board task #35): option
   labels that never leak a raw id, pre-submit validation, the exact
-  `POST /api/trips` payload, and the API-error-to-catalogue-key mapping. Loaded as
+  `POST /api/trips` payload (including the optional `plannedAt`, board task #66),
+  and the API-error-to-catalogue-key mapping. Loaded as
   a classic script in the browser and by `src/dispatch-form.test.js` in CI.
 - `app/locales/en.json` — the English catalogue. The shell reuses the pilot's
   `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime (board task #6), so the
@@ -404,14 +410,16 @@ Behaviour:
   dropdowns — no raw id is ever typed. The customer is shown read-only, from the
   selected order, and a payload whose customer does not match the order is
   refused. Validation runs before the request (order chosen and known; optional
-  driver/truck known; rate a non-negative number); the body handed to
-  `POST /api/trips` is exactly `{ orderId, driverId, truckId, rateEur }` with
-  `null` for the unset optionals. Every server failure is mapped to a catalogue
+  driver/truck known; rate a non-negative number; the optional planned delivery a
+  real date/time); the body handed to
+  `POST /api/trips` is `{ orderId, driverId, truckId, rateEur }` with `null` for the
+  unset optionals, plus `plannedAt` (ISO-8601) only when a planned delivery time was
+  chosen — the promised time is recorded on the order and feeds the on-time KPI
+  (board task #66). Every server failure is mapped to a catalogue
   message that names the field to fix — `invalid_input` keeps the server's
   `detail`. A new trip is created as `DRAFT`; assigning and moving it is the
-  trip-detail/status flow. **Not in this task:** `pickup`/`deliver` timestamps
-  (needs the on-time columns from board #40, which the schema does not have yet)
-  and required-document selection (the F6 documents UI, board #37).
+  trip-detail/status flow, and delivery writes `Trip.deliveredAt` (board task #66).
+  **Not in this task:** required-document selection (the F6 documents UI, board #37).
 
 Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/dispatch-form.test.js`
 run in the no-install CI job; `test/app-shell.test.ts` adds the HTTP-level
@@ -492,6 +500,17 @@ comment; Prisma has no down migration). It was applied on the pilot DB with
 `pnpm --filter @roadwisefleet/api exec prisma migrate deploy`, after which
 `prisma migrate status` reports "Database schema is up to date!". Both fields are
 surfaced in `GET /api/trips/:id` (trip `deliveredAt`, order `plannedAt`).
+
+**Who writes them (board task #66).** The columns shipped in #40 but nothing wrote
+them, so `onTimePct` could never leave its `—` placeholder. Two writers close that:
+`trips-core.js#transitionTrip` stamps `Trip.deliveredAt` the moment a trip moves into
+`DELIVERED` (same transaction as the status event, so the timeline and the KPI cannot
+disagree), and `POST /api/trips` accepts an optional `plannedAt` and writes it to
+`Order.plannedAt` (same transaction as the trip). Both stay nullable — the time is
+optional data, and the KPI still renders `—` (never a fabricated 0/100) when a trip
+has no comparable pair. Covered by `src/trips-core.test.js` (writer + validation,
+no install) and `test/delivery-timestamps.test.ts` (the real transition path moved
+the KPI, re-derived with a direct DB query, inside a rolled-back transaction).
 
 ## Waitlist → account handoff
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the
