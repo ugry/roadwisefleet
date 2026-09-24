@@ -6,6 +6,7 @@ import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
 import { createTrip, listDriverTrips, listOrgTrips, transitionTrip } from '../trips-core.js';
 import { getTripDetail } from '../trip-detail.js';
+import { parseTripFilters, serializeTripFilters } from '../trip-filters.js';
 
 /*
  * Trips API — real auth (signed bearer token) replaces the former `x-org-id`
@@ -32,7 +33,16 @@ export async function tripRoutes(app: FastifyInstance) {
     if (!hasPermission(permissions, 'trip:read')) {
       return reply.code(403).send({ error: 'forbidden' });
     }
-    return reply.send({ trips: await listOrgTrips(prisma, { orgId: user.orgId }) });
+    // Board task #34 (F3): the list is filterable (status / driver / created-at
+    // window / free text). Invalid filter values are a 400 naming the field —
+    // never silently ignored, so the client cannot show a set the DB disagrees
+    // with. `filters` is echoed back so the UI can prove what was applied.
+    const parsed = parseTripFilters(req.query);
+    if (!parsed.ok) {
+      return reply.code(400).send({ error: parsed.error, detail: parsed.detail });
+    }
+    const trips = await listOrgTrips(prisma, { orgId: user.orgId, filters: parsed.filters });
+    return reply.send({ trips, filters: serializeTripFilters(parsed.filters) });
   });
 
   // Trip detail (board task #2): the drawer payload — order/customer, driver,

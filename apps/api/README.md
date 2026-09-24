@@ -66,8 +66,9 @@ Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
 demo-reset planning, tracking-link signing/shaping, document capture validation,
 driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard and
 static-serving rules, the Fleet Manager dispatch form (option labels, validation,
-payload and error mapping), locale resolution and the pilot i18n catalogues) runs
-on the Node.js native test runner with no install:
+payload and error mapping), trip-list filter validation, trips-view filter/query/CSV
+shaping, locale resolution and the pilot i18n catalogues) runs on the
+Node.js native test runner with no install:
 
 ```bash
 pnpm test                            # or: node --test apps/api/src/
@@ -84,7 +85,11 @@ with the MIME types a browser and an install prompt require (the manifest as
 icons as PNG) and that the static root cannot be walked out of. It also proves the
 Fleet Manager surface: `/app` redirects to `/app/`, the shell is served as HTML,
 a deep link returns the shell, the assets carry their real content types and a
-missing asset or a traversal attempt is a `404`:
+missing asset or a traversal attempt is a `404`. Finally it drives the trips-list
+filters (board task #34) against the pilot database: filter counts and the P&L are
+re-derived with direct Prisma queries, and the CSV export is checked row-for-row.
+That database-backed block prints a diagnostic and skips its assertions when no
+database is reachable, so the command still runs on a bare checkout:
 
 ```bash
 pnpm --filter @roadwisefleet/api test:router
@@ -101,7 +106,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /health` | — | liveness |
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
-| `GET /api/trips` | bearer, `trip:read` | dashboard trip list for the token's org |
+| `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer, driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); a trip in another org is `404`, never a leak |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
@@ -325,6 +330,10 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   panel renderers). Loaded twice on purpose: as a classic script in the browser
   and by `src/app-core.test.js` in the no-install CI job, exactly like
   `pilot/lib/driver-core.js`.
+- `app/lib/trips.js` — the pure trips view model (board task #34): filter
+  normalisation, the `GET /api/trips` query string, CSV export and the flat row
+  the table and CSV share. Loaded the same way and covered by
+  `src/trips-view.test.js`.
 - `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
   `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
   routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
@@ -379,6 +388,34 @@ Behaviour:
 Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/dispatch-form.test.js`
 run in the no-install CI job; `test/app-shell.test.ts` adds the HTTP-level
 `app.inject()` checks under `pnpm test:router`.
+
+### Trips list & detail (board task #34, FAv1-F3)
+`/app/trips` is the daily workhorse, built on the F1 shell:
+
+- **List + filters.** The list calls `GET /api/trips` with `status`, `driverId`,
+  `from`/`to` and `q`. The filter set lives in the URL (`/app/trips?status=DRAFT`),
+  so a reload or a shared link restores it; an inverted range is caught in the UI
+  before the request and again server-side (`400 invalid_filter`). Invalid filter
+  values are never silently dropped.
+- **CSV export.** "Export CSV" writes exactly the rows the list is showing, using
+  the same `app/lib/trips.js` shaper the table uses (`tripRow`), so the file is
+  row-for-row the filtered list by construction. Headers are stable machine names
+  (never localised) and values are RFC 4180 quoted.
+- **Detail.** `/app/trips/:id` renders `GET /api/trips/:id`: order/customer,
+  driver, truck, the chronological status timeline (every entry names its actor,
+  or says the history pre-dates actor recording), the documents panel, the
+  expenses panel and the P&L (`rateEur − Σ expenses`). A trip with no documents or
+  expenses renders an empty state rather than a broken panel.
+
+Pure logic lives in `app/lib/trips.js` (filter normalisation, query building, CSV
+and row shaping); the dynamic `/app/trips/:id` matching lives in
+`app/lib/app-core.js`. The filter validation and Prisma `where` building live in
+`src/trip-filters.js`.
+
+Tests: `src/trip-filters.test.js` + `src/trips-view.test.js` in the no-install CI
+job; `test/trips-list.test.ts` (`pnpm test:router`) re-derives the filter counts
+and P&L from Prisma and checks the CSV; the deterministic DOM harness
+`scratch/verify-trips-view.js` drives the real `app.js` end to end.
 
 > **Deployment note:** production nginx proxies only `/api/`, `/pilot/` and
 > `/track/` to the API, so `/app/` needs a `location /app/` block before the Fleet

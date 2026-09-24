@@ -93,7 +93,19 @@
       path: '/app/trips',
       i18n: 'nav.trips',
       roles: ['owner', 'dispatcher'],
-      task: 'F3 · board #34'
+      view: 'trips',
+      task: null
+    },
+    {
+      id: 'trip-detail',
+      // Dynamic: `/app/trips/<id>`. Never shown in the navigation (`nav: false`);
+      // it is reached from a row in the trips list.
+      path: '/app/trips/:id',
+      i18n: 'trips.detailTitle',
+      roles: ['owner', 'dispatcher'],
+      view: 'trip-detail',
+      nav: false,
+      task: null
     },
     {
       id: 'dispatch',
@@ -206,8 +218,13 @@
   /**
    * The route for a path, or `NOT_FOUND_ROUTE` for an unknown `/app/*` path,
    * or `null` when the path is outside the app entirely.
+   *
+   * Static routes match exactly; `/app/trips/<id>` matches the trip-detail
+   * route and gets the (URL-decoded) `id` in `params`. The returned object is a
+   * fresh shallow copy for a dynamic match, so a caller can never mutate the
+   * route table.
    * @param {unknown} pathname
-   * @returns {{ id: string, path: string|null, i18n: string, roles: string[], task?: string|null }|null}
+   * @returns {{ id: string, path: string|null, i18n: string, roles: string[], view?: string, nav?: boolean, task?: string|null, params?: { id?: string } }|null}
    */
   function routeForPath(pathname) {
     if (!isAppPath(pathname)) return null;
@@ -216,6 +233,26 @@
     if (path === APP_BASE) return ROUTES[0];
     for (var i = 0; i < ROUTES.length; i++) {
       if (ROUTES[i].path === path) return ROUTES[i];
+    }
+    // `/app/trips/<id>` — the trip detail screen (board task #34).
+    var detail = /^\/app\/trips\/([^/]+)$/.exec(path);
+    if (detail) {
+      for (var j = 0; j < ROUTES.length; j++) {
+        if (ROUTES[j].id === 'trip-detail') {
+          return {
+            id: ROUTES[j].id,
+            // The *actual* path, not the `/app/trips/:id` pattern: the caller
+            // uses `path` to drive the URL, so a detail view must keep its id.
+            path: path,
+            i18n: ROUTES[j].i18n,
+            roles: ROUTES[j].roles,
+            view: ROUTES[j].view,
+            nav: false,
+            task: null,
+            params: { id: decodeURIComponent(detail[1]) }
+          };
+        }
+      }
     }
     return NOT_FOUND_ROUTE;
   }
@@ -228,7 +265,7 @@
   function navFor(role) {
     if (!isKnownRole(role)) return [];
     return ROUTES.filter(function (route) {
-      return route.roles.indexOf(role) !== -1;
+      return route.nav !== false && route.roles.indexOf(role) !== -1;
     });
   }
 
@@ -315,6 +352,14 @@
     }
     if (route.id === 'overview') {
       return { title: translate('overview.title'), body: translate('overview.body'), task: null };
+    }
+    // Implemented views (board task #34): the real content is rendered by
+    // app.js; the core only supplies the title and an honest loading body.
+    if (route.view === 'trips') {
+      return { title: translate('nav.trips'), body: translate('common.loading'), task: null };
+    }
+    if (route.view === 'trip-detail') {
+      return { title: translate('trips.detailTitle'), body: translate('common.loading'), task: null };
     }
     // Implemented view (board task #35, F4): the real form is rendered by
     // app.js; the core only supplies the title and an honest loading body.

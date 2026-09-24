@@ -23,6 +23,7 @@
 import { canCreateTrip, canTransitionTrip } from './auth/permissions.js';
 import { canTransition, isTripStatus } from './trip-status.js';
 import { hasPodDocument } from './documents.js';
+import { buildTripWhere } from './trip-filters.js';
 
 /**
  * @typedef {Object} TripsClient
@@ -156,14 +157,16 @@ export async function transitionTrip(prisma, { orgId, tripId, to, actor }) {
 }
 
 /**
- * Dashboard trip list: every trip in the org, newest first.
+ * Dashboard trip list: every trip in the org, newest first, optionally narrowed
+ * by the validated filters from `trip-filters.js` (status / driver / created-at
+ * window / free text). Board task #34 (F3).
  * @param {TripsClient} prisma
- * @param {{ orgId: string }} args
+ * @param {{ orgId: string, filters?: import('./trip-filters.js').TripFilters }} args
  * @returns {Promise<any[]>}
  */
-export function listOrgTrips(prisma, { orgId }) {
+export function listOrgTrips(prisma, { orgId, filters }) {
   return prisma.trip.findMany({
-    where: { orgId },
+    where: buildTripWhere({ orgId, filters }),
     include: { driver: true, truck: true, order: true },
     orderBy: { createdAt: 'desc' },
     take: 100,

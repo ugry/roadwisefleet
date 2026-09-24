@@ -244,6 +244,34 @@ select.lang-switcher {
 }
 .empty-state .title { font-family: var(--font-display); font-size: 20px; color: var(--ink); margin: 0 0 6px; }
 
+/* ------------------------------------------- trips list & detail (F3) --- */
+.crumbs { margin: 0 0 6px; font-size: 13px; }
+.crumbs a { color: var(--accent-deep); }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 0 0 14px;
+}
+.filters .field { margin: 0; flex: 1 1 150px; min-width: 130px; }
+.filters .field-grow { flex: 2 1 220px; }
+.filters select,
+.filters input {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
 /* ------------------------------------------------ dispatch form (F4) ---
  * Board task #35: the create-trip form. Same card look as the other panels;
  * selects get the input treatment so the form reads as one control set. The
@@ -267,6 +295,105 @@ select.lang-switcher {
   background: var(--surface);
   color: var(--ink);
 }
+.filters-actions { display: flex; gap: 8px; align-items: center; }
+.filters-actions button.primary { width: auto; padding: 9px 16px; }
+.filters-actions button.ghost,
+.table-actions button.ghost {
+  color: var(--ink);
+  border-color: var(--border);
+}
+.table-actions { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+
+table.trips-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+table.trips-table th,
+table.trips-table td {
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+table.trips-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+table.trips-table tr.clickable { cursor: pointer; }
+table.trips-table tr.clickable:hover { background: oklch(0.98 0.003 250); }
+
+.status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.status.s-DELIVERED,
+.status.s-POD_UPLOADED,
+.status.s-INVOICED,
+.status.s-SETTLED { color: var(--accent-deep); border-color: var(--accent-deep); }
+.status.s-CANCELLED { color: var(--danger); border-color: var(--danger); }
+
+.muted { color: var(--muted); font-size: 13px; }
+.empty { color: var(--muted); font-size: 13px; }
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin: 20px 0 8px;
+  color: var(--navy-900);
+}
+.kv {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 6px 12px;
+  font-size: 14px;
+  margin: 6px 0;
+}
+.kv dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin: 0;
+  padding-top: 3px;
+}
+.kv dd { margin: 0; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { position: relative; padding: 0 0 14px 18px; border-left: 2px solid var(--border); }
+.timeline li:last-child { border-left-color: transparent; }
+.timeline li::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.tl-what { font-weight: 600; }
+.tl-when { font-size: 12px; color: var(--muted); }
+.pnl { font-family: var(--font-display); font-size: 24px; margin: 0; }
+.pnl.pos { color: oklch(0.45 0.13 158); }
+.pnl.neg { color: var(--danger); }
+
 .field select:focus { border-color: var(--accent-deep); }
 .field input[readonly] { background: var(--bg); color: var(--muted); }
 .field-error {
@@ -309,4 +436,12 @@ select.lang-switcher {
 @media (max-width: 420px) {
   .login-card { padding: 22px 16px 18px; }
   .login-card h1 { font-size: 22px; }
+}
+
+/* Narrow screens: the filter bar stacks and a wide trips table scrolls
+   horizontally rather than pushing the layout wider than the viewport. */
+@media (max-width: 700px) {
+  .filters .field,
+  .filters .field-grow { flex: 1 1 100%; }
+  table.trips-table { display: block; overflow-x: auto; }
 }
