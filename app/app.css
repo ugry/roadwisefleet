@@ -271,6 +271,30 @@ select.lang-switcher {
   background: var(--surface);
   color: var(--ink);
 }
+
+/* ------------------------------------------------ dispatch form (F4) ---
+ * Board task #35: the create-trip form. Same card look as the other panels;
+ * selects get the input treatment so the form reads as one control set. The
+ * form is one column at every width (no fixed width that could break 375px).
+ */
+.dispatch-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  max-width: 36rem;
+}
+.field select,
+.field input[readonly] {
+  width: 100%;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
 .filters-actions { display: flex; gap: 8px; align-items: center; }
 .filters-actions button.primary { width: auto; padding: 9px 16px; }
 .filters-actions button.ghost,
@@ -369,6 +393,28 @@ table.trips-table tr.clickable:hover { background: oklch(0.98 0.003 250); }
 .pnl { font-family: var(--font-display); font-size: 24px; margin: 0; }
 .pnl.pos { color: oklch(0.45 0.13 158); }
 .pnl.neg { color: var(--danger); }
+
+.field select:focus { border-color: var(--accent-deep); }
+.field input[readonly] { background: var(--bg); color: var(--muted); }
+.field-error {
+  color: oklch(0.42 0.16 27);
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+.alert.success {
+  background: oklch(0.96 0.05 150);
+  border-color: oklch(0.55 0.12 150);
+  color: oklch(0.33 0.09 150);
+}
+.dispatch-form .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.dispatch-form .form-actions .helper { margin: 0; }
+.dispatch-form button.primary { width: auto; padding: 11px 18px; }
 
 /* 375px: one column, navigation becomes a horizontal strip. */
 @media (max-width: 900px) {

@@ -11,6 +11,7 @@ import {
   listTrucks,
   loadReferenceData,
 } from '../reference-data.js';
+import { stripCredentialFields } from '../user-payload.js';
 
 /*
  * Reference-data API for the dispatch create-trip form (board task #1).
@@ -50,7 +51,9 @@ export async function referenceRoutes(app: FastifyInstance) {
   app.get('/reference', { preHandler: auth }, async (req, reply) => {
     const orgId = await authorize(req, reply);
     if (!orgId) return;
-    return reply.send({ reference: await loadReferenceData(prisma, { orgId }) });
+    // Board task #63: the drivers list is a user payload — strip credential
+    // fields at the boundary even though the loader already selects safely.
+    return reply.send(stripCredentialFields({ reference: await loadReferenceData(prisma, { orgId }) }));
   });
 
   app.get('/orders', { preHandler: auth }, async (req, reply) => {
@@ -62,7 +65,7 @@ export async function referenceRoutes(app: FastifyInstance) {
   app.get('/drivers', { preHandler: auth }, async (req, reply) => {
     const orgId = await authorize(req, reply);
     if (!orgId) return;
-    return reply.send({ drivers: await listDrivers(prisma, { orgId }) });
+    return reply.send(stripCredentialFields({ drivers: await listDrivers(prisma, { orgId }) }));
   });
 
   app.get('/trucks', { preHandler: auth }, async (req, reply) => {

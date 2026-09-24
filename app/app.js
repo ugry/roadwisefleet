@@ -25,6 +25,10 @@
   'use strict';
 
   var APP = core || {};
+  // The pure create-trip form logic (board task #35, F4), loaded as a classic
+  // script before this one. Everything missing here is a no-op, never a crash.
+  var DISPATCH = win && win.RoadwiseDispatch ? win.RoadwiseDispatch : {};
+  // The pure trips list/detail shaping (board task #34, F3), loaded before this one.
   var TRIPVIEW = TRIPS || {};
   var T = function (key, params) { return key; };
   var i18n = null;
@@ -178,6 +182,12 @@
     if (route && route.view === 'trip-detail') {
       outlet.innerHTML = '';
       renderTripDetail(outlet, route, token);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'dispatch') {
+      renderDispatch(outlet);
       if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
       if (outlet.focus) outlet.focus();
       return panel;
@@ -542,6 +552,258 @@
         return;
       }
       box.innerHTML = tripDetailHtml((res.data && res.data.trip) || {});
+    });
+  }
+
+  /* -------------------------------------------------- dispatch (F4) --- */
+
+  /**
+   * Create-trip form (board task #35): the dispatcher picks an order, a driver
+   * and a truck from the org's own lists — no raw ids are ever typed. The pure
+   * decisions (labels, validation, payload, error keys) live in
+   * `lib/dispatch.js`; this section only reads/writes the DOM and the network.
+   *
+   * Element ids are dynamic (the form is injected), so they are resolved from
+   * the outlet with `querySelector`, never with `el()` (which is for the static
+   * shell only).
+   */
+
+  /** The loaded `GET /api/reference` payload, or null before it arrives. */
+  var dispatchReference = null;
+  /** Bumped per render so a stale reference response cannot overwrite a newer one. */
+  var dispatchLoadToken = 0;
+
+  /** Dynamic error node per form field. */
+  var DISPATCH_FIELD_ERRORS = {
+    orderId: 'dispatchOrderError',
+    customerId: 'dispatchCustomerError',
+    driverId: 'dispatchDriverError',
+    truckId: 'dispatchTruckError',
+    rateEur: 'dispatchRateError'
+  };
+  /** The control each field error belongs to (focus target after a failed submit). */
+  var DISPATCH_FIELD_INPUTS = {
+    orderId: 'dispatchOrder',
+    driverId: 'dispatchDriver',
+    truckId: 'dispatchTruck',
+    rateEur: 'dispatchRate'
+  };
+  /** Submit order for the "what went wrong" summary. */
+  var DISPATCH_FIELD_ORDER = ['orderId', 'customerId', 'driverId', 'truckId', 'rateEur'];
+
+  function dispatchNode(outlet, id) {
+    return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
+  }
+
+  /** Local shorthand for the core's escaper (distinct from any later helper). */
+  function escHtml(value) { return APP.escapeHtml(value); }
+
+  function fieldValue(outlet, id) {
+    var node = dispatchNode(outlet, id);
+    return node && node.value !== undefined ? String(node.value) : '';
+  }
+
+  /** Show or clear a node's message. Takes the node, so no id is hard-coded. */
+  function setMessage(node, message, kind) {
+    if (!node) return;
+    if (message) {
+      node.textContent = message;
+      node.hidden = false;
+      if (node.classList) {
+        node.classList.remove('hidden');
+        if (kind === 'success') node.classList.add('success');
+        else node.classList.remove('success');
+      }
+    } else {
+      node.textContent = '';
+      node.hidden = true;
+      if (node.classList) node.classList.add('hidden');
+    }
+  }
+
+  /** The form-level message, translated. */
+  function dispatchMessage(outlet, key, params, kind) {
+    setMessage(dispatchNode(outlet, 'dispatchMessage'), key ? T(key, params) : '', kind);
+  }
+
+  /** Fill a select from pure `optionEntries` output, optionally with a placeholder. */
+  function setSelectEntries(outlet, id, entries, placeholder, disabled) {
+    var node = dispatchNode(outlet, id);
+    if (!node) return;
+    var html = placeholder ? '<option value="">' + escHtml(placeholder) + '</option>' : '';
+    for (var i = 0; i < entries.length; i++) {
+      html += '<option value="' + escHtml(entries[i].value) + '">' + escHtml(entries[i].label) + '</option>';
+    }
+    node.innerHTML = html;
+    if (disabled !== undefined) node.disabled = Boolean(disabled);
+  }
+
+  function renderDispatch(outlet) {
+    dispatchLoadToken += 1;
+    var loadToken = dispatchLoadToken;
+    dispatchReference = null;
+
+    outlet.innerHTML =
+      '<h1>' + escHtml(T('nav.dispatch')) + '</h1>' +
+      '<p class="lead">' + escHtml(T('dispatch.lead')) + '</p>' +
+      '<form class="dispatch-form" id="dispatchForm" novalidate>' +
+        '<p class="alert" id="dispatchMessage" role="alert" hidden></p>' +
+        '<div class="field">' +
+          '<label for="dispatchOrder">' + escHtml(T('dispatch.order')) + '</label>' +
+          '<select id="dispatchOrder" required>' +
+            '<option value="">' + escHtml(T('common.loading')) + '</option>' +
+          '</select>' +
+          '<p class="field-error" id="dispatchOrderError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchCustomer">' + escHtml(T('dispatch.customer')) + '</label>' +
+          '<input id="dispatchCustomer" type="text" readonly>' +
+          '<p class="helper">' + escHtml(T('dispatch.customerHint')) + '</p>' +
+          '<p class="field-error" id="dispatchCustomerError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchDriver">' + escHtml(T('dispatch.driver')) + '</label>' +
+          '<select id="dispatchDriver"></select>' +
+          '<p class="field-error" id="dispatchDriverError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchTruck">' + escHtml(T('dispatch.truck')) + '</label>' +
+          '<select id="dispatchTruck"></select>' +
+          '<p class="field-error" id="dispatchTruckError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchRate">' + escHtml(T('dispatch.rate')) + '</label>' +
+          '<input id="dispatchRate" type="number" min="0" step="0.01" inputmode="decimal">' +
+          '<p class="helper">' + escHtml(T('dispatch.rateHint')) + '</p>' +
+          '<p class="field-error" id="dispatchRateError" hidden></p>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<span class="helper">' + escHtml(T('dispatch.draftNote')) + '</span>' +
+          '<button class="primary" type="submit" id="dispatchSubmit">' + escHtml(T('dispatch.submit')) + '</button>' +
+        '</div>' +
+      '</form>';
+
+    var form = dispatchNode(outlet, 'dispatchForm');
+    if (form) {
+      form.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        submitDispatch(outlet);
+      });
+    }
+    var order = dispatchNode(outlet, 'dispatchOrder');
+    if (order) order.addEventListener('change', function () { syncDispatchCustomer(outlet); });
+
+    loadDispatchReference(outlet, loadToken);
+  }
+
+  function loadDispatchReference(outlet, loadToken) {
+    return request('/api/reference', { token: session.token }).then(function (res) {
+      if (loadToken !== dispatchLoadToken) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        dispatchReference = null;
+        setSelectEntries(outlet, 'dispatchOrder', [], T('dispatch.loadFailed'), true);
+        setSelectEntries(outlet, 'dispatchDriver', [], T('dispatch.assignLater'), true);
+        setSelectEntries(outlet, 'dispatchTruck', [], T('dispatch.assignLater'), true);
+        var submit = dispatchNode(outlet, 'dispatchSubmit');
+        if (submit) submit.disabled = true;
+        dispatchMessage(outlet, DISPATCH.createTripErrorKey ? DISPATCH.createTripErrorKey(res) : 'error.unexpected');
+        return;
+      }
+      dispatchReference = DISPATCH.referenceState ? DISPATCH.referenceState(res.data && res.data.reference) : null;
+      fillDispatchOptions(outlet);
+    });
+  }
+
+  function fillDispatchOptions(outlet) {
+    var ref = dispatchReference || { orders: [], drivers: [], trucks: [] };
+    setSelectEntries(outlet, 'dispatchOrder', DISPATCH.optionEntries(ref.orders, 'order'), T('dispatch.orderPlaceholder'));
+    setSelectEntries(outlet, 'dispatchDriver', DISPATCH.optionEntries(ref.drivers, 'driver'), T('dispatch.assignLater'));
+    setSelectEntries(outlet, 'dispatchTruck', DISPATCH.optionEntries(ref.trucks, 'truck'), T('dispatch.assignLater'));
+    var submit = dispatchNode(outlet, 'dispatchSubmit');
+    if (submit) submit.disabled = ref.orders.length === 0;
+    if (ref.orders.length === 0) dispatchMessage(outlet, 'dispatch.noOrders');
+    syncDispatchCustomer(outlet);
+  }
+
+  /** The customer is a property of the order, so it is shown, never chosen. */
+  function syncDispatchCustomer(outlet) {
+    var orderId = fieldValue(outlet, 'dispatchOrder');
+    var order = dispatchReference && DISPATCH.findById
+      ? DISPATCH.findById(dispatchReference.orders, orderId)
+      : null;
+    var input = dispatchNode(outlet, 'dispatchCustomer');
+    if (input) input.value = order && order.customer ? String(order.customer.name || '') : '';
+  }
+
+  function clearDispatchErrors(outlet) {
+    for (var i = 0; i < DISPATCH_FIELD_ORDER.length; i++) {
+      setMessage(dispatchNode(outlet, DISPATCH_FIELD_ERRORS[DISPATCH_FIELD_ORDER[i]]), '');
+    }
+    dispatchMessage(outlet, null);
+  }
+
+  function showDispatchFieldErrors(outlet, errors) {
+    var focusField = null;
+    for (var i = 0; i < DISPATCH_FIELD_ORDER.length; i++) {
+      var field = DISPATCH_FIELD_ORDER[i];
+      var key = errors ? errors[field] : null;
+      if (key) {
+        setMessage(dispatchNode(outlet, DISPATCH_FIELD_ERRORS[field]), T(key));
+        if (!focusField) focusField = field;
+      }
+    }
+    var input = focusField ? dispatchNode(outlet, DISPATCH_FIELD_INPUTS[focusField]) : null;
+    if (input && input.focus) input.focus();
+  }
+
+  function resetDispatchForm(outlet) {
+    var ids = ['dispatchOrder', 'dispatchDriver', 'dispatchTruck', 'dispatchRate'];
+    for (var i = 0; i < ids.length; i++) {
+      var node = dispatchNode(outlet, ids[i]);
+      if (node) node.value = '';
+    }
+    syncDispatchCustomer(outlet);
+  }
+
+  function submitDispatch(outlet) {
+    if (!DISPATCH.validateDispatchForm) return;
+    var orderId = fieldValue(outlet, 'dispatchOrder');
+    var order = dispatchReference && DISPATCH.findById
+      ? DISPATCH.findById(dispatchReference.orders, orderId)
+      : null;
+    var check = DISPATCH.validateDispatchForm({
+      orderId: orderId,
+      customerId: order && order.customer ? String(order.customer.id || '') : '',
+      driverId: fieldValue(outlet, 'dispatchDriver'),
+      truckId: fieldValue(outlet, 'dispatchTruck'),
+      rateEur: fieldValue(outlet, 'dispatchRate')
+    }, dispatchReference);
+
+    clearDispatchErrors(outlet);
+    if (!check.ok) {
+      showDispatchFieldErrors(outlet, check.errors);
+      dispatchMessage(outlet, 'dispatch.fixErrors');
+      return;
+    }
+
+    var submit = dispatchNode(outlet, 'dispatchSubmit');
+    if (submit) submit.disabled = true;
+    request('/api/trips', { method: 'POST', token: session.token, body: check.payload }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (res.ok && res.data && res.data.trip) {
+        if (submit) submit.disabled = false;
+        resetDispatchForm(outlet);
+        dispatchMessage(outlet, 'dispatch.created', { id: String(res.data.trip.id) }, 'success');
+        return;
+      }
+      if (submit) submit.disabled = false;
+      var detail = DISPATCH.errorDetail ? DISPATCH.errorDetail(res) : '';
+      dispatchMessage(
+        outlet,
+        DISPATCH.createTripErrorKey ? DISPATCH.createTripErrorKey(res) : 'error.unexpected',
+        detail ? { detail: detail } : null
+      );
     });
   }
 
