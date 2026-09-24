@@ -20,6 +20,17 @@
 #
 # No credential values are used: the dump is inspected with pg_restore --list /
 # zcat, which need no database connection.
+#
+#   --self-test     run the no-host/no-network/no-root assertions CI runs
+#                   (.github/workflows/ci.yml, job `infra-scripts`); state which
+#                   assertions exist here so a reinstall cannot regress them
+#   --help          print this header
+#
+# Self-test note (board #43): this script is the check that makes a backup
+# *verified* rather than merely scheduled. Its acceptance-relevant decision —
+# "deleting the newest backup is detected by the freshness check and alerts" —
+# now has a machine-checked proof (fixture backup sets + a stub sendmail that
+# captures the message), so it can no longer regress unnoticed on a reinstall.
 
 set -uo pipefail
 
@@ -30,6 +41,15 @@ MAX_AGE_HOURS="${MAX_AGE_HOURS:-26}"
 LOG_TAG="pilot-backup-verify"
 PODMAN="${PODMAN:-podman}"
 PG_IMAGE="${PG_IMAGE:-docker.io/library/postgres:17-alpine}"
+
+MODE="run"
+for arg in "$@"; do
+  case "$arg" in
+    --self-test) MODE="self-test" ;;
+    --help|-h)   MODE="help" ;;
+    *) ;;
+  esac
+done
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"; logger -t "$LOG_TAG" "$*" 2>/dev/null || true; }
 
@@ -50,6 +70,151 @@ mail_alert() {
     log "WARN no sendmail; alert not delivered: $subject"
   fi
 }
+
+# ---------------------------------------------------------------------------
+# self-test — run by CI (.github/workflows/ci.yml, job `infra-scripts`).
+# Drives the REAL script against fixture backup sets with a stubbed sendmail
+# (every assertion reads what was actually sent) and a stubbed podman. It
+# proves the decisions board #43's acceptance depends on, above all:
+#   * deleting the newest backup is detected and raises exactly one alert;
+#   * a gap in the archive series, a missing manifest, an empty dump, a stale
+#     dump and a file that is not a pg_dump are each rejected by name;
+#   * a healthy set passes and sends NOTHING.
+# No host, no network, no root, no Postgres. This script does not use `set -e`
+# (it accumulates failures via `|| FAILURES=`), so nothing here re-enables it.
+# ---------------------------------------------------------------------------
+self_test() {
+  local tmp tests_pass=0 tests_fail=0 OUT RC
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/backup-verify-selftest.XXXXXX")" || return 2
+  local SELF="${BASH_SOURCE[0]}" MAIL="$tmp/mail.log"
+  local B="$tmp/backups" PG="$tmp/backups/postgres" UP="$tmp/backups/uploads"
+
+  check() { # check <label> <got> <want>
+    if [ "$2" = "$3" ]; then
+      printf 'PASS %s (%s)\n' "$1" "$2"; tests_pass=$(( tests_pass + 1 ))
+    else
+      printf 'FAIL %s: got "%s", want "%s"\n' "$1" "$2" "$3"; tests_fail=$(( tests_fail + 1 ))
+    fi
+  }
+  capture() { # capture <cmd...> — sets OUT (stdout+stderr) and RC
+    set +e
+    OUT="$("$@" 2>&1)"
+    RC=$?
+    set +e
+  }
+  mails() { # messages the stubbed sendmail actually received
+    if [ -f "$MAIL" ]; then grep -c '^===MAIL===' "$MAIL" || true; else echo 0; fi
+  }
+  sent() { # occurrences of <pattern> in what was actually sent
+    if [ -f "$MAIL" ]; then grep -c -- "$1" "$MAIL" || true; else echo 0; fi
+  }
+  run_verify() { # run the real script against the current fixtures
+    capture env BACKUP_DIR="$B" UPLOAD_BACKUP_DIR="$UP" \
+      PATH="$tmp/bin:$PATH" bash "$SELF"
+  }
+  dump() { # dump <path> — minimal file that passes the pg_dump sanity read
+    { printf -- '--\n-- PostgreSQL database dump\n--\n\n'; printf 'CREATE TABLE "Trip" (id text);\n'; } > "$1"
+  }
+  tarball() { # tarball <path> [content]
+    local d="$tmp/tar.$$.$RANDOM"
+    mkdir -p "$d"; printf '%s\n' "${2:-payload}" > "$d/file.txt"
+    tar -czf "$1" -C "$d" .; rm -rf "$d"
+  }
+  fresh_set() { # a fresh, complete, healthy backup set
+    rm -rf "$B"; mkdir -p "$PG" "$UP"
+    dump "$PG/roadwisefleet-20260924-010101.sql"
+    tarball "$B/waitlist-20260924-010101.tar.gz"
+    tarball "$UP/uploads-20260924-010101.tar.gz"
+    printf 'deadbeefdeadbeef  a/file.txt\n' > "$UP/uploads-20260924-010101.manifest"
+  }
+
+  # Test double for sendmail: append subject+body to $MAIL_LOG so each
+  # assertion reads the payload that was really sent.
+  mkdir -p "$tmp/bin"
+  cat > "$tmp/bin/sendmail" <<'STUB'
+#!/usr/bin/env bash
+printf '===MAIL===\n' >> "${MAIL_LOG:?}"
+cat >> "$MAIL_LOG"
+exit 0
+STUB
+  # Test double for podman: the readability branch must run, but nothing may
+  # start. The `.sql` sanity path never calls it.
+  cat > "$tmp/bin/podman" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$tmp/bin/sendmail" "$tmp/bin/podman"
+  export MAIL_LOG="$MAIL"
+
+  # 1. a healthy set verifies OK and sends nothing
+  rm -f "$MAIL"; fresh_set
+  run_verify
+  check "a fresh, complete backup set verifies OK" "$RC" "0"
+  check "no alert is sent for a healthy set" "$(mails)" "0"
+
+  # 2. ACCEPTANCE: deleting the newest backup is detected by the freshness
+  #    check and alerts (a stale older archive becomes the newest)
+  rm -f "$MAIL"; fresh_set
+  cp "$UP/uploads-20260924-010101.tar.gz" "$UP/uploads-20260923-010101.tar.gz"
+  cp "$UP/uploads-20260924-010101.manifest" "$UP/uploads-20260923-010101.manifest"
+  touch -d '30 hours ago' "$UP/uploads-20260923-010101.tar.gz" "$UP/uploads-20260923-010101.manifest"
+  rm -f "$UP/uploads-20260924-010101.tar.gz" "$UP/uploads-20260924-010101.manifest"
+  run_verify
+  check "deleting the newest uploads archive is detected" "$RC" "1"
+  check "the freshness check names the stale uploads archive" "$(sent 'uploads: newest archive is stale')" "1"
+  check "exactly one alert is sent for that incident" "$(mails)" "1"
+
+  # 3. an archive that has no manifest is not a verifiable backup
+  rm -f "$MAIL"; fresh_set; rm -f "$UP/uploads-20260924-010101.manifest"
+  run_verify
+  check "an archive with no manifest is rejected" "$RC" "1"
+  check "the alert names the missing manifest" "$(sent 'has no manifest')" "1"
+
+  # 4. an empty dump is rejected by name
+  rm -f "$MAIL"; fresh_set; : > "$PG/roadwisefleet-20260924-010101.sql"
+  run_verify
+  check "an empty dump is rejected" "$RC" "1"
+  check "the alert names the empty dump" "$(sent 'newest dump is empty')" "1"
+
+  # 5. a stale dump is rejected by name
+  rm -f "$MAIL"; fresh_set
+  mv "$PG/roadwisefleet-20260924-010101.sql" "$PG/roadwisefleet-20260922-010101.sql"
+  touch -d '30 hours ago' "$PG/roadwisefleet-20260922-010101.sql"
+  run_verify
+  check "a stale dump is rejected" "$RC" "1"
+  check "the alert names the stale dump" "$(sent 'newest dump is stale')" "1"
+
+  # 6. a file that is not a pg_dump is not a backup
+  rm -f "$MAIL"; fresh_set; printf 'hello world\n' > "$PG/roadwisefleet-20260924-010101.sql"
+  run_verify
+  check "a file that is not a pg_dump SQL file is rejected" "$RC" "1"
+  check "the alert names the unreadable dump" "$(sent 'does not look like a pg_dump SQL file')" "1"
+
+  # 7. a completely missing set reports every gap but sends ONE deduplicated mail
+  rm -f "$MAIL"; rm -rf "$B"; mkdir -p "$PG" "$UP"
+  run_verify
+  check "a completely missing backup set is rejected" "$RC" "1"
+  check "the postgres gap is named" "$(sent 'postgres: no dump file found')" "1"
+  check "the waitlist gap is named" "$(sent 'waitlist: no waitlist')" "1"
+  check "the uploads gap is named" "$(sent 'uploads: no uploads')" "1"
+  check "all gaps are deduplicated into exactly one alert" "$(mails)" "1"
+  check "the sent alert carries the alert subject" \
+    "$(sent '\[ALERT\] RoadwiseFleet backup verification failed')" "1"
+
+  rm -rf "$tmp"
+  printf 'self-test: %d passed, %d failed\n' "$tests_pass" "$tests_fail"
+  [ "$tests_fail" = 0 ] || return 1
+  return 0
+}
+
+if [ "$MODE" = "help" ]; then
+  awk 'NR>1 && /^set -uo pipefail/ { exit } NR>1 { print }' "${BASH_SOURCE[0]}"
+  exit 0
+fi
+if [ "$MODE" = "self-test" ]; then
+  self_test
+  exit $?
+fi
 
 log "verify start (BACKUP_DIR=$BACKUP_DIR)"
 
