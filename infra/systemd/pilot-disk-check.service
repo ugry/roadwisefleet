@@ -5,6 +5,13 @@
 #
 # Install to /etc/systemd/system/pilot-disk-check.service (mode 0644).
 # No credential values appear here.
+#
+# board #62: UPLOAD_DIR default is the POST-MOVE path (/var/lib/roadwisefleet/
+# uploads). The pre-move /opt/roadwisefleet/api/var/uploads is an abandoned
+# directory since the B1 host apply — pointing this check back at it would
+# silently report headroom and permissions for a directory nothing writes to.
+# EnvironmentFile= lets the path be overridden in one place (settings from that
+# file win over Environment=), so it cannot drift again.
 
 [Unit]
 Description=RoadwiseFleet pilot disk headroom + uploads permission check (board #46)
@@ -15,10 +22,13 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/pilot-disk-check.sh
-# Alert routing + thresholds. Override with an EnvironmentFile (0600, root) if
-# the ops mailbox or the upload path changes; no secrets are required here.
+# Alert routing + thresholds + the uploads path. The path can be overridden
+# without editing this unit — /etc/roadwisefleet/uploads.env (0600, root) is
+# optional and its settings win over Environment=. Do not edit that file from
+# the repo; the value is host state, not config-as-code. See infra/uploads.md §4.
+EnvironmentFile=-/etc/roadwisefleet/uploads.env
 Environment=ALERT_MAIL=ugur@elilaltd.com
-Environment=UPLOAD_DIR=/opt/roadwisefleet/api/var/uploads
+Environment=UPLOAD_DIR=/var/lib/roadwisefleet/uploads
 Environment=WARN_PCT=80
 Environment=CRIT_PCT=90
 Environment=MIN_FREE_MB=2048

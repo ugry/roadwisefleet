@@ -29,7 +29,9 @@
 set -uo pipefail
 
 ALERT_MAIL="${ALERT_MAIL:-ugur@elilaltd.com}"
-UPLOAD_DIR="${UPLOAD_DIR:-/opt/roadwisefleet/api/var/uploads}"
+# board #62: post-move location. The pre-B1 /opt/roadwisefleet/api/var/uploads is
+# abandoned — a default pointing there would check a directory nothing writes to.
+UPLOAD_DIR="${UPLOAD_DIR:-/var/lib/roadwisefleet/uploads}"
 WARN_PCT="${WARN_PCT:-80}"
 CRIT_PCT="${CRIT_PCT:-90}"
 MIN_FREE_MB="${MIN_FREE_MB:-2048}"

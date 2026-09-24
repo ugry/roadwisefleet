@@ -97,9 +97,13 @@ owner/orchestrator on elilavps1; I verify the outcome.
 
 See [`../pilot-observability.md`](../pilot-observability.md) §4 and
 `../scripts/pilot-restore-drill.sh`: restores the newest dump into a throwaway
-container on `127.0.0.1:5433` with a runtime-random scratch password. The live
-volume is never touched. Record `Date | dump file | tables | rows | result` in the
-drill log there. **Not yet executed — needs root on elilavps2.**
+container on the **first free port in 5440–5479** (`SCRATCH_PORT=auto`; it never
+tries 5432/5433 — 5433 is the host `postgresql@17-main` cluster, board #62) with a
+runtime-random scratch password, after bootstrapping the dump's owner roles in that
+throwaway cluster. The live volume is never touched. Record
+`Date | dump file | tables | rows | uploads | result` in the drill log there.
+**Executed 2026-09-23/24 by the Team Leader (PASS, 25-of-25 uploads sha256 OK) —
+the host run needed `SCRATCH_PORT=5434`; the artifact no longer does (board #62).**
 
 ### 5b. VictoriaMetrics / Grafana — procedure skeleton (configs unavailable)
 
