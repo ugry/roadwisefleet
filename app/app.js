@@ -588,17 +588,19 @@
     customerId: 'dispatchCustomerError',
     driverId: 'dispatchDriverError',
     truckId: 'dispatchTruckError',
-    rateEur: 'dispatchRateError'
+    rateEur: 'dispatchRateError',
+    plannedAt: 'dispatchPlannedError'
   };
   /** The control each field error belongs to (focus target after a failed submit). */
   var DISPATCH_FIELD_INPUTS = {
     orderId: 'dispatchOrder',
     driverId: 'dispatchDriver',
     truckId: 'dispatchTruck',
-    rateEur: 'dispatchRate'
+    rateEur: 'dispatchRate',
+    plannedAt: 'dispatchPlanned'
   };
   /** Submit order for the "what went wrong" summary. */
-  var DISPATCH_FIELD_ORDER = ['orderId', 'customerId', 'driverId', 'truckId', 'rateEur'];
+  var DISPATCH_FIELD_ORDER = ['orderId', 'customerId', 'driverId', 'truckId', 'rateEur', 'plannedAt'];
 
   function dispatchNode(outlet, id) {
     return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
@@ -686,6 +688,12 @@
           '<p class="helper">' + escHtml(T('dispatch.rateHint')) + '</p>' +
           '<p class="field-error" id="dispatchRateError" hidden></p>' +
         '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchPlanned">' + escHtml(T('dispatch.planned')) + '</label>' +
+          '<input id="dispatchPlanned" type="datetime-local">' +
+          '<p class="helper">' + escHtml(T('dispatch.plannedHint')) + '</p>' +
+          '<p class="field-error" id="dispatchPlannedError" hidden></p>' +
+        '</div>' +
         '<div class="form-actions">' +
           '<span class="helper">' + escHtml(T('dispatch.draftNote')) + '</span>' +
           '<button class="primary" type="submit" id="dispatchSubmit">' + escHtml(T('dispatch.submit')) + '</button>' +
@@ -767,7 +775,7 @@
   }
 
   function resetDispatchForm(outlet) {
-    var ids = ['dispatchOrder', 'dispatchDriver', 'dispatchTruck', 'dispatchRate'];
+    var ids = ['dispatchOrder', 'dispatchDriver', 'dispatchTruck', 'dispatchRate', 'dispatchPlanned'];
     for (var i = 0; i < ids.length; i++) {
       var node = dispatchNode(outlet, ids[i]);
       if (node) node.value = '';
@@ -786,7 +794,8 @@
       customerId: order && order.customer ? String(order.customer.id || '') : '',
       driverId: fieldValue(outlet, 'dispatchDriver'),
       truckId: fieldValue(outlet, 'dispatchTruck'),
-      rateEur: fieldValue(outlet, 'dispatchRate')
+      rateEur: fieldValue(outlet, 'dispatchRate'),
+      plannedAt: fieldValue(outlet, 'dispatchPlanned')
     }, dispatchReference);
 
     clearDispatchErrors(outlet);
