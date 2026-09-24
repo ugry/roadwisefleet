@@ -270,6 +270,13 @@ STUB
   count() { # count <output> <key>
     printf '%s\n' "$1" | grep -c "^NOTIFY $2 " || true
   }
+  alert_payload() { # alert_payload <output> <key> -> only the sent NOTIFY lines
+    # A bad check prints two lines carrying the same detail text: the NOTIFY
+    # line (what the notifier sends) and the log line `http-5xx: BAD (…)`.
+    # Assertions about the alert text must look at the payload that is actually
+    # sent, otherwise a whole-output grep counts the log copy a second time.
+    printf '%s\n' "$1" | grep "^NOTIFY $2 " || true
+  }
   check() { # check <label> <got> <want>
     if [ "$2" = "$3" ]; then
       printf 'PASS %s (%s)\n' "$1" "$2"; tests_pass=$(( tests_pass + 1 ))
@@ -300,9 +307,9 @@ STUB
   check "5xx burst: deduplicated (run 2)" "$(count "$out2" http-5xx)" "0"
   check "5xx burst: deduplicated (run 3)" "$(count "$out3" http-5xx)" "0"
   check "5xx burst: alert names the upstream failure" \
-    "$(printf '%s\n' "$out1" | grep -c 'upstream 502/503/504: 2')" "1"
+    "$(alert_payload "$out1" http-5xx | grep -c 'upstream 502/503/504: 2' || true)" "1"
   check "5xx burst: alert carries the nginx error line" \
-    "$(printf '%s\n' "$out1" | grep -c 'connect() failed')" "1"
+    "$(alert_payload "$out1" http-5xx | grep -c 'connect() failed' || true)" "1"
 
   # 3. below threshold -> no alert
   make_log "$tmp/access.log" 500 2 0
