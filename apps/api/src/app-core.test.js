@@ -174,9 +174,15 @@ test('panelFor marks implemented views and names the board task that fills a pla
   assert.equal(trips.task, null);
   // The dynamic trip-detail route is implemented too.
   assert.equal(appCore.panelFor(appCore.routeForPath('/app/trips/trip-1'), t).title, 'trips.detailTitle');
-  // A route still awaiting its task keeps the placeholder that names the task.
+  // The dispatch route is implemented as well (board task #35, FAv1-F4): F3 and
+  // F4 both land on this branch, so neither is a placeholder any more.
   const dispatch = appCore.panelFor(appCore.routeForPath('/app/dispatch'), t);
-  assert.match(dispatch.body, /common\.pending\(F4\/F5 · board #35\/#36\)/);
+  assert.equal(dispatch.title, 'nav.dispatch');
+  assert.equal(dispatch.body, 'common.loading');
+  assert.equal(dispatch.task, null);
+  // A route still awaiting its task keeps the placeholder that names the task.
+  const documents = appCore.panelFor(appCore.routeForPath('/app/documents'), t);
+  assert.match(documents.body, /common\.pending\(F6 · board #37\)/);
   assert.equal(appCore.panelFor(appCore.routeForPath('/app/nope'), t).title, 'error.notFoundTitle');
   const overview = appCore.panelFor(appCore.routeForPath('/app/'), t);
   assert.equal(overview.title, 'overview.title');
