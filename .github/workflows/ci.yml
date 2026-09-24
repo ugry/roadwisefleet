@@ -98,6 +98,21 @@ jobs:
           echo "checking ${#files[@]} tracked shell scripts"
           shellcheck --severity=warning "${files[@]}"
 
+  infra-scripts:
+    name: Infra script self-tests (no host, no network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The ops scripts run on a host, so a syntax check is not evidence that
+      # they behave. --self-test drives the real script (fixture nginx logs, a
+      # stubbed systemctl + probe helper, DRY_RUN) and asserts the decisions the
+      # acceptance criteria depend on: thresholds, exactly one alert per
+      # incident, one recovery message, no alert while the API is down, and no
+      # alert for a single restart. No host, no network, no root.
+      - name: Self-test pilot-api-error-watch.sh (board #44)
+        run: bash infra/scripts/pilot-api-error-watch.sh --self-test
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'

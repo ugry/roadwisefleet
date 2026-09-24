@@ -1,0 +1,44 @@
+# Ready-to-apply artifact — RoadwiseFleet pilot API error visibility (task
+# eila/tasks#44, FAv1-F9d).
+#
+# NOT installed by CI. Installing this on elilavps2 is a host change that needs
+# owner approval + host access (see infra/monitoring/README.md §5 and the
+# install block in infra/deploy.md §10 style).
+#
+# Install to /etc/systemd/system/pilot-api-error-watch.service (mode 0644).
+# No credential values appear here; the alert transport is the deployer's
+# notifier (roadwise-notify.sh + the 0600 /etc/roadwisefleet/notify.env).
+#
+# Runs as root on purpose: the nginx access/error logs are 0640 root:adm, so an
+# unprivileged run would go blind (the script alerts loudly instead of skipping
+# — signal `log-unreadable`). The script reads logs and `systemctl show` only,
+# and writes nothing outside StateDirectory=/var/lib/pilot-api-watch.
+
+[Unit]
+Description=RoadwiseFleet pilot API error visibility (5xx / upstream / liveness / latency)
+Documentation=https://github.com/ugry/roadwisefleet/blob/main/infra/monitoring/README.md
+After=network-online.target nginx.service roadwise-api.service
+Wants=network-online.target
+# No Requires= on roadwise-api.service: a stopped API must be *reported*, not
+# turned into a unit ordering failure that hides the check itself.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pilot-api-error-watch.sh
+# Thresholds owned by DevOps (infra/monitoring/README.md §3: T8, T11–T13).
+# Override per host with an EnvironmentFile if the numbers change.
+Environment=WINDOW_SECS=300
+Environment=MIN_5XX_COUNT=3
+Environment=MIN_5XX_RATIO_PCT=5
+Environment=CONSEC_FAILS=2
+Environment=CONSEC_LATENCY=3
+Environment=LATENCY_WARN_SECS=3
+Environment=RESTART_BURST=3
+Environment=ALERT_COOLDOWN_MIN=60
+StateDirectory=pilot-api-watch
+# A failed check is a signal, not a crash loop: the timer schedules the retry.
+Restart=no
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
