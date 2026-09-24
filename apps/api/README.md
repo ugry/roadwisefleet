@@ -65,7 +65,10 @@ RBAC capability checks, AUTH_SECRET resolution, trip-loop core against a fake
 Prisma client, create-trip reference loaders, trip detail shaping/P&L, pilot
 demo-reset planning, tracking-link signing/shaping, document capture validation,
 driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard and
-static-serving rules, locale resolution and the pilot i18n catalogues) runs on the
+static-serving rules, the Fleet Manager dispatch form (option labels, validation,
+payload and error mapping), trip-list filter validation, trips-view filter/query/CSV
+shaping, user/driver credential-field stripping, locale resolution and the pilot
+i18n catalogues) runs on the
 Node.js native test runner with no install:
 
 ```bash
@@ -83,7 +86,14 @@ with the MIME types a browser and an install prompt require (the manifest as
 icons as PNG) and that the static root cannot be walked out of. It also proves the
 Fleet Manager surface: `/app` redirects to `/app/`, the shell is served as HTML,
 a deep link returns the shell, the assets carry their real content types and a
-missing asset or a traversal attempt is a `404`:
+missing asset or a traversal attempt is a `404`. Finally it drives the trips-list
+filters (board task #34) against the pilot database: filter counts and the P&L are
+re-derived with direct Prisma queries, and the CSV export is checked row-for-row.
+It also asserts the credential discipline (board task #63): the raw DB row still
+holds a driver `passwordHash`, while no credential key appears anywhere in the
+`/api/trips`, trip-detail, `/api/drivers` or `/api/reference` responses.
+That database-backed block prints a diagnostic and skips its assertions when no
+database is reachable, so the command still runs on a bare checkout:
 
 ```bash
 pnpm --filter @roadwisefleet/api test:router
@@ -100,7 +110,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /health` | — | liveness |
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
-| `GET /api/trips` | bearer, `trip:read` | dashboard trip list for the token's org |
+| `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer, driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); a trip in another org is `404`, never a leak |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
@@ -134,6 +144,26 @@ get `403`, exactly like `POST /api/trips`. The loaders live in
 route layer is `src/routes/reference.ts`. `User` has no `active` column, so
 "active drivers" maps to the schema's lock state: a driver whose `lockedUntil`
 is in the future is excluded.
+
+### Credential-free user payloads (board task #63)
+`GET /api/trips` used to load the driver relation with a bare include, so every
+`trips[].driver` object carried `passwordHash` (scrypt), `totpSecret`,
+`failedLoginCount` and `lockedUntil` — credential material no role should ever
+read. The schema is unchanged; the fix has two layers, both in
+`src/user-payload.js` (pure, covered by `src/user-payload.test.js`):
+
+1. `publicUserSelect()` — an explicit Prisma `select` (all `User` columns except
+   the four credential fields) used by `listOrgTrips`, so the columns are never
+   read out of the database in the first place;
+2. `stripCredentialFields()` — a recursive route-boundary serialiser applied to the
+   `/api/trips`, `/api/trips/:id`, `/api/driver/trips`, `/api/drivers` and
+   `/api/reference` responses, so a future user `include` cannot reintroduce the
+   leak unnoticed. It copies plain objects/arrays only, so `Date`/`Decimal`
+   values are preserved and the dispatcher payload is otherwise unchanged.
+
+`findCredentialFields()` returns every credential key path in a payload (empty
+means clean) and backs the DB-backed assertion in
+`apps/api/test/user-payload.test.ts`.
 
 ### Documents / POD (board task #3)
 The `Document` model is now used. Uploads are JSON base64 (no multipart
@@ -324,10 +354,18 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   panel renderers). Loaded twice on purpose: as a classic script in the browser
   and by `src/app-core.test.js` in the no-install CI job, exactly like
   `pilot/lib/driver-core.js`.
+- `app/lib/trips.js` — the pure trips view model (board task #34): filter
+  normalisation, the `GET /api/trips` query string, CSV export and the flat row
+  the table and CSV share. Loaded the same way and covered by
+  `src/trips-view.test.js`.
 - `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
   `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
   routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
-  `pageshow`.
+  `pageshow`. It also renders the implemented views (dispatch, board task #35).
+- `app/lib/dispatch.js` — the pure create-trip form logic (board task #35): option
+  labels that never leak a raw id, pre-submit validation, the exact
+  `POST /api/trips` payload, and the API-error-to-catalogue-key mapping. Loaded as
+  a classic script in the browser and by `src/dispatch-form.test.js` in CI.
 - `app/locales/en.json` — the English catalogue. The shell reuses the pilot's
   `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime (board task #6), so the
   language hook and switcher already exist; EN ships first and additional
@@ -356,9 +394,52 @@ Behaviour:
   (HTML is never served as JavaScript). Deep links return the shell so the client
   router can run.
 
-Tests: `src/app-core.test.js` + `src/app-shell.test.js` run in the no-install CI
-job; `test/app-shell.test.ts` adds the HTTP-level `app.inject()` checks under
-`pnpm test:router`.
+- **Dispatch (board task #35, F4).** `/app/dispatch` is the create-trip form:
+  `/api/reference` returns the org's orders, drivers, trucks and customers in one
+  round-trip (`trip:create`, so a driver gets `403`), and the form turns them into
+  dropdowns — no raw id is ever typed. The customer is shown read-only, from the
+  selected order, and a payload whose customer does not match the order is
+  refused. Validation runs before the request (order chosen and known; optional
+  driver/truck known; rate a non-negative number); the body handed to
+  `POST /api/trips` is exactly `{ orderId, driverId, truckId, rateEur }` with
+  `null` for the unset optionals. Every server failure is mapped to a catalogue
+  message that names the field to fix — `invalid_input` keeps the server's
+  `detail`. A new trip is created as `DRAFT`; assigning and moving it is the
+  trip-detail/status flow. **Not in this task:** `pickup`/`deliver` timestamps
+  (needs the on-time columns from board #40, which the schema does not have yet)
+  and required-document selection (the F6 documents UI, board #37).
+
+Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/dispatch-form.test.js`
+run in the no-install CI job; `test/app-shell.test.ts` adds the HTTP-level
+`app.inject()` checks under `pnpm test:router`.
+
+### Trips list & detail (board task #34, FAv1-F3)
+`/app/trips` is the daily workhorse, built on the F1 shell:
+
+- **List + filters.** The list calls `GET /api/trips` with `status`, `driverId`,
+  `from`/`to` and `q`. The filter set lives in the URL (`/app/trips?status=DRAFT`),
+  so a reload or a shared link restores it; an inverted range is caught in the UI
+  before the request and again server-side (`400 invalid_filter`). Invalid filter
+  values are never silently dropped.
+- **CSV export.** "Export CSV" writes exactly the rows the list is showing, using
+  the same `app/lib/trips.js` shaper the table uses (`tripRow`), so the file is
+  row-for-row the filtered list by construction. Headers are stable machine names
+  (never localised) and values are RFC 4180 quoted.
+- **Detail.** `/app/trips/:id` renders `GET /api/trips/:id`: order/customer,
+  driver, truck, the chronological status timeline (every entry names its actor,
+  or says the history pre-dates actor recording), the documents panel, the
+  expenses panel and the P&L (`rateEur − Σ expenses`). A trip with no documents or
+  expenses renders an empty state rather than a broken panel.
+
+Pure logic lives in `app/lib/trips.js` (filter normalisation, query building, CSV
+and row shaping); the dynamic `/app/trips/:id` matching lives in
+`app/lib/app-core.js`. The filter validation and Prisma `where` building live in
+`src/trip-filters.js`.
+
+Tests: `src/trip-filters.test.js` + `src/trips-view.test.js` in the no-install CI
+job; `test/trips-list.test.ts` (`pnpm test:router`) re-derives the filter counts
+and P&L from Prisma and checks the CSV; the deterministic DOM harness
+`scratch/verify-trips-view.js` drives the real `app.js` end to end.
 
 > **Deployment note:** production nginx proxies only `/api/`, `/pilot/` and
 > `/track/` to the API, so `/app/` needs a `location /app/` block before the Fleet

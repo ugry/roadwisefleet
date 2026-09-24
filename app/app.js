@@ -19,17 +19,26 @@
  * Browser-only: the pure half is what the Node tests cover.
  */
 (function (root, factory) {
-  var api = factory(root, root.RoadwiseAppCore, root.RoadwiseI18nUI);
+  var api = factory(root, root.RoadwiseAppCore, root.RoadwiseI18nUI, root.RoadwiseTrips);
   root.RoadwiseApp = api;
-})(typeof window !== 'undefined' ? window : globalThis, function (win, core, i18nUI) {
+})(typeof window !== 'undefined' ? window : globalThis, function (win, core, i18nUI, TRIPS) {
   'use strict';
 
   var APP = core || {};
+  // The pure create-trip form logic (board task #35, F4), loaded as a classic
+  // script before this one. Everything missing here is a no-op, never a crash.
+  var DISPATCH = win && win.RoadwiseDispatch ? win.RoadwiseDispatch : {};
+  // The pure trips list/detail shaping (board task #34, F3), loaded before this one.
+  var TRIPVIEW = TRIPS || {};
   var T = function (key, params) { return key; };
   var i18n = null;
   var session = { token: '', user: null };
   /** The route the person asked for before being sent to login (if any). */
   var pendingPath = null;
+  /** Incremented on every panel render; a stale async response is discarded. */
+  var renderToken = 0;
+  /** The rows the current list shows — the CSV exports exactly these. */
+  var shownTrips = [];
 
   /* ------------------------------------------------------------ helpers --- */
 
@@ -162,6 +171,27 @@
     var outlet = el('outlet');
     if (!outlet) return null;
     var panel = APP.panelFor(route, T);
+    var token = ++renderToken;
+    if (route && route.view === 'trips') {
+      outlet.innerHTML = '';
+      renderTripsList(outlet, token);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'trip-detail') {
+      outlet.innerHTML = '';
+      renderTripDetail(outlet, route, token);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'dispatch') {
+      renderDispatch(outlet);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
     var html = '<h1>' + APP.escapeHtml(panel.title) + '</h1>';
     if (route && route.id === 'overview') {
       html += '<div class="panel"><p class="lead">' + APP.escapeHtml(panel.body) + '</p>' +
@@ -183,6 +213,598 @@
     if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
     if (outlet.focus) outlet.focus();
     return panel;
+  }
+
+  /* ------------------------------------------------------- trips (F3) --- */
+
+  /** Current filter set for the trips list (kept across re-renders). */
+  var listFilters = {};
+
+  function esc(value) { return APP.escapeHtml(value); }
+
+  /** Parse `location.search` into a plain object (last value wins). */
+  function parseSearch(search) {
+    var out = {};
+    var raw = String(search || '').replace(/^\?/, '');
+    if (!raw) return out;
+    var parts = raw.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      if (!parts[i]) continue;
+      var idx = parts[i].indexOf('=');
+      var key = idx === -1 ? parts[i] : parts[i].slice(0, idx);
+      var value = idx === -1 ? '' : parts[i].slice(idx + 1);
+      try {
+        out[decodeURIComponent(key)] = decodeURIComponent(value.replace(/\+/g, ' '));
+      } catch (err) { /* a malformed pair is ignored, never thrown */ }
+    }
+    return out;
+  }
+
+  function money(value) {
+    if (value === null || value === undefined) return T('trips.none');
+    if (i18n && typeof i18n.currency === 'function') {
+      var formatted = i18n.currency(value, 'EUR');
+      if (formatted !== null && formatted !== undefined) return formatted;
+    }
+    return String(value) + ' €';
+  }
+
+  function fmtDate(value) {
+    if (!value) return T('trips.none');
+    if (i18n && typeof i18n.dateTime === 'function') {
+      var formatted = i18n.dateTime(value);
+      if (formatted) return formatted;
+    }
+    return String(value);
+  }
+
+  function statusLabel(status) {
+    return T(TRIPVIEW.statusKey ? TRIPVIEW.statusKey(status) : 'trips.status.' + status);
+  }
+
+  function errorText(res) {
+    var code = res && res.data ? res.data.error : null;
+    if (code === 'invalid_filter' && res && res.data && res.data.detail) {
+      return T('trips.filterInvalid', { field: String(res.data.detail) });
+    }
+    return T(APP.errorKey(code, res ? res.status : 0));
+  }
+
+  function handleExpired() {
+    session = { token: '', user: null };
+    clearSession();
+    setPath(APP.LOGIN_PATH, true);
+    showLogin('error.sessionExpired');
+  }
+
+  function refreshTrips() {
+    renderPanel(APP.routeForPath('/app/trips'));
+  }
+
+  /** The filters form + the list container. */
+  function renderTripsList(outlet, token) {
+    listFilters = TRIPVIEW.normalizeFilters ? TRIPVIEW.normalizeFilters(parseSearch(
+      typeof location !== 'undefined' ? location.search : ''
+    )) : {};
+    var statusOptions = ['<option value="">' + esc(T('trips.filterAnyStatus')) + '</option>'];
+    var statuses = TRIPVIEW.TRIP_STATUSES || [];
+    for (var s = 0; s < statuses.length; s++) {
+      statusOptions.push('<option value="' + esc(statuses[s]) + '"' +
+        (listFilters.status === statuses[s] ? ' selected' : '') + '>' + esc(statusLabel(statuses[s])) + '</option>');
+    }
+
+    outlet.innerHTML =
+      '<h1>' + esc(T('nav.trips')) + '</h1>' +
+      '<form class="filters" id="tripFilters" novalidate>' +
+        '<div class="field"><label for="filterStatus">' + esc(T('trips.filterStatus')) + '</label>' +
+          '<select id="filterStatus">' + statusOptions.join('') + '</select></div>' +
+        '<div class="field"><label for="filterDriver">' + esc(T('trips.filterDriver')) + '</label>' +
+          '<select id="filterDriver"><option value="">' + esc(T('trips.filterAnyDriver')) + '</option></select></div>' +
+        '<div class="field"><label for="filterFrom">' + esc(T('trips.filterFrom')) + '</label>' +
+          '<input id="filterFrom" type="date" value="' + esc(listFilters.from ? String(listFilters.from).slice(0, 10) : '') + '"></div>' +
+        '<div class="field"><label for="filterTo">' + esc(T('trips.filterTo')) + '</label>' +
+          '<input id="filterTo" type="date" value="' + esc(listFilters.to ? String(listFilters.to).slice(0, 10) : '') + '"></div>' +
+        '<div class="field field-grow"><label for="filterQ">' + esc(T('trips.filterText')) + '</label>' +
+          '<input id="filterQ" type="search" maxlength="80" value="' + esc(listFilters.q || '') + '" ' +
+          'placeholder="' + esc(T('trips.filterTextPlaceholder')) + '"></div>' +
+        '<div class="filters-actions">' +
+          '<button class="primary" type="submit">' + esc(T('trips.apply')) + '</button>' +
+          '<button class="ghost" type="button" id="filterReset">' + esc(T('trips.reset')) + '</button>' +
+        '</div>' +
+      '</form>' +
+      '<p class="alert" id="filterError" role="alert" hidden></p>' +
+      '<p class="muted" id="tripsSummary">' + esc(T('common.loading')) + '</p>' +
+      '<div id="tripsTableWrap"></div>';
+
+    bindFiltersForm(outlet);
+    loadDriverOptions(outlet, token);
+    loadTrips(outlet, token);
+  }
+
+  function bindFiltersForm(outlet) {
+    var form = outlet.querySelector('#tripFilters');
+    if (form) {
+      form.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        applyFilters(outlet);
+      });
+    }
+    var reset = outlet.querySelector('#filterReset');
+    if (reset) {
+      reset.addEventListener('click', function () {
+        listFilters = {};
+        setPath('/app/trips', true);
+        refreshTrips();
+      });
+    }
+  }
+
+  function applyFilters(outlet) {
+    var error = outlet.querySelector('#filterError');
+    var next = TRIPVIEW.normalizeFilters({
+      status: (outlet.querySelector('#filterStatus') || {}).value || '',
+      driverId: (outlet.querySelector('#filterDriver') || {}).value || '',
+      from: (outlet.querySelector('#filterFrom') || {}).value || '',
+      to: (outlet.querySelector('#filterTo') || {}).value || '',
+      q: (outlet.querySelector('#filterQ') || {}).value || ''
+    });
+    if (next.from && next.to && Date.parse(next.from) > Date.parse(next.to)) {
+      if (error) { error.textContent = T('trips.filterBadRange'); error.hidden = false; }
+      return;
+    }
+    if (error) { error.textContent = ''; error.hidden = true; }
+    listFilters = next;
+    var search = TRIPVIEW.buildQuery ? TRIPVIEW.buildQuery(next) : '';
+    setPath('/app/trips' + search, true);
+    refreshTrips();
+  }
+
+  /** Fill the driver filter from the same reference endpoint the dispatch form uses. */
+  function loadDriverOptions(outlet, token) {
+    request('/api/reference', { token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      var select = outlet.querySelector('#filterDriver');
+      if (!select || !res.ok || !res.data) return;
+      var drivers = (res.data.reference && res.data.reference.drivers) || [];
+      var html = '<option value="">' + esc(T('trips.filterAnyDriver')) + '</option>';
+      for (var i = 0; i < drivers.length; i++) {
+        html += '<option value="' + esc(drivers[i].id) + '"' +
+          (listFilters.driverId === drivers[i].id ? ' selected' : '') + '>' +
+          esc(drivers[i].name || drivers[i].id) + '</option>';
+      }
+      select.innerHTML = html;
+    });
+  }
+
+  function loadTrips(outlet, token) {
+    var path = TRIPVIEW.tripsPath ? TRIPVIEW.tripsPath(listFilters) : '/api/trips';
+    return request(path, { token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      var summary = outlet.querySelector('#tripsSummary');
+      if (!summary) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        summary.textContent = '';
+        outlet.querySelector('#tripsTableWrap').innerHTML =
+          '<p class="alert">' + esc(errorText(res)) + '</p>';
+        return;
+      }
+      var trips = (res.data && res.data.trips) || [];
+      shownTrips = trips;
+      summary.textContent = T('trips.count', { count: String(trips.length) });
+      renderTripTable(outlet, trips);
+    });
+  }
+
+  function renderTripTable(outlet, trips) {
+    var wrap = outlet.querySelector('#tripsTableWrap');
+    if (!wrap) return;
+    if (!trips.length) {
+      wrap.innerHTML = '<div class="empty-state"><p>' +
+        esc(T(TRIPVIEW.emptyStateKey ? TRIPVIEW.emptyStateKey(listFilters) : 'trips.empty')) + '</p></div>';
+      return;
+    }
+    var rows = trips.map(function (trip) {
+      var row = TRIPVIEW.tripRow ? TRIPVIEW.tripRow(trip) : {};
+      return '<tr class="clickable" data-trip="' + esc(row.id) + '">' +
+        '<td data-label="' + esc(T('trips.colRoute')) + '">' + esc(row.origin || '?') + ' → ' + esc(row.destination || '?') + '</td>' +
+        '<td data-label="' + esc(T('trips.colCustomer')) + '">' + esc(row.customer) + '</td>' +
+        '<td data-label="' + esc(T('trips.colDriver')) + '">' + esc(row.driver) + '</td>' +
+        '<td data-label="' + esc(T('trips.colStatus')) + '"><span class="status s-' + esc(row.status) + '">' + esc(statusLabel(row.status)) + '</span></td>' +
+        '<td data-label="' + esc(T('trips.colRate')) + '">' + esc(money(TRIPVIEW.toNumber ? TRIPVIEW.toNumber(row.rate_eur) : row.rate_eur)) + '</td>' +
+        '<td data-label="' + esc(T('trips.colCreated')) + '">' + esc(fmtDate(row.created_at)) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    wrap.innerHTML =
+      '<div class="table-actions"><button class="ghost" type="button" id="exportCsv">' +
+        esc(T('trips.exportCsv')) + '</button></div>' +
+      '<table class="trips-table"><thead><tr>' +
+        '<th>' + esc(T('trips.colRoute')) + '</th>' +
+        '<th>' + esc(T('trips.colCustomer')) + '</th>' +
+        '<th>' + esc(T('trips.colDriver')) + '</th>' +
+        '<th>' + esc(T('trips.colStatus')) + '</th>' +
+        '<th>' + esc(T('trips.colRate')) + '</th>' +
+        '<th>' + esc(T('trips.colCreated')) + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+
+    var links = wrap.querySelectorAll('tr[data-trip]');
+    for (var i = 0; i < links.length; i++) {
+      links[i].addEventListener('click', onTripRowClick);
+    }
+    var exportBtn = wrap.querySelector('#exportCsv');
+    if (exportBtn) exportBtn.addEventListener('click', exportCsv);
+  }
+
+  function onTripRowClick(ev) {
+    var tr = ev && ev.currentTarget ? ev.currentTarget : ev.target;
+    if (!tr || typeof tr.getAttribute !== 'function') return;
+    var id = tr.getAttribute('data-trip');
+    if (!id) return;
+    route({ path: '/app/trips/' + encodeURIComponent(id), push: true });
+  }
+
+  /** Export exactly the rows the list shows (`shownTrips`), row-for-row. */
+  function exportCsv() {
+    if (!TRIPVIEW.toCsv) return;
+    var csv = TRIPVIEW.toCsv(shownTrips);
+    var name = TRIPVIEW.csvFileName ? TRIPVIEW.csvFileName() : 'trips.csv';
+    try {
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      /* no Blob/URL (very old WebView): the list is still the source of truth */
+    }
+  }
+
+  function tripDetailHtml(trip) {
+    var order = trip.order || {};
+    var totals = trip.totals || {};
+    var customer = order.customer ? order.customer.name : T('trips.none');
+    var pnl = totals.pnlEur;
+    var pnlClass = (pnl === null || pnl === undefined) ? '' : (pnl < 0 ? 'neg' : 'pos');
+
+    var html = '<p><span class="status s-' + esc(trip.status) + '">' + esc(statusLabel(trip.status)) + '</span></p>';
+    html += '<dl class="kv">' +
+      '<dt>' + esc(T('trips.colRoute')) + '</dt><dd>' + esc(order.origin || '?') + ' → ' + esc(order.destination || '?') + '</dd>' +
+      '<dt>' + esc(T('trips.colCustomer')) + '</dt><dd>' + esc(customer) + '</dd>' +
+      '<dt>' + esc(T('trips.colDriver')) + '</dt><dd>' + esc(trip.driver ? (trip.driver.name || trip.driver.email || trip.driver.id) : T('trips.none')) + '</dd>' +
+      '<dt>' + esc(T('trips.truck')) + '</dt><dd>' + esc(trip.truck ? (trip.truck.plate || trip.truck.id) : T('trips.none')) + '</dd>' +
+      '<dt>' + esc(T('trips.colRate')) + '</dt><dd>' + esc(money(trip.rateEur)) + '</dd>' +
+      '<dt>' + esc(T('trips.createdAt')) + '</dt><dd>' + esc(fmtDate(trip.createdAt)) + '</dd>' +
+      '</dl>';
+
+    html += '<h2 class="section-title">' + esc(T('trips.timeline')) + '</h2>' + timelineHtml(trip.statusEvents || []);
+    html += '<h2 class="section-title">' + esc(T('trips.documents')) + '</h2>' + documentsHtml(trip.documents || []);
+    html += '<h2 class="section-title">' + esc(T('trips.expenses')) + '</h2>' + expensesHtml(trip.expenses || []);
+    html += '<h2 class="section-title">' + esc(T('trips.pnl')) + '</h2>' +
+      '<p class="pnl ' + pnlClass + '">' + esc(money(pnl)) + '</p>' +
+      '<p class="muted">' + esc(T('trips.pnlFormula', {
+        rate: money(trip.rateEur),
+        expenses: money(totals.expensesEur)
+      })) + '</p>';
+    return html;
+  }
+
+  function timelineHtml(events) {
+    if (!events.length) return '<p class="empty">' + esc(T('trips.noEvents')) + '</p>';
+    var items = events.map(function (event) {
+      var actor = event.actor && event.actor.name ? event.actor.name : T('trips.actorSystem');
+      return '<li>' +
+        '<div class="tl-what">' + esc(statusLabel(event.from)) + ' → ' + esc(statusLabel(event.to)) + '</div>' +
+        '<div class="tl-when">' + esc(fmtDate(event.at)) + ' · ' + esc(actor) + '</div>' +
+        '</li>';
+    }).join('');
+    return '<ul class="timeline">' + items + '</ul>';
+  }
+
+  function documentsHtml(documents) {
+    if (!documents.length) return '<p class="empty">' + esc(T('trips.noDocuments')) + '</p>';
+    var rows = documents.map(function (d) {
+      return '<tr><td>' + esc(T('trips.doctype.' + d.docType)) + '</td>' +
+        '<td>' + esc(T('trips.docstatus.' + d.status)) + '</td>' +
+        '<td>' + esc(fmtDate(d.uploadedAt)) + '</td></tr>';
+    }).join('');
+    return '<table class="trips-table"><thead><tr>' +
+      '<th>' + esc(T('trips.docType')) + '</th><th>' + esc(T('trips.docStatus')) + '</th><th>' + esc(T('trips.docUploaded')) + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  function expensesHtml(expenses) {
+    if (!expenses.length) return '<p class="empty">' + esc(T('trips.noExpenses')) + '</p>';
+    var rows = expenses.map(function (e) {
+      return '<tr><td>' + esc(T('trips.expense.' + e.category)) + '</td><td>' + esc(money(e.amountEur)) + '</td></tr>';
+    }).join('');
+    return '<table class="trips-table"><thead><tr>' +
+      '<th>' + esc(T('trips.expenseCategory')) + '</th><th>' + esc(T('trips.expenseAmount')) + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  function renderTripDetail(outlet, route_, token) {
+    var id = route_ && route_.params ? route_.params.id : '';
+    outlet.innerHTML =
+      '<p class="crumbs"><a href="/app/trips" id="tripsBack">' + esc(T('trips.back')) + '</a></p>' +
+      '<h1>' + esc(T('trips.detailTitle')) + '</h1>' +
+      '<div id="tripDetailBody" class="panel">' + esc(T('common.loading')) + '</div>';
+
+    var back = outlet.querySelector('#tripsBack');
+    if (back) {
+      back.addEventListener('click', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        route({ path: '/app/trips', push: true });
+      });
+    }
+
+    return request('/api/trips/' + encodeURIComponent(id), { token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      var box = outlet.querySelector('#tripDetailBody');
+      if (!box) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        box.innerHTML = '<p class="alert">' + esc(errorText(res)) + '</p>';
+        return;
+      }
+      box.innerHTML = tripDetailHtml((res.data && res.data.trip) || {});
+    });
+  }
+
+  /* -------------------------------------------------- dispatch (F4) --- */
+
+  /**
+   * Create-trip form (board task #35): the dispatcher picks an order, a driver
+   * and a truck from the org's own lists — no raw ids are ever typed. The pure
+   * decisions (labels, validation, payload, error keys) live in
+   * `lib/dispatch.js`; this section only reads/writes the DOM and the network.
+   *
+   * Element ids are dynamic (the form is injected), so they are resolved from
+   * the outlet with `querySelector`, never with `el()` (which is for the static
+   * shell only).
+   */
+
+  /** The loaded `GET /api/reference` payload, or null before it arrives. */
+  var dispatchReference = null;
+  /** Bumped per render so a stale reference response cannot overwrite a newer one. */
+  var dispatchLoadToken = 0;
+
+  /** Dynamic error node per form field. */
+  var DISPATCH_FIELD_ERRORS = {
+    orderId: 'dispatchOrderError',
+    customerId: 'dispatchCustomerError',
+    driverId: 'dispatchDriverError',
+    truckId: 'dispatchTruckError',
+    rateEur: 'dispatchRateError'
+  };
+  /** The control each field error belongs to (focus target after a failed submit). */
+  var DISPATCH_FIELD_INPUTS = {
+    orderId: 'dispatchOrder',
+    driverId: 'dispatchDriver',
+    truckId: 'dispatchTruck',
+    rateEur: 'dispatchRate'
+  };
+  /** Submit order for the "what went wrong" summary. */
+  var DISPATCH_FIELD_ORDER = ['orderId', 'customerId', 'driverId', 'truckId', 'rateEur'];
+
+  function dispatchNode(outlet, id) {
+    return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
+  }
+
+  /** Local shorthand for the core's escaper (distinct from any later helper). */
+  function escHtml(value) { return APP.escapeHtml(value); }
+
+  function fieldValue(outlet, id) {
+    var node = dispatchNode(outlet, id);
+    return node && node.value !== undefined ? String(node.value) : '';
+  }
+
+  /** Show or clear a node's message. Takes the node, so no id is hard-coded. */
+  function setMessage(node, message, kind) {
+    if (!node) return;
+    if (message) {
+      node.textContent = message;
+      node.hidden = false;
+      if (node.classList) {
+        node.classList.remove('hidden');
+        if (kind === 'success') node.classList.add('success');
+        else node.classList.remove('success');
+      }
+    } else {
+      node.textContent = '';
+      node.hidden = true;
+      if (node.classList) node.classList.add('hidden');
+    }
+  }
+
+  /** The form-level message, translated. */
+  function dispatchMessage(outlet, key, params, kind) {
+    setMessage(dispatchNode(outlet, 'dispatchMessage'), key ? T(key, params) : '', kind);
+  }
+
+  /** Fill a select from pure `optionEntries` output, optionally with a placeholder. */
+  function setSelectEntries(outlet, id, entries, placeholder, disabled) {
+    var node = dispatchNode(outlet, id);
+    if (!node) return;
+    var html = placeholder ? '<option value="">' + escHtml(placeholder) + '</option>' : '';
+    for (var i = 0; i < entries.length; i++) {
+      html += '<option value="' + escHtml(entries[i].value) + '">' + escHtml(entries[i].label) + '</option>';
+    }
+    node.innerHTML = html;
+    if (disabled !== undefined) node.disabled = Boolean(disabled);
+  }
+
+  function renderDispatch(outlet) {
+    dispatchLoadToken += 1;
+    var loadToken = dispatchLoadToken;
+    dispatchReference = null;
+
+    outlet.innerHTML =
+      '<h1>' + escHtml(T('nav.dispatch')) + '</h1>' +
+      '<p class="lead">' + escHtml(T('dispatch.lead')) + '</p>' +
+      '<form class="dispatch-form" id="dispatchForm" novalidate>' +
+        '<p class="alert" id="dispatchMessage" role="alert" hidden></p>' +
+        '<div class="field">' +
+          '<label for="dispatchOrder">' + escHtml(T('dispatch.order')) + '</label>' +
+          '<select id="dispatchOrder" required>' +
+            '<option value="">' + escHtml(T('common.loading')) + '</option>' +
+          '</select>' +
+          '<p class="field-error" id="dispatchOrderError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchCustomer">' + escHtml(T('dispatch.customer')) + '</label>' +
+          '<input id="dispatchCustomer" type="text" readonly>' +
+          '<p class="helper">' + escHtml(T('dispatch.customerHint')) + '</p>' +
+          '<p class="field-error" id="dispatchCustomerError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchDriver">' + escHtml(T('dispatch.driver')) + '</label>' +
+          '<select id="dispatchDriver"></select>' +
+          '<p class="field-error" id="dispatchDriverError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchTruck">' + escHtml(T('dispatch.truck')) + '</label>' +
+          '<select id="dispatchTruck"></select>' +
+          '<p class="field-error" id="dispatchTruckError" hidden></p>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="dispatchRate">' + escHtml(T('dispatch.rate')) + '</label>' +
+          '<input id="dispatchRate" type="number" min="0" step="0.01" inputmode="decimal">' +
+          '<p class="helper">' + escHtml(T('dispatch.rateHint')) + '</p>' +
+          '<p class="field-error" id="dispatchRateError" hidden></p>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<span class="helper">' + escHtml(T('dispatch.draftNote')) + '</span>' +
+          '<button class="primary" type="submit" id="dispatchSubmit">' + escHtml(T('dispatch.submit')) + '</button>' +
+        '</div>' +
+      '</form>';
+
+    var form = dispatchNode(outlet, 'dispatchForm');
+    if (form) {
+      form.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        submitDispatch(outlet);
+      });
+    }
+    var order = dispatchNode(outlet, 'dispatchOrder');
+    if (order) order.addEventListener('change', function () { syncDispatchCustomer(outlet); });
+
+    loadDispatchReference(outlet, loadToken);
+  }
+
+  function loadDispatchReference(outlet, loadToken) {
+    return request('/api/reference', { token: session.token }).then(function (res) {
+      if (loadToken !== dispatchLoadToken) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        dispatchReference = null;
+        setSelectEntries(outlet, 'dispatchOrder', [], T('dispatch.loadFailed'), true);
+        setSelectEntries(outlet, 'dispatchDriver', [], T('dispatch.assignLater'), true);
+        setSelectEntries(outlet, 'dispatchTruck', [], T('dispatch.assignLater'), true);
+        var submit = dispatchNode(outlet, 'dispatchSubmit');
+        if (submit) submit.disabled = true;
+        dispatchMessage(outlet, DISPATCH.createTripErrorKey ? DISPATCH.createTripErrorKey(res) : 'error.unexpected');
+        return;
+      }
+      dispatchReference = DISPATCH.referenceState ? DISPATCH.referenceState(res.data && res.data.reference) : null;
+      fillDispatchOptions(outlet);
+    });
+  }
+
+  function fillDispatchOptions(outlet) {
+    var ref = dispatchReference || { orders: [], drivers: [], trucks: [] };
+    setSelectEntries(outlet, 'dispatchOrder', DISPATCH.optionEntries(ref.orders, 'order'), T('dispatch.orderPlaceholder'));
+    setSelectEntries(outlet, 'dispatchDriver', DISPATCH.optionEntries(ref.drivers, 'driver'), T('dispatch.assignLater'));
+    setSelectEntries(outlet, 'dispatchTruck', DISPATCH.optionEntries(ref.trucks, 'truck'), T('dispatch.assignLater'));
+    var submit = dispatchNode(outlet, 'dispatchSubmit');
+    if (submit) submit.disabled = ref.orders.length === 0;
+    if (ref.orders.length === 0) dispatchMessage(outlet, 'dispatch.noOrders');
+    syncDispatchCustomer(outlet);
+  }
+
+  /** The customer is a property of the order, so it is shown, never chosen. */
+  function syncDispatchCustomer(outlet) {
+    var orderId = fieldValue(outlet, 'dispatchOrder');
+    var order = dispatchReference && DISPATCH.findById
+      ? DISPATCH.findById(dispatchReference.orders, orderId)
+      : null;
+    var input = dispatchNode(outlet, 'dispatchCustomer');
+    if (input) input.value = order && order.customer ? String(order.customer.name || '') : '';
+  }
+
+  function clearDispatchErrors(outlet) {
+    for (var i = 0; i < DISPATCH_FIELD_ORDER.length; i++) {
+      setMessage(dispatchNode(outlet, DISPATCH_FIELD_ERRORS[DISPATCH_FIELD_ORDER[i]]), '');
+    }
+    dispatchMessage(outlet, null);
+  }
+
+  function showDispatchFieldErrors(outlet, errors) {
+    var focusField = null;
+    for (var i = 0; i < DISPATCH_FIELD_ORDER.length; i++) {
+      var field = DISPATCH_FIELD_ORDER[i];
+      var key = errors ? errors[field] : null;
+      if (key) {
+        setMessage(dispatchNode(outlet, DISPATCH_FIELD_ERRORS[field]), T(key));
+        if (!focusField) focusField = field;
+      }
+    }
+    var input = focusField ? dispatchNode(outlet, DISPATCH_FIELD_INPUTS[focusField]) : null;
+    if (input && input.focus) input.focus();
+  }
+
+  function resetDispatchForm(outlet) {
+    var ids = ['dispatchOrder', 'dispatchDriver', 'dispatchTruck', 'dispatchRate'];
+    for (var i = 0; i < ids.length; i++) {
+      var node = dispatchNode(outlet, ids[i]);
+      if (node) node.value = '';
+    }
+    syncDispatchCustomer(outlet);
+  }
+
+  function submitDispatch(outlet) {
+    if (!DISPATCH.validateDispatchForm) return;
+    var orderId = fieldValue(outlet, 'dispatchOrder');
+    var order = dispatchReference && DISPATCH.findById
+      ? DISPATCH.findById(dispatchReference.orders, orderId)
+      : null;
+    var check = DISPATCH.validateDispatchForm({
+      orderId: orderId,
+      customerId: order && order.customer ? String(order.customer.id || '') : '',
+      driverId: fieldValue(outlet, 'dispatchDriver'),
+      truckId: fieldValue(outlet, 'dispatchTruck'),
+      rateEur: fieldValue(outlet, 'dispatchRate')
+    }, dispatchReference);
+
+    clearDispatchErrors(outlet);
+    if (!check.ok) {
+      showDispatchFieldErrors(outlet, check.errors);
+      dispatchMessage(outlet, 'dispatch.fixErrors');
+      return;
+    }
+
+    var submit = dispatchNode(outlet, 'dispatchSubmit');
+    if (submit) submit.disabled = true;
+    request('/api/trips', { method: 'POST', token: session.token, body: check.payload }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (res.ok && res.data && res.data.trip) {
+        if (submit) submit.disabled = false;
+        resetDispatchForm(outlet);
+        dispatchMessage(outlet, 'dispatch.created', { id: String(res.data.trip.id) }, 'success');
+        return;
+      }
+      if (submit) submit.disabled = false;
+      var detail = DISPATCH.errorDetail ? DISPATCH.errorDetail(res) : '';
+      dispatchMessage(
+        outlet,
+        DISPATCH.createTripErrorKey ? DISPATCH.createTripErrorKey(res) : 'error.unexpected',
+        detail ? { detail: detail } : null
+      );
+    });
   }
 
   function showLogin(messageKey) {
@@ -255,7 +877,15 @@
       showLogin(null);
       return decision;
     }
-    if (!opts.skipUrl) setPath(decision.route && decision.route.path ? decision.route.path : path, opts.push === true ? false : true);
+    if (!opts.skipUrl) {
+      // Board task #34: the trips list keeps its filters in the URL, so a
+      // reload or a shared link restores them. Only a render that stays on the
+      // same path keeps the query; a redirect/home target drops it.
+      var target = decision.route && decision.route.path ? decision.route.path : path;
+      var search = (typeof location !== 'undefined' && location.search) ? location.search : '';
+      var samePath = APP.normalizePath(target) === APP.normalizePath(path);
+      setPath(samePath ? target + search : target, opts.push === true ? false : true);
+    }
     showApp();
     renderNav(sys.role, decision.route);
     renderPanel(decision.route);

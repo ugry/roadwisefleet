@@ -164,11 +164,25 @@ test('escapeHtml neutralises the five dangerous characters', () => {
   assert.equal(appCore.escapeHtml(0), '0');
 });
 
-test('panelFor names the board task that will fill a placeholder, never invented data', () => {
+test('panelFor marks implemented views and names the board task that fills a placeholder', () => {
   const t = (key, params) => `${key}${params && params.task ? '(' + params.task + ')' : ''}`;
+  // Board task #34 (FAv1-F3): the trips list is implemented, so the core only
+  // supplies its title and an honest loading body — no "pending task" note.
   const trips = appCore.panelFor(appCore.routeForPath('/app/trips'), t);
   assert.equal(trips.title, 'nav.trips');
-  assert.match(trips.body, /common\.pending\(F3 · board #34\)/);
+  assert.equal(trips.body, 'common.loading');
+  assert.equal(trips.task, null);
+  // The dynamic trip-detail route is implemented too.
+  assert.equal(appCore.panelFor(appCore.routeForPath('/app/trips/trip-1'), t).title, 'trips.detailTitle');
+  // The dispatch route is implemented as well (board task #35, FAv1-F4): F3 and
+  // F4 both land on this branch, so neither is a placeholder any more.
+  const dispatch = appCore.panelFor(appCore.routeForPath('/app/dispatch'), t);
+  assert.equal(dispatch.title, 'nav.dispatch');
+  assert.equal(dispatch.body, 'common.loading');
+  assert.equal(dispatch.task, null);
+  // A route still awaiting its task keeps the placeholder that names the task.
+  const documents = appCore.panelFor(appCore.routeForPath('/app/documents'), t);
+  assert.match(documents.body, /common\.pending\(F6 · board #37\)/);
   assert.equal(appCore.panelFor(appCore.routeForPath('/app/nope'), t).title, 'error.notFoundTitle');
   const overview = appCore.panelFor(appCore.routeForPath('/app/'), t);
   assert.equal(overview.title, 'overview.title');

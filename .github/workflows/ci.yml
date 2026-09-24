@@ -75,6 +75,12 @@ jobs:
       - name: Run API tests
         run: node --test apps/api/src/
 
+      # The waitlist microservice is dependency-free too. Its limiter was
+      # effectively global behind nginx (board #45); these tests are the
+      # per-client-IP proof, so they must run on every push.
+      - name: Run waitlist service tests
+        run: node --test services/waitlist/
+
   shellcheck:
     name: Shellcheck (infra scripts)
     runs-on: ubuntu-latest
