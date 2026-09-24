@@ -11,7 +11,10 @@
 #   3. the dump is readable by the matching tool (pg_restore --list for custom
 #      format, or a plain-SQL sanity read for .sql/.gz) — run in a throwaway
 #      postgres:17-alpine container so no host package is required
-# It also checks the legacy waitlist tarball (freshness + tar -tzf integrity).
+# It also checks the legacy waitlist tarball (freshness + tar -tzf integrity)
+# and, since board eila/tasks#46, the document-uploads archive written by
+# pilot-uploads-backup.sh (freshness, tar integrity, manifest present) — the
+# Postgres dump protects the document rows, not the bytes.
 #
 # On failure it mails ALERT_MAIL and exits non-zero.
 #
@@ -101,6 +104,31 @@ else
   log "newest waitlist backup: $NEWEST_WL (${AGE_H}h old)"
   [ "$AGE_H" -le "$MAX_AGE_HOURS" ] || FAILURES="${FAILURES}waitlist: newest backup is stale (${AGE_H}h > ${MAX_AGE_HOURS}h)"$'\n'
   tar -tzf "$NEWEST_WL" >/dev/null 2>&1 || FAILURES="${FAILURES}waitlist: tar integrity check failed for ${NEWEST_WL}"$'\n'
+fi
+
+# --- 4. document uploads archive (board #46, F7b) ----------------------------
+# The Postgres dump protects the document ROWS; the uploads archive protects the
+# BYTES. Missing either one means the compliance evidence is not recoverable.
+UPLOAD_BACKUP_DIR="${UPLOAD_BACKUP_DIR:-/var/backups/roadwisefleet/uploads}"
+NEWEST_UP=$(find "$UPLOAD_BACKUP_DIR" -maxdepth 1 -type f -name 'uploads-*.tar.gz' \
+            -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2-)
+if [ -z "$NEWEST_UP" ]; then
+  FAILURES="${FAILURES}uploads: no uploads-*.tar.gz found in ${UPLOAD_BACKUP_DIR}"$'\n'
+else
+  UP_SIZE=$(stat -c %s "$NEWEST_UP" 2>/dev/null || echo 0)
+  UP_AGE_H=$(( ( $(date +%s) - $(stat -c %Y "$NEWEST_UP" 2>/dev/null || echo 0) ) / 3600 ))
+  log "newest uploads archive: $NEWEST_UP (${UP_SIZE} bytes, ${UP_AGE_H}h old)"
+  [ "$UP_SIZE" -gt 0 ] || FAILURES="${FAILURES}uploads: newest archive is empty (${NEWEST_UP})"$'\n'
+  [ "$UP_AGE_H" -le "$MAX_AGE_HOURS" ] || FAILURES="${FAILURES}uploads: newest archive is stale (${UP_AGE_H}h > ${MAX_AGE_HOURS}h): ${NEWEST_UP}"$'\n'
+  tar -tzf "$NEWEST_UP" >/dev/null 2>&1 || FAILURES="${FAILURES}uploads: tar integrity check failed for ${NEWEST_UP}"$'\n'
+
+  # A missing/deleted newest archive (a gap in the series) is the failure mode
+  # this check exists for: an archive that is present but has no manifest cannot
+  # be verified at restore time, so it does not count as a backup.
+  UP_MANIFEST="${NEWEST_UP%.tar.gz}.manifest"
+  if [ ! -s "$UP_MANIFEST" ]; then
+    FAILURES="${FAILURES}uploads: newest archive has no manifest (${UP_MANIFEST}) — not restorable with verification"$'\n'
+  fi
 fi
 
 if [ -n "$FAILURES" ]; then

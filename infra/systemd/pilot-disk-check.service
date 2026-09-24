@@ -1,0 +1,31 @@
+# Ready-to-apply artifact — RoadwiseFleet pilot disk/uploads headroom check (board eila/tasks#46).
+#
+# NOT installed by CI. Installing this on elilavps2 is a host change that needs
+# owner approval + host access; see infra/uploads.md §6.
+#
+# Install to /etc/systemd/system/pilot-disk-check.service (mode 0644).
+# No credential values appear here.
+
+[Unit]
+Description=RoadwiseFleet pilot disk headroom + uploads permission check (board #46)
+Documentation=https://github.com/ugry/roadwisefleet/blob/main/infra/uploads.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pilot-disk-check.sh
+# Alert routing + thresholds. Override with an EnvironmentFile (0600, root) if
+# the ops mailbox or the upload path changes; no secrets are required here.
+Environment=ALERT_MAIL=ugur@elilaltd.com
+Environment=UPLOAD_DIR=/opt/roadwisefleet/api/var/uploads
+Environment=WARN_PCT=80
+Environment=CRIT_PCT=90
+Environment=MIN_FREE_MB=2048
+StateDirectory=pilot-disk-check
+# A failed check is a signal, not a crash loop: the timer schedules the next try.
+Restart=no
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
