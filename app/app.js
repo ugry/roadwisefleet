@@ -30,6 +30,8 @@
   var DISPATCH = win && win.RoadwiseDispatch ? win.RoadwiseDispatch : {};
   // The pure trips list/detail shaping (board task #34, F3), loaded before this one.
   var TRIPVIEW = TRIPS || {};
+  // The pure dashboard shaping (board task #33, F2), loaded before this one.
+  var DASH = win && win.RoadwiseDashboard ? win.RoadwiseDashboard : {};
   var T = function (key, params) { return key; };
   var i18n = null;
   var session = { token: '', user: null };
@@ -188,6 +190,13 @@
     }
     if (route && route.view === 'dispatch') {
       renderDispatch(outlet);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'dashboard') {
+      outlet.innerHTML = '';
+      renderDashboard(outlet, token);
       if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
       if (outlet.focus) outlet.focus();
       return panel;
@@ -805,6 +814,143 @@
         detail ? { detail: detail } : null
       );
     });
+  }
+
+  /* ------------------------------------------------- dashboard (F2) --- */
+
+  /**
+   * The dashboard home (board task #33, FAv1-F2): a KPI strip, an alerts strip
+   * and today's activity feed, all from `GET /api/dashboard`. The pure shaping
+   * lives in `lib/dashboard.js`; this section only reads/writes the DOM and the
+   * network. Dynamic element ids are resolved from the outlet.
+   */
+
+  /** Drill-down: switch to a filtered trips-list URL and render it in place. */
+  function dashboardDrill(link) {
+    if (!link) return;
+    setPath(link, false);
+    // skipUrl: the URL was just set with its query; `route` must not drop it.
+    route({ path: link, push: true, skipUrl: true });
+  }
+
+  function bindDrillDowns(outlet) {
+    var nodes = outlet.querySelectorAll ? outlet.querySelectorAll('[data-dash-link]') : [];
+    for (var i = 0; i < nodes.length; i++) {
+      (function (node) {
+        node.addEventListener('click', function (ev) {
+          if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+          dashboardDrill(node.getAttribute('data-dash-link'));
+        });
+      })(nodes[i]);
+    }
+    return nodes.length;
+  }
+
+  function renderDashboard(outlet, token) {
+    if (!DASH.kpiCards) {
+      outlet.innerHTML = '<h1>' + esc(T('overview.title')) + '</h1>' +
+        '<p class="alert">' + esc(T('error.unexpected')) + '</p>';
+      return;
+    }
+
+    // A driver may open Overview but holds no `reports:read`, so the dashboard
+    // payload would be a 403 — send them to their own home instead.
+    if (!(APP.canReadReports && APP.canReadReports(session.user && session.user.roleId))) {
+      outlet.innerHTML =
+        '<h1>' + esc(T('overview.title')) + '</h1>' +
+        '<div class="empty-state">' +
+          '<p class="title">' + esc(T('dashboard.driverTitle')) + '</p>' +
+          '<p>' + esc(T('dashboard.driverBody')) + '</p>' +
+          '<p><a class="primary-link" href="/app/my-trips" data-dash-link="/app/my-trips">' +
+            esc(T('nav.myTrips')) + '</a></p>' +
+        '</div>';
+      bindDrillDowns(outlet);
+      return;
+    }
+
+    outlet.innerHTML =
+      '<h1>' + esc(T('overview.title')) + '</h1>' +
+      '<p class="lead">' + esc(T('dashboard.lead')) + '</p>' +
+      '<p class="alert" id="dashError" role="alert" hidden></p>' +
+      '<div class="kpi-strip" id="kpiStrip"><p class="muted">' + esc(T('common.loading')) + '</p></div>' +
+      '<h2 class="section-title">' + esc(T('dashboard.alertsTitle')) + '</h2>' +
+      '<div id="dashAlerts" class="alert-strip"><p class="muted">' + esc(T('common.loading')) + '</p></div>' +
+      '<h2 class="section-title">' + esc(T('dashboard.activityTitle')) + '</h2>' +
+      '<div id="dashActivity"><p class="muted">' + esc(T('common.loading')) + '</p></div>';
+
+    return request('/api/dashboard', { token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        outlet.querySelector('#kpiStrip').innerHTML = '<p class="alert">' + esc(errorText(res)) + '</p>';
+        outlet.querySelector('#dashAlerts').innerHTML = '';
+        outlet.querySelector('#dashActivity').innerHTML = '';
+        return;
+      }
+      renderDashboardBody(outlet, DASH.dashboardOf ? DASH.dashboardOf(res.data) : (res.data || {}));
+    });
+  }
+
+  function renderDashboardBody(outlet, dashboard) {
+    var cards = DASH.kpiCards(dashboard, T, i18n) || [];
+    var strip = outlet.querySelector('#kpiStrip');
+    if (strip) {
+      var html = '';
+      for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        var inner = '<span class="kpi-label">' + esc(card.label) + '</span>' +
+          '<span class="kpi-value' + (card.empty ? ' is-empty' : '') + '">' + esc(card.value) + '</span>' +
+          (card.note ? '<span class="kpi-note">' + esc(card.note) + '</span>' : '');
+        if (card.link) {
+          html += '<a class="kpi" data-kpi="' + esc(card.id) + '" href="' + esc(card.link) +
+            '" data-dash-link="' + esc(card.link) + '">' + inner + '</a>';
+        } else {
+          html += '<div class="kpi" data-kpi="' + esc(card.id) + '">' + inner + '</div>';
+        }
+      }
+      strip.innerHTML = html;
+    }
+
+    var alerts = DASH.alertItems ? DASH.alertItems(dashboard, T, i18n) : [];
+    var alertBox = outlet.querySelector('#dashAlerts');
+    if (alertBox) {
+      if (!alerts.length) {
+        alertBox.innerHTML = '<p class="muted">' + esc(T('dashboard.noAlerts')) + '</p>';
+      } else {
+        var rows = '';
+        for (var a = 0; a < alerts.length; a += 1) {
+          var alert = alerts[a];
+          var body = '<span class="alert-kind">' + esc(alert.text) + '</span>';
+          rows += alert.link
+            ? '<a class="alert-row sev-' + esc(alert.severity) + '" data-alert="' + esc(alert.id) +
+              '" href="' + esc(alert.link) + '" data-dash-link="' + esc(alert.link) + '">' + body + '</a>'
+            : '<div class="alert-row sev-' + esc(alert.severity) + '" data-alert="' + esc(alert.id) + '">' + body + '</div>';
+        }
+        alertBox.innerHTML = rows;
+      }
+    }
+
+    var activity = DASH.activityItems ? DASH.activityItems(dashboard, T, i18n) : [];
+    var feed = outlet.querySelector('#dashActivity');
+    if (feed) {
+      if (!activity.length) {
+        feed.innerHTML = '<p class="muted">' + esc(T('dashboard.noActivity')) + '</p>';
+      } else {
+        var items = '';
+        for (var e = 0; e < activity.length; e += 1) {
+          var event = activity[e];
+          var text = '<span class="act-what">' + esc(event.text) + '</span>' +
+            '<span class="act-when">' + esc(event.when) + ' · ' + esc(event.actor) + '</span>';
+          items += '<li data-activity="' + esc(event.id) + '">' + (event.link
+            ? '<a href="' + esc(event.link) + '" data-dash-link="' + esc(event.link) +
+              '" data-activity-link="' + esc(event.id) + '">' + text + '</a>'
+            : text) + '</li>';
+        }
+        feed.innerHTML = '<ul class="activity">' + items + '</ul>';
+      }
+    }
+
+    bindDrillDowns(outlet);
   }
 
   function showLogin(messageKey) {
