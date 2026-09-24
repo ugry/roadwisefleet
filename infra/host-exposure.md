@@ -28,7 +28,7 @@ re-verified 2026-09-22 ~16:20 UTC; re-verified again **2026-09-22 18:05 UTC** af
 | `127.0.0.1` | 8080 | pilot API | correct (loopback) |
 | `127.0.0.1` | 8787 | legacy waitlist | correct |
 | `127.0.0.1` | 5432 | pilot Postgres | correct |
-| `127.0.0.1` | 5433 | restore-drill scratch port | correct — matches `pilot-restore-drill.sh` |
+| `127.0.0.1` | 5433 | host `postgresql@17-main` cluster | **corrected 2026-09-24 (board #62):** the drill used to *assume* this port; it actually collided with the host cluster. `pilot-restore-drill.sh` now defaults to `SCRATCH_PORT=auto` (first free port in 5440–5479, never 5432/5433) |
 | `127.0.0.1` | 6379 | pilot Redis | correct |
 | `127.0.0.1` | 8008 | Synapse (Matrix) | correct — `Server: Synapse/1.161.0` |
 | `127.0.0.1` | 2586, 8877, 9101 | internal services | correct (loopback) |
