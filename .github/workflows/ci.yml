@@ -113,6 +113,14 @@ jobs:
       - name: Self-test pilot-api-error-watch.sh (board #44)
         run: bash infra/scripts/pilot-api-error-watch.sh --self-test
 
+      # Board #43: this is the check that makes a backup *verified* rather than
+      # merely scheduled. It drives the real script against fixture backup sets
+      # with a stub sendmail (every assertion reads the message actually sent)
+      # and proves the acceptance-relevant decision: deleting the newest backup
+      # is detected by the freshness check and raises exactly one alert.
+      - name: Self-test pilot-backup-verify.sh (board #43)
+        run: bash infra/scripts/pilot-backup-verify.sh --self-test
+
   restore-drill-selftest:
     name: Restore drill self-test (no host, no network)
     runs-on: ubuntu-latest
