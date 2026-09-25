@@ -36,6 +36,8 @@
   var ASSIGN = win && win.RoadwiseAssign ? win.RoadwiseAssign : {};
   // The pure documents view model (board task #37, F6), loaded before this one.
   var DOC = win && win.RoadwiseDocuments ? win.RoadwiseDocuments : {};
+  // The pure tracking-link view model (board task #39, F8), loaded before this one.
+  var TRACK = win && win.RoadwiseTracking ? win.RoadwiseTracking : {};
   // The shared document rules / checklist owner (board task #4), loaded before
   // this one from `/pilot/lib/driver-core.js`. The documents UI never restates
   // the POD gate — it asks this module.
@@ -222,6 +224,13 @@
     if (route && route.view === 'driver') {
       outlet.innerHTML = '';
       renderMyTrips(outlet, token);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'tracking') {
+      outlet.innerHTML = '';
+      renderTracking(outlet, token);
       if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
       if (outlet.focus) outlet.focus();
       return panel;
@@ -518,6 +527,7 @@
     html += assignBoxHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.timeline')) + '</h2>' + timelineHtml(trip.statusEvents || []);
     html += documentsPanelHtml(trip);
+    html += trackingPanelHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.expenses')) + '</h2>' + expensesHtml(trip.expenses || []);
     html += '<h2 class="section-title">' + esc(T('trips.pnl')) + '</h2>' +
       '<p class="pnl ' + pnlClass + '">' + esc(money(pnl)) + '</p>' +
@@ -659,6 +669,183 @@
       '</tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
+  /* ------------------------------------------------- tracking link (F8) --- */
+
+  /**
+   * The customer tracking-link control (board task #39, FAv1-F8).
+   *
+   * Rendered on the trip detail for a `trip:*` role only. The link is minted
+   * with `POST /api/trips/:id/track-link`, read back from the same path (the
+   * API recomputes the identical token from the persisted mint parameters) and
+   * revoked with `DELETE`. The pure decisions (state, path, copy target, error
+   * mapping) live in `lib/tracking.js`; this section only touches the DOM and
+   * the network. Element ids are dynamic, so they are resolved from the outlet
+   * (`el()` is reserved for ids present in index.html).
+   */
+
+  /** The link currently shown for the visible trip (null = none). */
+  var trackCurrent = null;
+
+  function trackNode(outlet, id) {
+    return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
+  }
+
+  function trackingPanelHtml() {
+    var role = session.user && session.user.roleId;
+    if (!(TRACK.canManageTracking && TRACK.canManageTracking(role))) return '';
+    return '<h2 class="section-title">' + esc(T('tracking.title')) + '</h2>' +
+      '<p class="alert" id="trackMessage" role="alert" hidden></p>' +
+      '<div id="trackBody" class="track-body"><p class="muted">' + esc(T('common.loading')) + '</p></div>';
+  }
+
+  /** Set or clear the panel's message line. `kind` is 'success' or ''. */
+  function setTrackMessage(outlet, text, kind) {
+    var node = trackNode(outlet, 'trackMessage');
+    if (!node) return;
+    if (!text) {
+      node.textContent = '';
+      node.hidden = true;
+      node.className = 'alert';
+      return;
+    }
+    node.textContent = text;
+    node.className = 'alert' + (kind ? ' ' + kind : '');
+    node.hidden = false;
+  }
+
+  /** The message for a failed tracking request (catalogue key or detail). */
+  function trackErrorText(res) {
+    var detail = TRACK.errorDetail ? TRACK.errorDetail(res) : '';
+    if (detail) return detail;
+    return T(TRACK.errorKey ? TRACK.errorKey(res) : 'error.unexpected');
+  }
+
+  function renderTrackingBody(outlet, body, link) {
+    var state = TRACK.linkState ? TRACK.linkState(link) : (link ? 'active' : 'none');
+    if (state === 'active') {
+      body.innerHTML =
+        '<p class="track-state active">' + esc(T('tracking.state.active')) + '</p>' +
+        '<div class="track-link-row">' +
+          '<input class="track-url" id="trackUrl" type="text" readonly value="' + esc(link.url) + '">' +
+          '<button class="ghost" type="button" data-track-action="copy" id="trackCopy">' +
+            esc(T('tracking.copy')) + '</button>' +
+        '</div>' +
+        '<p class="muted" id="trackExpiry">' +
+          esc(T('tracking.expires', { date: fmtDate(link.expiresAt) })) + '</p>' +
+        '<div class="form-actions">' +
+          '<button class="ghost danger" type="button" data-track-action="revoke" id="trackRevoke">' +
+            esc(T('tracking.revoke')) + '</button>' +
+        '</div>';
+      return;
+    }
+    body.innerHTML =
+      '<p class="track-state none">' + esc(T(TRACK.stateKey ? TRACK.stateKey(state) : 'tracking.state.none')) + '</p>' +
+      '<div class="form-actions">' +
+        '<button class="primary" type="button" data-track-action="mint" id="trackMint">' +
+          esc(T('tracking.mint')) + '</button>' +
+      '</div>';
+  }
+
+  /** Load the trip's current link and wire the one-action controls. */
+  function loadTrackingControl(outlet, trip) {
+    var body = trackNode(outlet, 'trackBody');
+    if (!body) return;
+    trackCurrent = null;
+    body.addEventListener('click', function (ev) {
+      var target = ev && ev.target;
+      var action = target && target.getAttribute ? target.getAttribute('data-track-action') : null;
+      if (!action) return;
+      if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+      if (action === 'mint') mintTrackingLink(outlet, trip);
+      else if (action === 'copy') copyTrackingLink(outlet);
+      else if (action === 'revoke') revokeTrackingLink(outlet, trip);
+    });
+
+    request(TRACK.trackingPath(trip.id), { token: session.token }).then(function (res) {
+      if (trackNode(outlet, 'trackBody') !== body) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        setTrackMessage(outlet, trackErrorText(res), '');
+        body.innerHTML = '';
+        return;
+      }
+      trackCurrent = TRACK.linkFrom ? TRACK.linkFrom(res.data) : null;
+      renderTrackingBody(outlet, body, trackCurrent);
+    });
+  }
+
+  function mintTrackingLink(outlet, trip) {
+    var body = trackNode(outlet, 'trackBody');
+    if (!body) return;
+    setTrackMessage(outlet, T('tracking.minting'), '');
+    var button = trackNode(outlet, 'trackMint');
+    if (button) button.disabled = true;
+    request(TRACK.trackingPath(trip.id), { method: 'POST', token: session.token }).then(function (res) {
+      if (trackNode(outlet, 'trackBody') !== body) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        setTrackMessage(outlet, trackErrorText(res), '');
+        if (button) button.disabled = false;
+        return;
+      }
+      trackCurrent = TRACK.linkFrom ? TRACK.linkFrom(res.data) : null;
+      renderTrackingBody(outlet, body, trackCurrent);
+      setTrackMessage(outlet, T('tracking.minted'), 'success');
+    });
+  }
+
+  /** One action: put the full URL on the clipboard (fallback: select it). */
+  function copyTrackingLink(outlet) {
+    var url = TRACK.copyTarget ? TRACK.copyTarget(trackCurrent) : '';
+    var input = trackNode(outlet, 'trackUrl');
+    if (!url) return;
+    var after = function (ok) {
+      if (ok) setTrackMessage(outlet, T('tracking.copied'), 'success');
+      else {
+        if (input && input.focus) input.focus();
+        if (input && input.select) input.select();
+        setTrackMessage(outlet, T('tracking.copyManual'), '');
+      }
+    };
+    if (typeof navigator !== 'undefined' && navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { after(true); }, function () { after(false); });
+      return;
+    }
+    var ok = false;
+    if (input && input.select) {
+      input.focus();
+      input.select();
+      try {
+        ok = typeof document !== 'undefined' && document.execCommand
+          ? Boolean(document.execCommand('copy'))
+          : false;
+      } catch (err) {
+        ok = false;
+      }
+    }
+    after(ok);
+  }
+
+  function revokeTrackingLink(outlet, trip) {
+    var body = trackNode(outlet, 'trackBody');
+    if (!body) return;
+    if (typeof win.confirm === 'function' && !win.confirm(T('tracking.confirmRevoke'))) return;
+    var button = trackNode(outlet, 'trackRevoke');
+    if (button) button.disabled = true;
+    request(TRACK.trackingPath(trip.id), { method: 'DELETE', token: session.token }).then(function (res) {
+      if (trackNode(outlet, 'trackBody') !== body) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        setTrackMessage(outlet, trackErrorText(res), '');
+        if (button) button.disabled = false;
+        return;
+      }
+      trackCurrent = null;
+      renderTrackingBody(outlet, body, null);
+      setTrackMessage(outlet, T('tracking.revoked'), 'success');
+    });
+  }
+
   function renderTripDetail(outlet, route_, token, flash) {
     var id = route_ && route_.params ? route_.params.id : '';
     outlet.innerHTML =
@@ -687,6 +874,7 @@
       box.innerHTML = tripDetailHtml(trip);
       loadAssignControl(outlet, route_, trip);
       loadDocumentsControl(outlet, route_, trip, flash);
+      loadTrackingControl(outlet, trip);
     });
   }
 
@@ -1987,6 +2175,204 @@
     });
   }
 
+  /* ------------------------------------------- tracking workspace (F8) --- */
+
+  /**
+   * The tracking-links workspace (board task #39, FAv1-F8). Lists the org's
+   * trips with the link state the API reports (a boolean + expiry, never the
+   * token) and offers the same mint/revoke actions; the one-action copy appears
+   * for the link just minted here. The full URL is always visible on the trip
+   * detail, which is the token's only authenticated surface.
+   */
+
+  /** The link just minted from the workspace, for the one-action copy. */
+  var workLink = null;
+
+  function renderTracking(outlet, token) {
+    outlet.innerHTML =
+      '<h1>' + esc(T('nav.tracking')) + '</h1>' +
+      '<p class="lead">' + esc(T('tracking.lead')) + '</p>' +
+      '<p class="alert" id="trackWorkMessage" role="alert" hidden></p>' +
+      '<div id="trackWorkLink"></div>' +
+      '<div id="trackList"><p class="muted">' + esc(T('common.loading')) + '</p></div>';
+    workLink = null;
+    return loadTrackingList(outlet, token);
+  }
+
+  function loadTrackingList(outlet, token) {
+    return request('/api/trips', { token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      var box = outlet.querySelector ? outlet.querySelector('#trackList') : null;
+      if (!box) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        setTrackWorkMessage(outlet, errorText(res), '');
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = trackingWorklistHtml((res.data && res.data.trips) || []);
+      bindTrackingWorklist(outlet, token);
+    });
+  }
+
+  function setTrackWorkMessage(outlet, message, kind) {
+    var node = outlet.querySelector ? outlet.querySelector('#trackWorkMessage') : null;
+    if (!node) return;
+    if (!message) {
+      node.textContent = '';
+      node.hidden = true;
+      node.className = 'alert';
+      return;
+    }
+    node.textContent = message;
+    node.className = 'alert' + (kind ? ' ' + kind : '');
+    node.hidden = false;
+  }
+
+  function trackingWorklistHtml(trips) {
+    if (!trips.length) {
+      return '<div class="empty-state"><p>' + esc(T('tracking.empty')) + '</p></div>';
+    }
+    var rows = trips.map(function (trip) {
+      var row = TRIPVIEW.tripRow ? TRIPVIEW.tripRow(trip) : { id: trip.id, status: trip.status };
+      var tracking = trip.tracking || {};
+      var state = tracking.active
+        ? T('tracking.state.activeUntil', { date: fmtDate(tracking.expiresAt) })
+        : T('tracking.state.none');
+      var action = tracking.active
+        ? '<button class="ghost danger" type="button" data-track-revoke="' + esc(row.id) + '">' +
+            esc(T('tracking.revoke')) + '</button>'
+        : '<button class="ghost" type="button" data-track-mint="' + esc(row.id) + '">' +
+            esc(T('tracking.mint')) + '</button>';
+      return '<tr>' +
+        '<td><a href="/app/trips/' + esc(row.id) + '" data-track-trip="' + esc(row.id) + '">' +
+          esc(row.origin || '?') + ' → ' + esc(row.destination || '?') + '</a></td>' +
+        '<td>' + esc(row.driver || T('trips.none')) + '</td>' +
+        '<td><span class="status s-' + esc(row.status) + '">' + esc(statusLabel(row.status)) + '</span></td>' +
+        '<td class="track-state-cell' + (tracking.active ? ' active' : '') + '">' + esc(state) + '</td>' +
+        '<td class="track-actions">' + action + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div class="doc-table-wrap"><table class="trips-table"><thead><tr>' +
+      '<th>' + esc(T('trips.colRoute')) + '</th><th>' + esc(T('trips.colDriver')) +
+      '</th><th>' + esc(T('trips.colStatus')) + '</th><th>' + esc(T('tracking.colState')) +
+      '</th><th>' + esc(T('tracking.colActions')) + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function bindTrackingWorklist(outlet, token) {
+    var links = outlet.querySelectorAll ? outlet.querySelectorAll('a[data-track-trip]') : [];
+    for (var i = 0; i < links.length; i += 1) {
+      (function (link) {
+        link.addEventListener('click', function (ev) {
+          if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+          route({ path: link.getAttribute('href'), push: true });
+        });
+      })(links[i]);
+    }
+    var mints = outlet.querySelectorAll ? outlet.querySelectorAll('button[data-track-mint]') : [];
+    for (var m = 0; m < mints.length; m += 1) {
+      (function (button) {
+        button.addEventListener('click', function (ev) {
+          if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+          mintWorkLink(outlet, button.getAttribute('data-track-mint'), button, token);
+        });
+      })(mints[m]);
+    }
+    var revokes = outlet.querySelectorAll ? outlet.querySelectorAll('button[data-track-revoke]') : [];
+    for (var r = 0; r < revokes.length; r += 1) {
+      (function (button) {
+        button.addEventListener('click', function (ev) {
+          if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+          revokeWorkLink(outlet, button.getAttribute('data-track-revoke'), button, token);
+        });
+      })(revokes[r]);
+    }
+  }
+
+  function mintWorkLink(outlet, tripId, button, token) {
+    if (button) button.disabled = true;
+    setTrackWorkMessage(outlet, T('tracking.minting'), '');
+    request(TRACK.trackingPath(tripId), { method: 'POST', token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        setTrackWorkMessage(outlet, trackErrorText(res), '');
+        if (button) button.disabled = false;
+        return;
+      }
+      workLink = TRACK.linkFrom ? TRACK.linkFrom(res.data) : null;
+      showWorkLink(outlet);
+      setTrackWorkMessage(outlet, T('tracking.minted'), 'success');
+      return loadTrackingList(outlet, token);
+    });
+  }
+
+  function revokeWorkLink(outlet, tripId, button, token) {
+    if (typeof win.confirm === 'function' && !win.confirm(T('tracking.confirmRevoke'))) return;
+    if (button) button.disabled = true;
+    request(TRACK.trackingPath(tripId), { method: 'DELETE', token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        setTrackWorkMessage(outlet, trackErrorText(res), '');
+        if (button) button.disabled = false;
+        return;
+      }
+      setTrackWorkMessage(outlet, T('tracking.revoked'), 'success');
+      return loadTrackingList(outlet, token);
+    });
+  }
+
+  function showWorkLink(outlet) {
+    var box = outlet.querySelector ? outlet.querySelector('#trackWorkLink') : null;
+    if (!box) return;
+    var url = TRACK.copyTarget ? TRACK.copyTarget(workLink) : '';
+    if (!url) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="track-result"><div class="track-link-row">' +
+      '<input class="track-url" id="trackWorkUrl" type="text" readonly value="' + esc(url) + '">' +
+      '<button class="ghost" type="button" id="trackWorkCopy">' + esc(T('tracking.copy')) + '</button>' +
+      '</div></div>';
+    var copy = outlet.querySelector('#trackWorkCopy');
+    if (copy) {
+      copy.addEventListener('click', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        copyWorkLink(outlet);
+      });
+    }
+  }
+
+  function copyWorkLink(outlet) {
+    var url = TRACK.copyTarget ? TRACK.copyTarget(workLink) : '';
+    if (!url) return;
+    var input = outlet.querySelector ? outlet.querySelector('#trackWorkUrl') : null;
+    var after = function (ok) {
+      if (ok) setTrackWorkMessage(outlet, T('tracking.copied'), 'success');
+      else {
+        if (input && input.focus) input.focus();
+        if (input && input.select) input.select();
+        setTrackWorkMessage(outlet, T('tracking.copyManual'), '');
+      }
+    };
+    if (typeof navigator !== 'undefined' && navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { after(true); }, function () { after(false); });
+      return;
+    }
+    var ok = false;
+    if (input && input.select) {
+      input.focus();
+      input.select();
+      try {
+        ok = typeof document !== 'undefined' && document.execCommand
+          ? Boolean(document.execCommand('copy'))
+          : false;
+      } catch (err) {
+        ok = false;
+      }
+    }
+    after(ok);
+  }
+
   function showLogin(messageKey) {
     setHidden('appView', true);
     setHidden('loginView', false);
@@ -2244,6 +2630,11 @@
   api._driverQueueHtml = driverQueueHtml;
   api._driverChecklistHtml = driverChecklistHtml;
   api._driverSetQueue = function (items) { myTripsState.queue = Array.isArray(items) ? items : []; };
+  // Test seams for the scratch DOM-free harness (board task #39): the tracking
+  // renderers are closure-private too, and the pure module cannot exercise the
+  // role gate or the "state only, never the token" list markup.
+  api._trackingPanelHtml = trackingPanelHtml;
+  api._trackingWorklistHtml = trackingWorklistHtml;
 
   if (typeof document !== 'undefined') {
     boot();

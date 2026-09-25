@@ -71,7 +71,9 @@ shaping, the dashboard KPIs/alerts/activity shaping and its view model, user/dri
 credential-field stripping, trip read visibility (the `trip:*` org-wide rule vs.
 the driver scope), the delivery-timestamp writer (`deliveredAt` on the
 DELIVERED transition, the optional `plannedAt` on dispatch), driver assign/reassign
-(`trip:assign` gating, driver availability, the same-status timeline event), locale
+(`trip:assign` gating, driver availability, the same-status timeline event),
+the tracking-link view model (link state, per-trip path, one-action copy target,
+error mapping), locale
 resolution and the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
@@ -110,6 +112,11 @@ through the real route against a throwaway org and proves the before/after drive
 views — the previous driver is refused on the trip and no longer sees it, the new
 driver does — plus the timeline actor and the suspended-driver refusal, deleting
 its fixtures afterwards.
+It also drives the tracking-link UI (board task #39) against the DB in an isolated
+org: mint → `GET` returns the identical URL → an anonymous fetch is `200` →
+a tampered token `404` → `DELETE` revokes it (the old link `404`, `GET` `link:
+null`) → a re-mint works while another trip's link is untouched, and a driver
+token gets `403` on all three verbs.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -143,8 +150,10 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/trips/:id/documents` | bearer, `trip:*` or `pod:upload` + assigned driver | upload a document as JSON base64 (`docType`, `filename`, `mimeType`, `dataBase64`, plus the optional driver capture `capturedAt` + `geo`); stored under `UPLOAD_DIR` with a generated `storageKey`, row `PENDING` → `UPLOADED`; `400` on a bad type/mime/size or a malformed capture (`invalid_capture`), `403` on the wrong role |
 | `GET /api/trips/:id/documents` | bearer, `trip:*` or `trip:read` + assigned driver | the trip's document checklist (`id`, `docType`, `status`, `uploadedAt`, `expiresAt`, `capturedAt`, `capture` — never the `storageKey`) |
 | `PATCH /api/documents/:id` | bearer, `trip:*` | set a document to `VERIFIED` or `REJECTED`; any other status is `400 invalid_status`, a foreign-org document is `404` |
-| `POST /api/trips/:id/track-link` | bearer, `trip:*` | mint a signed customer tracking link for one trip (`201` with `token`, `url`, `expiresAt`, `ttlSeconds`); a foreign-org trip is `404` |
-| `GET /api/track/:token` | — | public tracking payload — route, status, timeline, last known position, ETA placeholder, POD flag; **no PII**; invalid/expired/rotated token → `404 invalid_token` |
+| `POST /api/trips/:id/track-link` | bearer, `trip:*` | mint a signed customer tracking link for one trip (`201` with `token`, `url`, `expiresAt`, `ttlSeconds`); the mint parameters are persisted on the trip (never the token), so the link survives a reload and can be revoked per trip (board task #39); a foreign-org trip is `404` |
+| `GET /api/trips/:id/track-link` | bearer, `trip:*` | the trip's current link, recomputed byte-for-byte from the persisted mint parameters (`{ link }`, or `{ link: null }` when none is live); a foreign-org trip is `404` |
+| `DELETE /api/trips/:id/track-link` | bearer, `trip:*` | revoke this trip's link: bumps `Trip.trackLinkVersion`, so every token already handed out for this trip `404`s while other trips are untouched; `{ revoked: true, link: null }` |
+| `GET /api/track/:token` | — | public tracking payload — route, status, timeline, last known position, ETA placeholder, POD flag; **no PII**; invalid/expired/rotated/revoked token → `404 invalid_token` |
 | `GET /track/:token` | — | public tracking HTML page (self-contained, no build step) for the shared link; `x-robots-tag: noindex, nofollow` |
 | `GET /pilot/*` | — | pilot-only web surface from `<repo>/pilot` (same origin, no build step) |
 | `GET /app` | — | `302` to `/app/` (the Fleet Manager mount point) |
@@ -410,6 +419,11 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   delegates the checklist and the POD gate to `pilot/lib/driver-core.js`
   (loaded from the pilot beside it), so the app and the driver client cannot
   disagree about what satisfies the gate. Covered by `src/documents-ui.test.js`.
+- `app/lib/tracking.js` — the pure tracking-link view model (board task #39, F8):
+  the `trip:*` gate, the per-trip endpoint path, the link state
+  (`none`/`active`/`expired`), the one-action copy target (the full URL, never a
+  bare token) and the API-error-to-catalogue mapping. Covered by
+  `src/tracking-ui.test.js`.
 - `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
   `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
   routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
@@ -670,6 +684,51 @@ it restates neither). DOM/network half: `app.js` (`renderMyTrips`,
 the confirm/gate flags, the delegated checklist, the over-limit message, the
 server/proxy mapping, the queue dedupe/idempotent sync) and the scratch harness
 `scratch/verify-driver-client.js` (renders the real card for each state).
+### Tracking link UI (board task #39, FAv1-F8)
+The public tracking page already worked (board task #5), but there was no way to
+get a link from the app. The Fleet Manager now carries the per-trip control, and
+revocation became **per trip** instead of the global key rotation the original
+design had:
+
+- **Per-trip state (one additive migration).** `Trip.trackLinkVersion` (monotonic
+  revocation counter), `Trip.trackLinkIssuedAt` and `Trip.trackLinkExpiresAt`
+  (`20260925130000_add_track_link_state`, nullable/defaulted — safe on a live DB).
+  The signed token itself stays stateless; the version rides in its `sub`
+  (`<tripId>` for version 0, `<tripId>~<n>` after a revoke), and the public read
+  rejects a token whose version no longer matches the row — a flat `404`, exactly
+  like an unknown id.
+- **Mint / read-back.** `POST` mints and persists the mint parameters (never the
+  token). `GET /api/trips/:id/track-link` recomputes the **identical** token from
+  them — HMAC is deterministic — so the trip detail can show the link after a
+  reload without the server storing it.
+- **Revoke.** `DELETE` increments the version and clears the mint state: every
+  token already handed out for this trip stops verifying, other trips are
+  unaffected, and a fresh mint works again under the new version. The old token
+  never revives.
+- **UI.** The trip detail shows a "Tracking link" panel for `trip:*` holders
+  (owner/dispatcher): the current link in a read-only field with a one-action
+  **Copy link** button, or a **Create tracking link** button, plus **Revoke link**
+  behind a confirm. The `/app/tracking` workspace lists the org's trips with their
+  link state (the API sends only `{ active, expiresAt }` — **never the token**) and
+  offers mint/revoke; a just-minted link appears there with a copy button.
+- **Token exposure.** The token is rendered only on the acting trip's own
+  authenticated surface (and in the mint response). The list/workspace markup
+  never contains it.
+
+Pure logic lives in `app/lib/tracking.js`; the DOM/network half is `app.js`
+(`trackingPanelHtml`, `loadTrackingControl`, `mintTrackingLink`,
+`copyTrackingLink`, `revokeTrackingLink`, and the `/app/tracking` workspace).
+
+Tests: `src/tracking-ui.test.js` in the no-install CI job (state/path/copy
+derivation, the `trip:*` gate, the error mapping, the catalogue keys, and the
+"no token in the list markup" guard) and `test/tracking-link.test.ts`
+(`pnpm test:router`) which drives the real routes against the DB in an isolated
+org: mint `201` → `GET` returns the same URL → anonymous `/track/<token>` `200`
+HTML + `/api/track/<token>` `200` JSON → tampered token `404` → revoke `200` →
+the old link `404` (and `GET` says `link: null`) → a re-mint works while another
+trip's link is untouched, and a driver token gets `403` on all three verbs. The
+scratch harness `scratch/verify-tracking-ui.js` renders the real panel/list
+modules for each role.
 
 ### Delivery timestamps (board tasks #33/#40)
 The on-time KPI needs two timestamps that the schema did not have:

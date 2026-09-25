@@ -59,8 +59,17 @@ test('the driver screen reads the own-only endpoint and nothing else', () => {
   assert.equal(DRIVER.myTripsPath(), '/api/driver/trips');
   assert.match(APP_JS, /request\(DRIVER\.myTripsPath\(\)/, 'app.js uses the shared path');
   // A driver read must never be widened to the org list from this screen.
+  // Bound the scan to the driver section (from `renderMyTrips` to the next
+  // `/* ---` section separator): after the merge with the tracking workspace
+  // (F8, board #39) another section follows, and that workspace is a
+  // managing-role surface that legitimately reads the org trip list.
+  const driverSection = (() => {
+    const after = APP_JS.slice(APP_JS.indexOf('function renderMyTrips'));
+    const nextSection = after.search(/\n  \/\* -{3,}/);
+    return nextSection > -1 ? after.slice(0, nextSection) : after;
+  })();
   assert.ok(
-    !/renderMyTrips[\s\S]*?request\('\/api\/trips'/.test(APP_JS.slice(APP_JS.indexOf('function renderMyTrips'))),
+    !/request\('\/api\/trips'/.test(driverSection),
     'the driver screen never calls /api/trips'
   );
 });
