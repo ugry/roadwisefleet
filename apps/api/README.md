@@ -68,7 +68,8 @@ driver-PWA tour card/checklist/offline queue, Fleet Manager routing/role guard a
 static-serving rules, the Fleet Manager dispatch form (option labels, validation,
 payload and error mapping), trip-list filter validation, trips-view filter/query/CSV
 shaping, the dashboard KPIs/alerts/activity shaping and its view model, user/driver
-credential-field stripping, the delivery-timestamp writer (`deliveredAt` on the
+credential-field stripping, trip read visibility (the `trip:*` org-wide rule vs.
+the driver scope), the delivery-timestamp writer (`deliveredAt` on the
 DELIVERED transition, the optional `plannedAt` on dispatch), driver assign/reassign
 (`trip:assign` gating, driver availability, the same-status timeline event), locale
 resolution and the pilot i18n catalogues) runs on the
@@ -100,10 +101,15 @@ and proves the on-time / pending-pay arithmetic is non-vacuous by creating real 
 inside a transaction that is rolled back, so the pilot is never mutated. It also drives
 the delivery-timestamp writer (board task #66) through the real status-transition path
 and asserts the KPI sample/value move and equal a direct DB query, all inside a rolled-back
-transaction. Finally it drives driver assignment (board task #36) through the real route
-against a throwaway org and proves the before/after driver views — the previous driver is
-refused on the trip and no longer sees it, the new driver does — plus the timeline actor
-and the suspended-driver refusal, deleting its fixtures afterwards.
+transaction. It also proves the trip read isolation (board task #68) with two
+driver tokens and one `trip:*` token: each driver's list contains only their own
+trips, a driver with no trips gets 0 rows, another driver's trip is `404` (never
+`403`), a client-supplied `?driverId=` cannot widen a driver's scope, and the
+owner still reads the whole org. Finally it drives driver assignment (board task #36)
+through the real route against a throwaway org and proves the before/after driver
+views — the previous driver is refused on the trip and no longer sees it, the new
+driver does — plus the timeline actor and the suspended-driver refusal, deleting
+its fixtures afterwards.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -122,8 +128,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /health` | — | liveness |
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
-| `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); driver objects never carry credential fields (board task #63) |
-| `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak |
+| `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); **a caller without `trip:*` (a driver) is narrowed to their own trips — a client-supplied `driverId` cannot widen it** (board task #68); driver objects never carry credential fields (board task #63) |
+| `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required); the optional `plannedAt` (ISO-8601) records the promised delivery time on the order in the same transaction (board task #66) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66), in the same transaction as the status event; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
@@ -178,6 +184,32 @@ read. The schema is unchanged; the fix has two layers, both in
 `findCredentialFields()` returns every credential key path in a payload (empty
 means clean) and backs the DB-backed assertion in
 `apps/api/test/user-payload.test.ts`.
+
+### Trip read isolation (board task #68, UG#38)
+Writes were already correct, but **reads were not**: a driver token held
+`trip:read`, and `GET /api/trips` / `GET /api/trips/:id` were only *org*-scoped,
+so any driver could list every trip in the org and read any other driver's trip
+detail (driver and customer email included).
+
+The rule now lives in `src/trip-visibility.js` (pure, covered by
+`src/trip-visibility.test.js`) and mirrors the write-side rule in
+`auth/permissions.js#canTransitionTrip`:
+
+- only a role holding `trip:*` (owner, dispatcher) reads the whole org —
+  unchanged;
+- every other `trip:read` holder (a driver) is scoped to the trip assigned to
+  them. On the list the route forces the query's `driverId` to the caller's own
+  id (a client-supplied `?driverId=` cannot widen it, and the echoed `filters`
+  shows what was applied); on the detail it passes `driverId` into
+  `getTripDetail`, which adds it to the where clause.
+
+A trip assigned to somebody else is therefore **`404 not_found`**, never `403` —
+a scoped reader must not be able to probe the org for a trip's existence, the
+same rule the org boundary already follows. A scoped reader with no usable
+identity is refused rather than falling back to an unscoped query. The seeded
+accountant holds no `trip:read` at all, so its behaviour is unaffected. The
+DB-backed regression (driver vs driver) is
+`apps/api/test/trip-driver-scope.test.ts`.
 
 ### Documents / POD (board task #3)
 The `Document` model is now used. Uploads are JSON base64 (no multipart
