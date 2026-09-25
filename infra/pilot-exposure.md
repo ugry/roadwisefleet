@@ -27,6 +27,8 @@ Everything terminates on nginx; the upstreams are loopback-only.
 | `/api/waitlist` | `127.0.0.1:8787` | `roadwisefleet-waitlist.service` | **Legacy** waitlist microservice. Exact-match location. |
 | `/pilot/`, `/pilot/*.html` | `127.0.0.1:8080` | `roadwise-api.service` (`@fastify/static`, prefix `/pilot/`) | Non-indexable preview surface. |
 | `/pilot` (no slash) | — | nginx `301` → `/pilot/` | |
+| `/app/`, `/app/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/app.ts`) | **Board #69** — Fleet Manager SPA shell + app assets. Prepared in [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf); **not live yet** (no `/app/` location on the host → 404); lands with the owner reload. |
+| `/app` (no slash) | — | nginx `301` → `/app/` | Board #69. |
 | `/track/<token>` | `127.0.0.1:8080` | `roadwise-api.service` | Public, unauthenticated customer tracking link (board #5). **Not reachable off-host today** — the prod vhost proxies only `/api/` and `/pilot/`; the `location /track/` block is prepared in [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf) and lands with this change. |
 | `/api/*` (except `/api/waitlist`) | `127.0.0.1:8080` | `roadwise-api.service` | Pilot API: `/api/auth/*`, `/api/trips*`, `/api/waitlist` (not reached — see below). |
 | `/health` | — | `404` (nginx) | The API's `/health` is **not** exposed publicly, by design. |
@@ -77,7 +79,7 @@ reading the host config.
 | Host | elilavps2 |
 | Site file | `/etc/nginx/sites-available/roadwisefleet.conf` (root:root, `0644`) |
 | Enabled | `sites-enabled/roadwisefleet.conf` → symlink to the above |
-| Header snippets | `/etc/nginx/snippets/roadwisefleet-headers-{static,pilot,api}.conf` |
+| Header snippets | `/etc/nginx/snippets/roadwisefleet-headers-{static,pilot,app,api}.conf` |
 | Rate-limit zones | `/etc/nginx/conf.d/roadwisefleet-limits.conf` (http context) |
 | Review copies | [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf), [`nginx/snippets/`](./nginx/snippets/), [`nginx/conf.d/`](./nginx/conf.d/) |
 | TLS | Let's Encrypt, `CN=roadwisefleet.com` **with www in the SAN**, managed by certbot |
@@ -100,6 +102,7 @@ sudo diff -u /etc/nginx/sites-available/roadwisefleet.conf infra/nginx/roadwisef
 # 2. install snippets + (optional) rate-limit zones FIRST
 sudo install -m 0644 infra/nginx/snippets/roadwisefleet-headers-static.conf /etc/nginx/snippets/
 sudo install -m 0644 infra/nginx/snippets/roadwisefleet-headers-pilot.conf  /etc/nginx/snippets/
+sudo install -m 0644 infra/nginx/snippets/roadwisefleet-headers-app.conf    /etc/nginx/snippets/   # board #69
 sudo install -m 0644 infra/nginx/snippets/roadwisefleet-headers-api.conf    /etc/nginx/snippets/
 sudo install -m 0644 infra/nginx/conf.d/roadwisefleet-limits.conf           /etc/nginx/conf.d/
 
@@ -241,11 +244,13 @@ only needs the API restart, not `deploy.sh`.
 
 `infra/nginx/conf.d/roadwisefleet-limits.conf` defines per-IP zones
 (`rwf_waitlist` 5 r/m, `rwf_api` 30 r/s, `rwf_pilot` 20 r/s, `limit_req_status 429`) and
-the four `limit_req zone=... burst=... nodelay;` lines in
-`nginx/roadwisefleet.conf` (`/api/waitlist`, `/pilot/`, `/track/`, `/api/`) are now
-**uncommented in the repo** (board #45). The live host is unchanged — this lands
-in the same owner-approved reload that carries the #7 headers/www→apex change
-and the #41 `client_max_body_size` line, because one reload applies all three.
+the five `limit_req zone=... burst=... nodelay;` lines in
+`nginx/roadwisefleet.conf` (`/api/waitlist`, `/pilot/`, `/app/`, `/track/`, `/api/`)
+are now **uncommented in the repo** (boards #45 and #69; the `/app/` block itself
+is board #69). The live host is unchanged — this lands in the same
+owner-approved reload that carries the #7 headers/www→apex change, the #41
+`client_max_body_size` line and the #69 `/app/` block, because one reload
+applies them all.
 
 Install order (strict — the zones file first, or `nginx -t` refuses the reload
 with `unknown limit_req_zone`):
@@ -257,7 +262,7 @@ with `unknown limit_req_zone`):
 Run `bash infra/checks/nginx-limits-preflight.sh` first: it verifies in the repo
 that every enabled `limit_req zone=X` has a declared `limit_req_zone`, checks the
 live copies when run on the host, and prints the exact install order. Rollback is
-re-commenting the four lines and reloading.
+re-commenting the five lines and reloading.
 
 **Why both nginx and the app limiter exist (decision, board #45).** The app
 limiter in `services/waitlist/server.js` was *fixed*, not removed:
@@ -320,6 +325,19 @@ it is derived from the actual resource inventory:
 * `fetch()` targets are same-origin → `connect-src 'self'`;
 * no `eval()` / `new Function()` / `document.write()` → no `'unsafe-eval'`.
 
+**Fleet Manager app (`/app/`) — board #69.** The app gets its own snippet
+([`nginx/snippets/roadwisefleet-headers-app.conf`](./nginx/snippets/roadwisefleet-headers-app.conf)),
+deliberately **not** the pilot one: the app pages load only same-origin
+scripts/styles and declare **no** inline `<script>`/`<style>`, so
+`script-src 'self'` and `style-src 'self'` are enough (no `'unsafe-inline'`).
+`infra/checks/app-csp-check.sh` asserts this in CI (job `app-csp-check`): it
+fails if the policy omits `'self'` **or** if `'unsafe-inline'` is present while
+the app still declares no inline code (the "reused the pilot snippet" mistake),
+and it also catches a future inline script added under a strict policy. Same
+lockdown tokens as the pilot (`default-src 'none'`, `base-uri 'none'`,
+`form-action 'self'`, `frame-ancestors 'none'`, `connect-src 'self'`,
+`X-Robots-Tag: noindex, nofollow`). Inert until the owner reload (O10).
+
 **Removing `'unsafe-inline'`** (the real XSS win) needs per-page nonces or
 hashes, which means touching the page generation/serving path — the developer's
 area, tracked in §9. `preload` on HSTS is deliberately not set: it is a
@@ -338,3 +356,4 @@ hard-to-reverse, policy-level decision and needs a subdomain audit first.
 | O7 | `deploy.sh` has no rollback and references a hardcoded SSH key path under another user's home; the key itself is correctly outside the repo. | ops (rollback documented §4) |
 | O8 | Rootful podman for pg/redis — revisit before production (see `pilot-db.md` §7). | ops + owner |
 | O9 | `AUTH_SECRET` / `ADMIN_TOKEN` are pilot values; rotate before real use (see `pilot-api.md` §7). | owner |
+| O10 | **Board #69 / GitHub #48:** `/app/` (Fleet Manager) is not exposed — no `/app/` location in the live nginx, so it 404s. Config + app-specific CSP snippet are in the repo (PR pending); needs the owner nginx window. Proof after: `curl -sI https://roadwisefleet.com/app/` → 200, `/app/app.js` → 200, `/pilot/` unchanged, no CSP errors in the browser console. | ops (config) / owner (reload) |

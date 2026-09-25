@@ -148,6 +148,23 @@ jobs:
       - name: Check the repo policy against the pilot assets
         run: bash infra/checks/pilot-csp-check.sh
 
+  app-csp-check:
+    name: App CSP vs. app assets (#69)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #69 / GitHub #48: /app/ gets its own policy, not the pilot one.
+      # This rejects a PR whose app policy omits script-src 'self' (the app
+      # shell would never boot, as in board #65/#39), one that reuses the pilot
+      # snippet's 'unsafe-inline' while the app declares no inline code, and one
+      # that "boots" by relaxing the lockdown. The self-test proves each.
+      - name: Self-test the checker (fixtures, no host, no network)
+        run: bash infra/checks/app-csp-check.sh --self-test
+
+      - name: Check the repo policy against the app assets
+        run: bash infra/checks/app-csp-check.sh
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'
