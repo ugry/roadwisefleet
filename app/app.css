@@ -609,3 +609,48 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
 }
 .doc-upload button.primary { width: auto; padding: 11px 18px; }
 .doc-status { font-size: 13px; font-weight: 600; }
+
+.track-body {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  max-width: 46rem;
+}
+.track-state { margin: 0 0 10px; font-weight: 600; }
+.track-state.active { color: oklch(0.33 0.09 150); }
+.track-state.none { color: var(--muted); }
+.track-link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.track-link-row input.track-url {
+  flex: 1 1 22rem;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.track-body .form-actions,
+.track-result .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.track-body button.primary,
+.track-result button.primary { width: auto; padding: 11px 18px; }
+.track-state-cell { white-space: nowrap; }
+.track-state-cell.active { color: oklch(0.33 0.09 150); }
+.track-actions { white-space: nowrap; }
+.track-actions button { padding: 6px 10px; }
+.track-result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 0 0 16px;
+}

@@ -10,10 +10,15 @@
  *
  *   trackSecret = HMAC-SHA256(key = AUTH_SECRET, msg = "roadwisefleet/track-link/v1")
  *
- * Revocation: tokens are stateless, so a link is revoked by rotating the signing
- * secret — either `AUTH_SECRET` itself or the dedicated `TRACK_LINK_SECRET`
- * override. Every outstanding link stops verifying immediately; no table, no
- * server-side session store (same trade-off as session tokens, documented).
+ * Revocation has two levels (board task #39, F8):
+ *   - global: rotate the signing secret — either `AUTH_SECRET` itself or the
+ *     dedicated `TRACK_LINK_SECRET` override. Every outstanding link dies.
+ *   - per trip: the token also carries the trip's `trackLinkVersion`. Revoking
+ *     one trip increments that counter, so every token signed for an older
+ *     version stops verifying while other trips are untouched. The mint
+ *     parameters (`trackLinkIssuedAt`/`trackLinkExpiresAt`) are persisted on the
+ *     trip so the identical token can be recomputed for the trip-detail GET —
+ *     the MAC is deterministic.
  *
  * The public payload is deliberately small and PII-free: route (origin /
  * destination / cargo), current status, the status timeline, the last known GPS
@@ -34,6 +39,12 @@ export const DEFAULT_TRACK_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /** Domain-separation context; change it only with a token version bump. */
 const DERIVE_CONTEXT = 'roadwisefleet/track-link/v1';
+
+/**
+ * Separator between the trip id and the per-trip revocation version in the
+ * token's `sub`. Trip ids are cuids (no `~`), so this is unambiguous.
+ */
+export const TRACK_LINK_VERSION_SEP = '~';
 
 /** Permission required to mint a tracking link (owner / dispatcher). */
 export const TRACK_LINK_PERMISSION = 'trip:*';
@@ -65,12 +76,43 @@ export function deriveTrackSecret(authSecret, { override } = {}) {
 }
 
 /**
- * Mint a tracking token for one trip.
- * @param {{ tripId?: unknown, authSecret?: unknown, secret?: unknown, ttlSeconds?: unknown, now?: number }} [args]
- * @returns {{ token: string, expiresAt: string, ttlSeconds: number }}
+ * Encode the token `sub`: the trip id, plus the revocation version when it is
+ * non-zero (board task #39). Version 0 keeps the original `sub` byte-for-byte,
+ * so links minted before the version existed still verify.
+ * @param {unknown} tripId
+ * @param {unknown} version
+ * @returns {string}
+ */
+export function encodeTrackSub(tripId, version) {
+  const id = typeof tripId === 'string' ? tripId.trim() : '';
+  const v = Number.isFinite(version) && /** @type {number} */ (version) > 0
+    ? Math.floor(/** @type {number} */ (version))
+    : 0;
+  return v > 0 ? `${id}${TRACK_LINK_VERSION_SEP}${v}` : id;
+}
+
+/**
+ * Decode a token `sub` back into `{ tripId, version }`. An unversioned `sub`
+ * (legacy token) yields version 0. Never throws on untrusted input.
+ * @param {unknown} sub
+ * @returns {{ tripId: string, version: number }}
+ */
+export function decodeTrackSub(sub) {
+  const raw = typeof sub === 'string' ? sub : '';
+  const idx = raw.lastIndexOf(TRACK_LINK_VERSION_SEP);
+  if (idx <= 0 || idx === raw.length - 1) return { tripId: raw, version: 0 };
+  const version = Number.parseInt(raw.slice(idx + 1), 10);
+  if (!Number.isFinite(version) || version < 0) return { tripId: raw, version: 0 };
+  return { tripId: raw.slice(0, idx), version };
+}
+
+/**
+ * Mint a tracking token for one trip at a given revocation version.
+ * @param {{ tripId?: unknown, version?: unknown, authSecret?: unknown, secret?: unknown, ttlSeconds?: unknown, now?: number }} [args]
+ * @returns {{ token: string, expiresAt: string, ttlSeconds: number, version: number }}
  * @throws {TypeError} when `tripId` is missing
  */
-export function signTrackLink({ tripId, authSecret, secret, ttlSeconds, now } = {}) {
+export function signTrackLink({ tripId, version, authSecret, secret, ttlSeconds, now } = {}) {
   if (typeof tripId !== 'string' || tripId.trim().length === 0) {
     throw new TypeError('tripId is required');
   }
@@ -80,20 +122,33 @@ export function signTrackLink({ tripId, authSecret, secret, ttlSeconds, now } = 
       : DEFAULT_TRACK_TTL_SECONDS;
   const issuedAt = typeof now === 'number' ? now : Math.floor(Date.now() / 1000);
   const key = deriveTrackSecret(authSecret, { override: secret });
-  const token = signToken({ sub: tripId.trim() }, key, { ttlSeconds: ttl, now: issuedAt });
-  return { token, expiresAt: new Date((issuedAt + ttl) * 1000).toISOString(), ttlSeconds: ttl };
+  const v = Number.isFinite(version) && /** @type {number} */ (version) > 0
+    ? Math.floor(/** @type {number} */ (version))
+    : 0;
+  const token = signToken({ sub: encodeTrackSub(tripId.trim(), v) }, key, {
+    ttlSeconds: ttl,
+    now: issuedAt,
+  });
+  return {
+    token,
+    expiresAt: new Date((issuedAt + ttl) * 1000).toISOString(),
+    ttlSeconds: ttl,
+    version: v,
+  };
 }
 
 /**
  * Verify a tracking token. Never throws on untrusted input.
  *
  * Rejects: malformed tokens, a bad signature, an expired token, a token signed
- * with another secret (i.e. a revoked/rotated link), and — defensively — a
- * session token, whose payload always carries `org`/`role`/`name`.
+ * with another secret (i.e. a rotated/globally revoked link), and — defensively
+ * — a session token, whose payload always carries `org`/`role`/`name`. The
+ * returned `version` is checked against the trip's current
+ * `trackLinkVersion` by the caller (per-trip revocation).
  *
  * @param {unknown} token
  * @param {{ authSecret?: unknown, secret?: unknown, now?: number }} [opts]
- * @returns {{ tripId: string, iat: number, exp: number } | null}
+ * @returns {{ tripId: string, version: number, iat: number, exp: number } | null}
  */
 export function verifyTrackLink(token, { authSecret, secret, now } = {}) {
   let key;
@@ -108,7 +163,9 @@ export function verifyTrackLink(token, { authSecret, secret, now } = {}) {
   // A session token must never verify as a tracking link (different key already
   // prevents it; this is defence in depth if a key is ever shared by mistake).
   if (payload.org !== null || payload.role !== null || payload.name !== null) return null;
-  return { tripId: payload.sub, iat: payload.iat, exp: payload.exp };
+  const { tripId, version } = decodeTrackSub(payload.sub);
+  if (!tripId) return null;
+  return { tripId, version, iat: payload.iat, exp: payload.exp };
 }
 
 /**
@@ -123,6 +180,79 @@ export function publicTrackUrl(baseUrl, token) {
   const path = `/track/${encodeURIComponent(String(token ?? ''))}`;
   const base = typeof baseUrl === 'string' ? baseUrl.trim().replace(/\/+$/, '') : '';
   return base ? base + path : path;
+}
+
+/**
+ * Coerce a `Date | string | number | null` to epoch milliseconds (or null).
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+function toMillis(value) {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.length > 0) {
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : null;
+  }
+  return null;
+}
+
+/**
+ * Is the trip's stored tracking link still live? A link is live when it was
+ * minted (`trackLinkIssuedAt`) and has not reached `trackLinkExpiresAt`. The
+ * revocation version is checked separately, inside the token.
+ * @param {any} trip
+ * @param {{ now?: number }} [opts] `now` in epoch milliseconds
+ * @returns {boolean}
+ */
+export function isTrackLinkActive(trip, { now } = {}) {
+  const issued = toMillis(trip?.trackLinkIssuedAt);
+  const expires = toMillis(trip?.trackLinkExpiresAt);
+  if (issued === null || expires === null) return false;
+  const at = typeof now === 'number' ? now : Date.now();
+  return expires > at;
+}
+
+/**
+ * The link state the API exposes on a trip row: never the token, only whether a
+ * live link exists and when it expires. Used by the trips list so the UI can
+ * show which trips already have a shareable link (board task #39).
+ * @param {any} trip
+ * @param {{ now?: number }} [opts]
+ * @returns {{ active: boolean, expiresAt: string | null }}
+ */
+export function trackingSummary(trip, opts) {
+  if (!isTrackLinkActive(trip, opts)) return { active: false, expiresAt: null };
+  const expires = toMillis(trip.trackLinkExpiresAt);
+  return { active: true, expiresAt: expires === null ? null : new Date(expires).toISOString() };
+}
+
+/**
+ * Recompute the link a trip already has, from the mint parameters persisted on
+ * the row. HMAC signing is deterministic, so this is byte-for-byte the token
+ * that was handed out — which is what makes "visible in the trip detail" work
+ * without storing the token itself. Returns `null` when no live link exists.
+ * @param {any} trip
+ * @param {{ authSecret?: unknown, secret?: unknown, now?: number }} [opts]
+ * @returns {{ token: string, expiresAt: string, ttlSeconds: number, version: number } | null}
+ */
+export function reconstructTrackLink(trip, { authSecret, secret, now } = {}) {
+  if (!isTrackLinkActive(trip, { now })) return null;
+  const issuedMs = toMillis(trip?.trackLinkIssuedAt);
+  const expiresMs = toMillis(trip?.trackLinkExpiresAt);
+  if (issuedMs === null || expiresMs === null || expiresMs <= issuedMs) return null;
+  const versionRaw = Number(trip?.trackLinkVersion);
+  const version = Number.isFinite(versionRaw) && versionRaw > 0 ? Math.floor(versionRaw) : 0;
+  const issuedAtSec = Math.floor(issuedMs / 1000);
+  const ttlSeconds = Math.max(1, Math.round((expiresMs - issuedMs) / 1000));
+  return signTrackLink({
+    tripId: trip.id,
+    version,
+    authSecret,
+    secret,
+    ttlSeconds,
+    now: issuedAtSec,
+  });
 }
 
 /**
@@ -205,16 +335,27 @@ export function shapeTrackedTrip(trip, { podAvailable = false } = {}) {
  * Load one trip by id and shape it for the public tracking page. There is no
  * org scoping here by design: the signed token **is** the capability, and it is
  * bound to exactly this trip id.
+ *
+ * Per-trip revocation (board task #39): pass the `version` the token carries.
+ * A trip whose `trackLinkVersion` has moved on (the link was revoked) reads as
+ * `not_found`, exactly like an unknown id — the public surface never hints that
+ * the trip exists.
  * @param {TrackLinkClient} prisma
- * @param {{ tripId?: unknown }} [args]
+ * @param {{ tripId?: unknown, version?: number }} [args]
  * @returns {Promise<{ ok: true, trip: any } | { ok: false, error: 'not_found' }>}
  */
-export async function loadTrackedTrip(prisma, { tripId } = {}) {
+export async function loadTrackedTrip(prisma, { tripId, version } = {}) {
   const id = typeof tripId === 'string' ? tripId.trim() : '';
   if (!id) return { ok: false, error: 'not_found' };
 
   const trip = await prisma.trip.findFirst({ where: { id }, include: trackTripInclude() });
   if (!trip) return { ok: false, error: 'not_found' };
+
+  if (typeof version === 'number') {
+    const currentRaw = Number(trip.trackLinkVersion);
+    const current = Number.isFinite(currentRaw) && currentRaw > 0 ? Math.floor(currentRaw) : 0;
+    if (current !== version) return { ok: false, error: 'not_found' };
+  }
 
   const podAvailable = await hasPodDocument(prisma, { tripId: id });
   return { ok: true, trip: shapeTrackedTrip(trip, { podAvailable }) };

@@ -9,6 +9,7 @@ import { assignDriver } from '../trip-assignment.js';
 import { getTripDetail } from '../trip-detail.js';
 import { tripReadScope } from '../trip-visibility.js';
 import { parseTripFilters, serializeTripFilters } from '../trip-filters.js';
+import { trackingSummary } from '../track-link.js';
 import { stripCredentialFields } from '../user-payload.js';
 
 /*
@@ -63,7 +64,14 @@ export async function tripRoutes(app: FastifyInstance) {
     const trips = await listOrgTrips(prisma, { orgId: user.orgId, filters });
     // Board task #63: belt-and-braces serialiser at the route boundary — even a
     // future `include` on a user relation can never leak credential fields.
-    return reply.send(stripCredentialFields({ trips, filters: serializeTripFilters(filters) }));
+    // Board task #39: each row also carries its tracking-link state (a boolean
+    // and an expiry — never the token), so the tracking workspace can show which
+    // trips already have a live shareable link.
+    const rows = trips.map((trip: any) => {
+      const { trackLinkVersion, trackLinkIssuedAt, trackLinkExpiresAt, ...rest } = trip;
+      return { ...rest, tracking: trackingSummary(trip) };
+    });
+    return reply.send(stripCredentialFields({ trips: rows, filters: serializeTripFilters(filters) }));
   });
 
   // Trip detail (board task #2): the drawer payload — order/customer, driver,

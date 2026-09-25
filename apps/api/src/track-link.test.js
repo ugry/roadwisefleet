@@ -10,11 +10,16 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_TRACK_TTL_SECONDS,
+  decodeTrackSub,
   deriveTrackSecret,
+  encodeTrackSub,
+  isTrackLinkActive,
   loadTrackedTrip,
   publicTrackUrl,
+  reconstructTrackLink,
   shapeTrackedTrip,
   signTrackLink,
+  trackingSummary,
   trackTripInclude,
   verifyTrackLink,
 } from './track-link.js';
@@ -203,4 +208,115 @@ test('the public read never loads driver, customer or expense relations', () => 
   for (const forbidden of ['driver', 'customer', 'expenses', 'settlement', 'documents']) {
     assert.equal(include.includes(forbidden), false, `read model must not include ${forbidden}`);
   }
+});
+
+// --- per-trip revocation and stored state (board task #39, F8) ---------------
+
+test('a versioned token round-trips and keeps the trip id intact', () => {
+  const link = signTrackLink({ tripId: 'trip-1', version: 3, authSecret: SECRET, now: NOW });
+  assert.equal(link.version, 3);
+  const verified = verifyTrackLink(link.token, { authSecret: SECRET, now: NOW + 10 });
+  assert.equal(verified.tripId, 'trip-1');
+  assert.equal(verified.version, 3);
+  // An unversioned token stays version 0 and its `sub` is the bare trip id.
+  const legacy = signTrackLink({ tripId: 'trip-1', authSecret: SECRET, now: NOW });
+  assert.equal(legacy.version, 0);
+  assert.equal(verifyTrackLink(legacy.token, { authSecret: SECRET, now: NOW + 1 }).version, 0);
+  const sub = JSON.parse(Buffer.from(legacy.token.split('.')[1], 'base64url').toString('utf8')).sub;
+  assert.equal(sub, 'trip-1');
+});
+
+test('encodeTrackSub / decodeTrackSub are inverse and reject junk safely', () => {
+  assert.equal(encodeTrackSub('t1', 0), 't1');
+  assert.equal(encodeTrackSub('t1', undefined), 't1');
+  assert.equal(encodeTrackSub('t1', -2), 't1');
+  assert.equal(encodeTrackSub('t1', 2.9), 't1~2');
+  assert.deepEqual(decodeTrackSub('t1'), { tripId: 't1', version: 0 });
+  assert.deepEqual(decodeTrackSub('t1~7'), { tripId: 't1', version: 7 });
+  // Malformed versions fall back to "legacy, version 0" rather than throwing.
+  assert.deepEqual(decodeTrackSub('t1~x'), { tripId: 't1~x', version: 0 });
+  assert.deepEqual(decodeTrackSub('t1~'), { tripId: 't1~', version: 0 });
+  assert.deepEqual(decodeTrackSub(null), { tripId: '', version: 0 });
+});
+
+test('a token for an older version is not found after the trip is revoked', async () => {
+  const token = signTrackLink({ tripId: 'trip-1', version: 0, authSecret: SECRET, now: NOW });
+  const verified = verifyTrackLink(token.token, { authSecret: SECRET, now: NOW + 5 });
+  const baseTrip = {
+    id: 'trip-1',
+    status: 'IN_TRANSIT',
+    order: { origin: 'A', destination: 'B', cargo: null },
+    statusEvents: [],
+    gpsPings: [],
+  };
+  const client = (trackLinkVersion) => ({
+    trip: { findFirst: async () => ({ ...baseTrip, trackLinkVersion }) },
+    document: { count: async () => 0 },
+  });
+
+  // Same version -> the token still resolves.
+  assert.equal((await loadTrackedTrip(client(0), { tripId: verified.tripId, version: verified.version })).ok, true);
+  // Revoked (version bumped) -> indistinguishable from an unknown id.
+  assert.deepEqual(
+    await loadTrackedTrip(client(1), { tripId: verified.tripId, version: verified.version }),
+    { ok: false, error: 'not_found' },
+  );
+  // A fresh token at the new version works again.
+  const fresh = verifyTrackLink(
+    signTrackLink({ tripId: 'trip-1', version: 1, authSecret: SECRET, now: NOW + 6 }).token,
+    { authSecret: SECRET, now: NOW + 7 },
+  );
+  assert.equal((await loadTrackedTrip(client(1), { tripId: fresh.tripId, version: fresh.version })).ok, true);
+  // Omitting the version keeps the old (version-unaware) callers working.
+  assert.equal((await loadTrackedTrip(client(1), { tripId: 'trip-1' })).ok, true);
+});
+
+test('reconstructTrackLink recomputes the identical token from the stored state', () => {
+  const issuedAt = new Date(NOW * 1000);
+  const expiresAt = new Date((NOW + 3600) * 1000);
+  const trip = { id: 'trip-1', trackLinkVersion: 2, trackLinkIssuedAt: issuedAt, trackLinkExpiresAt: expiresAt };
+
+  const rebuilt = reconstructTrackLink(trip, { authSecret: SECRET, now: (NOW + 10) * 1000 });
+  const direct = signTrackLink({
+    tripId: 'trip-1',
+    version: 2,
+    authSecret: SECRET,
+    ttlSeconds: 3600,
+    now: NOW,
+  });
+  assert.equal(rebuilt.token, direct.token, 'the recomputed link must be byte-for-byte the minted one');
+  assert.equal(rebuilt.expiresAt, direct.expiresAt);
+  assert.equal(rebuilt.version, 2);
+
+  // Expired / never minted / half-written state -> no link.
+  const later = (NOW + 7200) * 1000;
+  assert.equal(reconstructTrackLink(trip, { authSecret: SECRET, now: later }), null);
+  assert.equal(reconstructTrackLink({ id: 'trip-1' }, { authSecret: SECRET }), null);
+  assert.equal(
+    reconstructTrackLink({ id: 'trip-1', trackLinkIssuedAt: issuedAt }, { authSecret: SECRET, now: NOW * 1000 }),
+    null,
+  );
+  assert.equal(
+    reconstructTrackLink({ id: 't1', trackLinkIssuedAt: expiresAt, trackLinkExpiresAt: issuedAt }, { authSecret: SECRET, now: NOW * 1000 }),
+    null,
+  );
+});
+
+test('isTrackLinkActive / trackingSummary use the stored expiry without leaking a token', () => {
+  const issuedAt = new Date(NOW * 1000);
+  const expiresAt = new Date((NOW + 60) * 1000);
+  const trip = { id: 'trip-1', trackLinkIssuedAt: issuedAt, trackLinkExpiresAt: expiresAt };
+
+  assert.equal(isTrackLinkActive(trip, { now: NOW * 1000 }), true);
+  assert.equal(isTrackLinkActive(trip, { now: (NOW + 59) * 1000 }), true);
+  assert.equal(isTrackLinkActive(trip, { now: (NOW + 60) * 1000 }), false);
+
+  assert.deepEqual(trackingSummary(trip, { now: NOW * 1000 }), {
+    active: true,
+    expiresAt: expiresAt.toISOString(),
+  });
+  assert.deepEqual(trackingSummary(trip, { now: (NOW + 60) * 1000 }), { active: false, expiresAt: null });
+  assert.deepEqual(trackingSummary({ id: 'trip-2' }, { now: NOW * 1000 }), { active: false, expiresAt: null });
+  // The summary is exactly two fields: there is no `token` to leak.
+  assert.deepEqual(Object.keys(trackingSummary(trip, { now: NOW * 1000 })).sort(), ['active', 'expiresAt']);
 });
