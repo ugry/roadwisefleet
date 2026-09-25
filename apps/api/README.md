@@ -641,6 +641,49 @@ harness `scratch/verify-documents-ui.js` renders the real panel module for each
 role (checklist/gate present; upload + verify/reject for a managing role only;
 the over-limit refusal message).
 
+### Driver client (board task #38, FAv1-F7a)
+`/app/my-trips` is the driver's screen, built on the same shared rules as the
+pilot PWA (`pilot/lib/driver-core.js`) and the documents module
+(`app/lib/documents.js`):
+
+- **Own trips only.** The screen reads `GET /api/driver/trips` (the token scopes
+  the rows; board #68) and never the org list. The pure view model exposes the
+  single path (`app/lib/driver.js#myTripsPath`), so there is no second literal
+  to drift.
+- **One tap per legal status.** `statusActions` mirrors `nextLegalStatuses` and
+  flags the irreversible one: `DELIVERED` carries the confirm key
+  (`driver.confirm.DELIVERED`, shown through `window.confirm`) and a rejected
+  transition is a message, never a silent no-op.
+- **POD gate.** `POD_UPLOADED` stays visible but **disabled** with the reason
+  (`driver.podGate`) until `podSatisfied` is true — the API's `pod_required` gate
+  and the UI agree because both read the shared core.
+- **Capture with GPS + timestamp.** A camera input (`capture="environment"`)
+  reads the real file; `capturedAt` is always set and a best-effort
+  `navigator.geolocation` fix is attached when it is usable
+  (`normalizeCapture` / `isUsableFix`). A missing or coarse fix is stated, not
+  invented.
+- **Over-limit photos (owner directive on #38 / #41).** The size is checked
+  **before any request** (`documents.js#validateUpload`, 10 MiB cap) and the
+  driver gets `docs.error.tooLarge` = *"Photo is {size} — the maximum is {max}.
+  Choose a smaller file."* The API's `400 file_too_large` **and** a proxy `413`
+  HTML page map to `driver.photo.tooLargeServer` with the limit and the remedy —
+  so neither a white screen nor raw JSON can reach the driver, and no request the
+  server would reject is ever sent.
+- **Offline queue.** A queued change is a `driver-core` queue item; each id is
+  stable (`queueId`), `enqueue` refuses a duplicate and `applySyncResults`
+  removes what it sent. Reconnecting fires one guarded sync (`syncing`), so the
+  same change cannot be replayed twice — the count of queued items before/after
+  is the proof. The queue lives in `localStorage`; if a capture would not fit the
+  storage budget the driver is told to reconnect and send it now instead of
+  losing it.
+
+Pure logic: `app/lib/driver.js` (injects the shared core and the document rules —
+it restates neither). DOM/network half: `app.js` (`renderMyTrips`,
+`sendDriverStatus`, `handleDriverPhoto`, `syncDriverQueue`). Tests:
+`src/driver-client.test.js` in the no-install CI job (role gate, own-only path,
+the confirm/gate flags, the delegated checklist, the over-limit message, the
+server/proxy mapping, the queue dedupe/idempotent sync) and the scratch harness
+`scratch/verify-driver-client.js` (renders the real card for each state).
 ### Tracking link UI (board task #39, FAv1-F8)
 The public tracking page already worked (board task #5), but there was no way to
 get a link from the app. The Fleet Manager now carries the per-trip control, and
