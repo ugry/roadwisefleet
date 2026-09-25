@@ -16,6 +16,12 @@
  * client): the lookup filters on `{ id, orgId }`, so a trip in another org is
  * indistinguishable from an unknown id — both are `not_found` (404).
  *
+ * Read isolation (board task #68): when the caller is a scoped reader (a driver,
+ * not `trip:*`), the route passes the caller's `driverId` and the lookup adds it
+ * to the where clause. A trip assigned to somebody else is therefore
+ * indistinguishable from an unknown id — `not_found` (404), never a 403 that
+ * would leak its existence.
+ *
  * Read-only: nothing in this module writes.
  */
 
@@ -126,6 +132,11 @@ export function shapeTripDetail(trip) {
     id: ev.id,
     from: ev.fromStatus,
     to: ev.toStatus,
+    // Board task #36 (F5): a driver reassignment keeps the current status, so
+    // its event has `from === to`. That is the only same-status event the API
+    // writes, and it is what the timeline renders as "reassigned" instead of a
+    // no-op transition. A normal lifecycle move always changes the status.
+    kind: ev.fromStatus === ev.toStatus ? 'reassignment' : 'status',
     at: ev.happenedAt,
     actor: ev.actor ? { id: ev.actor.id, name: ev.actor.name } : null,
   }));
@@ -182,17 +193,27 @@ export function shapeTripDetail(trip) {
  * Load one trip in the caller's org and shape it for the API. A trip in another
  * org (or an unknown id) returns `{ ok: false, error: 'not_found' }` — never a
  * leak of existence.
+ *
+ * Board task #68: pass `driverId` to narrow a scoped reader (a driver) to their
+ * own trip. A trip assigned to somebody else then falls out of the same
+ * `not_found` path — 404, never 403.
  * @param {TripDetailClient} prisma
- * @param {{ orgId?: string | null, tripId?: string | null }} args
+ * @param {{ orgId?: string | null, tripId?: string | null, driverId?: string | null }} args
  * @returns {Promise<{ ok: true, trip: any } | { ok: false, error: 'no_org' | 'not_found' }>}
  */
-export async function getTripDetail(prisma, { orgId, tripId }) {
+export async function getTripDetail(prisma, { orgId, tripId, driverId }) {
   if (!orgId) return { ok: false, error: 'no_org' };
   const id = typeof tripId === 'string' ? tripId.trim() : '';
   if (!id) return { ok: false, error: 'not_found' };
 
+  /** @type {Record<string, unknown>} */
+  const where = { id, orgId };
+  if (typeof driverId === 'string' && driverId.length > 0) {
+    where.driverId = driverId;
+  }
+
   const trip = await prisma.trip.findFirst({
-    where: { id, orgId },
+    where,
     include: tripDetailInclude(),
   });
   if (!trip) return { ok: false, error: 'not_found' };
