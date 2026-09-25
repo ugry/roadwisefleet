@@ -477,6 +477,31 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
 .dispatch-form .form-actions .helper { margin: 0; }
 .dispatch-form button.primary { width: auto; padding: 11px 18px; }
 
+/* ------------------------------------------------ assign driver (F5) ---
+ * Board task #36: the trip-detail driver control reuses the dispatch form's
+ * card look. The reassignment timeline entry is marked so a same-status event
+ * does not read as a lifecycle move.
+ */
+.assign-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  max-width: 36rem;
+}
+.assign-form .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.assign-form .form-actions .helper { margin: 0; }
+.assign-form button.primary { width: auto; padding: 11px 18px; }
+.timeline li.tl-reassign::before { border-color: var(--accent-deep); }
+.timeline li.tl-reassign .tl-what { color: var(--accent-deep); }
+
 /* 375px: one column, navigation becomes a horizontal strip. */
 @media (max-width: 900px) {
   .layout { grid-template-columns: minmax(0, 1fr); }

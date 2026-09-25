@@ -9,6 +9,12 @@
  *   invalid_*          -> 400 (bad status / illegal transition / bad input)
  *   driver_not_found,
  *   truck_not_found    -> 400 (referenced row does not exist in the org)
+ *
+ * Assignment conflicts (board task #36, FAv1-F5) are 409: the request is
+ * well-formed but the trip/driver cannot be combined as asked—
+ *   trip_closed        the trip's lifecycle has ended
+ *   already_assigned   that driver already has the trip
+ *   driver_unavailable the driver is locked/suspended (or not a driver)
  */
 
 /**
@@ -22,6 +28,10 @@ export function statusForError(error) {
     case 'not_found':
     case 'order_not_found':
       return 404;
+    case 'trip_closed':
+    case 'already_assigned':
+    case 'driver_unavailable':
+      return 409;
     default:
       return 400;
   }

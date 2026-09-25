@@ -17,3 +17,9 @@ test('statusForError maps missing rows to 404 and bad input to 400', () => {
   assert.equal(statusForError('truck_not_found'), 400);
   assert.equal(statusForError('something_unknown'), 400);
 });
+
+test('statusForError maps assignment conflicts to 409 (board task #36)', () => {
+  assert.equal(statusForError('trip_closed'), 409);
+  assert.equal(statusForError('already_assigned'), 409);
+  assert.equal(statusForError('driver_unavailable'), 409);
+});

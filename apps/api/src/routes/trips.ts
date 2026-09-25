@@ -5,6 +5,7 @@ import { requireAuth } from '../auth/guard.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
 import { createTrip, listDriverTrips, listOrgTrips, transitionTrip } from '../trips-core.js';
+import { assignDriver } from '../trip-assignment.js';
 import { getTripDetail } from '../trip-detail.js';
 import { parseTripFilters, serializeTripFilters } from '../trip-filters.js';
 import { stripCredentialFields } from '../user-payload.js';
@@ -104,6 +105,34 @@ export async function tripRoutes(app: FastifyInstance) {
       return reply.code(statusForError(result.error)).send({ error: result.error });
     }
     return reply.send({ trip: result.trip });
+  });
+
+  // Driver assignment / reassignment (board task #36, F5). Owners and
+  // dispatchers hold `trip:*` and may move any trip in their org; a driver does
+  // not hold `trip:assign` and is refused (403). The change keeps the trip's
+  // status and is recorded as a status event naming the acting user, so it shows
+  // up on the trip timeline.
+  app.post('/trips/:id/assign', { preHandler: auth }, async (req, reply) => {
+    const user = req.user;
+    if (!user?.orgId) return reply.code(403).send({ error: 'no_org' });
+    const { id } = req.params as { id: string };
+    const permissions = await loadRolePermissions(prisma, user.roleId);
+    const result = await assignDriver(prisma, {
+      orgId: user.orgId,
+      tripId: id,
+      body: req.body,
+      actor: { userId: user.id, permissions },
+    });
+    if (!result.ok) {
+      return reply
+        .code(statusForError(result.error))
+        .send({ error: result.error, ...(result.detail ? { detail: result.detail } : {}) });
+    }
+    return reply.send({
+      trip: result.trip,
+      driver: result.driver,
+      previousDriverId: result.previousDriverId,
+    });
   });
 
   // Driver view: live trip state for the logged-in driver only.
