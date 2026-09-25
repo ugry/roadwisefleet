@@ -32,6 +32,14 @@
   var TRIPVIEW = TRIPS || {};
   // The pure dashboard shaping (board task #33, F2), loaded before this one.
   var DASH = win && win.RoadwiseDashboard ? win.RoadwiseDashboard : {};
+  // The pure assign/reassign shaping (board task #36, F5), loaded before this one.
+  var ASSIGN = win && win.RoadwiseAssign ? win.RoadwiseAssign : {};
+  // The pure documents view model (board task #37, F6), loaded before this one.
+  var DOC = win && win.RoadwiseDocuments ? win.RoadwiseDocuments : {};
+  // The shared document rules / checklist owner (board task #4), loaded before
+  // this one from `/pilot/lib/driver-core.js`. The documents UI never restates
+  // the POD gate — it asks this module.
+  var DRCORE = win && win.RoadwiseDriverCore ? win.RoadwiseDriverCore : {};
   var T = function (key, params) { return key; };
   var i18n = null;
   var session = { token: '', user: null };
@@ -197,6 +205,13 @@
     if (route && route.view === 'dashboard') {
       outlet.innerHTML = '';
       renderDashboard(outlet, token);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'documents') {
+      outlet.innerHTML = '';
+      renderDocuments(outlet, token);
       if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
       if (outlet.focus) outlet.focus();
       return panel;
@@ -490,8 +505,9 @@
       '<dt>' + esc(T('trips.createdAt')) + '</dt><dd>' + esc(fmtDate(trip.createdAt)) + '</dd>' +
       '</dl>';
 
+    html += assignBoxHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.timeline')) + '</h2>' + timelineHtml(trip.statusEvents || []);
-    html += '<h2 class="section-title">' + esc(T('trips.documents')) + '</h2>' + documentsHtml(trip.documents || []);
+    html += documentsPanelHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.expenses')) + '</h2>' + expensesHtml(trip.expenses || []);
     html += '<h2 class="section-title">' + esc(T('trips.pnl')) + '</h2>' +
       '<p class="pnl ' + pnlClass + '">' + esc(money(pnl)) + '</p>' +
@@ -506,24 +522,121 @@
     if (!events.length) return '<p class="empty">' + esc(T('trips.noEvents')) + '</p>';
     var items = events.map(function (event) {
       var actor = event.actor && event.actor.name ? event.actor.name : T('trips.actorSystem');
-      return '<li>' +
-        '<div class="tl-what">' + esc(statusLabel(event.from)) + ' → ' + esc(statusLabel(event.to)) + '</div>' +
+      // Board task #36 (F5): a reassignment keeps the status, so its event is
+      // `from === to`. Name it as a reassignment — a "Assigned → Assigned" line
+      // would read like a no-op.
+      var reassigned = ASSIGN.isReassignment ? ASSIGN.isReassignment(event) : false;
+      var what = reassigned
+        ? T('trips.reassigned', { status: statusLabel(event.to) })
+        : statusLabel(event.from) + ' → ' + statusLabel(event.to);
+      return '<li' + (reassigned ? ' class="tl-reassign"' : '') + '>' +
+        '<div class="tl-what">' + esc(what) + '</div>' +
         '<div class="tl-when">' + esc(fmtDate(event.at)) + ' · ' + esc(actor) + '</div>' +
         '</li>';
     }).join('');
     return '<ul class="timeline">' + items + '</ul>';
   }
 
-  function documentsHtml(documents) {
-    if (!documents.length) return '<p class="empty">' + esc(T('trips.noDocuments')) + '</p>';
-    var rows = documents.map(function (d) {
-      return '<tr><td>' + esc(T('trips.doctype.' + d.docType)) + '</td>' +
-        '<td>' + esc(T('trips.docstatus.' + d.status)) + '</td>' +
-        '<td>' + esc(fmtDate(d.uploadedAt)) + '</td></tr>';
+  /**
+   * The documents panel of the trip detail (board task #37, FAv1-F6).
+   *
+   * The checklist / POD-gate decisions come from `pilot/lib/driver-core.js`
+   * (via `lib/documents.js`), never from this file: the app and the driver
+   * client must not disagree about which requirement is outstanding. The panel
+   * is the list + status, the region checklist, the upload form and the
+   * owner/dispatcher verify-or-reject actions.
+   */
+  function documentsPanelHtml(trip) {
+    var documents = trip.documents || [];
+    var role = session.user && session.user.roleId;
+    var html = '<h2 class="section-title">' + esc(T('trips.documents')) + '</h2>';
+    html += '<p class="alert" id="docMessage" role="alert" hidden></p>';
+    html += docGateHtml(documents);
+    html += docChecklistHtml(DOC.checklistRows ? DOC.checklistRows(documents, DRCORE) : []);
+    html += docTableHtml(documents, role);
+    if (DOC.canUploadDocuments && DOC.canUploadDocuments(role, false)) {
+      html += docUploadFormHtml();
+    }
+    return html;
+  }
+
+  /** The POD-gate line: is the POD/eCMR requirement met, or what is missing. */
+  function docGateHtml(documents) {
+    var ready = DOC.podSatisfied ? DOC.podSatisfied(documents, DRCORE) : false;
+    return '<p class="doc-gate ' + (ready ? 'ok' : 'missing') + '">' +
+      esc(T(ready ? 'docs.gateReady' : 'docs.gateMissing')) + '</p>';
+  }
+
+  /** The required-document checklist rows (label / requirement / state). */
+  function docChecklistHtml(checklist) {
+    if (!checklist || !checklist.length) return '';
+    var items = checklist.map(function (row) {
+      var badge = row.required
+        ? (row.alternative ? T('docs.alternative') : T('docs.required'))
+        : T('docs.optional');
+      var state = row.present
+        ? T('docs.attached') + (row.status ? ' · ' + T(DOC.statusKey(row.status)) : '')
+        : T('docs.notAttached');
+      return '<li class="doc-check' + (row.required ? ' is-required' : '') + '">' +
+        '<span class="doc-check-label">' + esc(T(row.labelKey)) + '</span>' +
+        '<span class="doc-check-badge">' + esc(badge) + '</span>' +
+        '<span class="doc-check-state' + (row.present ? ' present' : '') + '">' + esc(state) + '</span>' +
+        '</li>';
     }).join('');
-    return '<table class="trips-table"><thead><tr>' +
-      '<th>' + esc(T('trips.docType')) + '</th><th>' + esc(T('trips.docStatus')) + '</th><th>' + esc(T('trips.docUploaded')) + '</th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table>';
+    return '<h3 class="doc-subtitle">' + esc(T('docs.checklistTitle')) + '</h3>' +
+      '<ul class="doc-checklist">' + items + '</ul>';
+  }
+
+  /** The document list. Verify/reject render only for a managing role. */
+  function docTableHtml(documents, role) {
+    var canManage = DOC.canManageDocuments ? DOC.canManageDocuments(role) : false;
+    if (!documents.length) {
+      return '<p class="empty">' + esc(T('trips.noDocuments')) + '</p>';
+    }
+    var head = '<th>' + esc(T('trips.docType')) + '</th><th>' + esc(T('trips.docStatus')) +
+      '</th><th>' + esc(T('trips.docUploaded')) + '</th>' + (canManage ? '<th>' + esc(T('docs.actions')) + '</th>' : '');
+    var rows = documents.map(function (d) {
+      var cells = '<td>' + esc(T(DOC.docTypeKey ? DOC.docTypeKey(d.docType) : 'trips.doctype.' + d.docType)) + '</td>' +
+        '<td><span class="doc-status s-' + esc(d.status) + '">' +
+          esc(T(DOC.statusKey ? DOC.statusKey(d.status) : 'trips.docstatus.' + d.status)) + '</span></td>' +
+        '<td>' + esc(fmtDate(d.uploadedAt)) + '</td>';
+      if (canManage) {
+        cells += '<td class="doc-actions">' +
+          '<button class="ghost" type="button" data-doc="' + esc(d.id) + '" data-doc-status="VERIFIED">' +
+            esc(T('docs.verify')) + '</button>' +
+          '<button class="ghost" type="button" data-doc="' + esc(d.id) + '" data-doc-status="REJECTED">' +
+            esc(T('docs.reject')) + '</button>' +
+          '</td>';
+      }
+      return '<tr data-doc-row="' + esc(d.id) + '">' + cells + '</tr>';
+    }).join('');
+    return '<div class="doc-table-wrap"><table class="trips-table"><thead><tr>' + head +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /** The upload form: doc type + file. The file is validated before any request. */
+  function docUploadFormHtml() {
+    var entries = DOC.docTypeEntries ? DOC.docTypeEntries() : [];
+    var options = '';
+    for (var i = 0; i < entries.length; i++) {
+      options += '<option value="' + esc(entries[i].value) + '">' + esc(T(entries[i].labelKey)) + '</option>';
+    }
+    return '<h3 class="doc-subtitle">' + esc(T('docs.uploadTitle')) + '</h3>' +
+      '<form class="doc-upload" id="docForm" novalidate>' +
+        '<div class="field">' +
+          '<label for="docType">' + esc(T('docs.type')) + '</label>' +
+          '<select id="docType">' + options + '</select>' +
+        '</div>' +
+        '<div class="field">' +
+          '<label for="docFile">' + esc(T('docs.file')) + '</label>' +
+          '<input id="docFile" type="file" accept="' + esc(DOC.acceptAttribute ? DOC.acceptAttribute() : '') + '">' +
+          '<p class="helper">' + esc(T('docs.fileHint', { max: DOC.formatBytes ? DOC.formatBytes(DOC.DEFAULT_MAX_UPLOAD_BYTES) : '' })) + '</p>' +
+          '<p class="field-error" id="docFileError" hidden></p>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button class="primary" type="submit" id="docSubmit">' + esc(T('docs.upload')) + '</button>' +
+        '</div>' +
+      '</form>';
   }
 
   function expensesHtml(expenses) {
@@ -536,7 +649,7 @@
       '</tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
-  function renderTripDetail(outlet, route_, token) {
+  function renderTripDetail(outlet, route_, token, flash) {
     var id = route_ && route_.params ? route_.params.id : '';
     outlet.innerHTML =
       '<p class="crumbs"><a href="/app/trips" id="tripsBack">' + esc(T('trips.back')) + '</a></p>' +
@@ -560,7 +673,409 @@
         box.innerHTML = '<p class="alert">' + esc(errorText(res)) + '</p>';
         return;
       }
-      box.innerHTML = tripDetailHtml((res.data && res.data.trip) || {});
+      var trip = (res.data && res.data.trip) || {};
+      box.innerHTML = tripDetailHtml(trip);
+      loadAssignControl(outlet, route_, trip);
+      loadDocumentsControl(outlet, route_, trip, flash);
+    });
+  }
+
+  /* --------------------------------------------- assign driver (F5) --- */
+
+  /**
+   * Assign / reassign the trip's driver (board task #36, FAv1-F5).
+   *
+   * The control is only rendered for a role that holds `trip:*` (owner,
+   * dispatcher) and only while the trip is still open: a driver can never
+   * assign, and a settled/cancelled trip takes no driver change. The pure
+   * decisions (option entries, validation, payload, error mapping) live in
+   * `lib/assign.js`; this section only reads/writes the DOM and the network.
+   * Element ids are dynamic, so they are resolved from the outlet.
+   */
+
+  /** The trip the visible assign form belongs to (its id and current driver). */
+  var assignTrip = null;
+  /** The loaded driver list, or null before it arrives. */
+  var assignDrivers = null;
+
+  function assignNode(outlet, id) {
+    return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
+  }
+
+  /** The driver section: a real form for a dispatcher, or an honest note. */
+  function assignBoxHtml(trip) {
+    if (!(APP.canManageTrips && APP.canManageTrips(session.user && session.user.roleId))) return '';
+    if (ASSIGN.isClosed && ASSIGN.isClosed(trip && trip.status)) {
+      return '<h2 class="section-title">' + esc(T('assign.title')) + '</h2>' +
+        '<p class="muted">' + esc(T('assign.closed')) + '</p>';
+    }
+    return '<h2 class="section-title">' + esc(T('assign.title')) + '</h2>' +
+      '<form class="assign-form" id="assignForm" novalidate>' +
+        '<p class="alert" id="assignMessage" role="alert" hidden></p>' +
+        '<div class="field">' +
+          '<label for="assignDriver">' + esc(T('assign.driver')) + '</label>' +
+          '<select id="assignDriver"><option value="">' + esc(T('common.loading')) + '</option></select>' +
+          '<p class="field-error" id="assignDriverError" hidden></p>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<span class="helper">' + esc(T('assign.hint')) + '</span>' +
+          '<button class="primary" type="submit" id="assignSubmit">' + esc(T('assign.submit')) + '</button>' +
+        '</div>' +
+      '</form>';
+  }
+
+  function currentDriverId(trip) {
+    if (!trip) return '';
+    if (trip.driverId) return String(trip.driverId);
+    return trip.driver && trip.driver.id ? String(trip.driver.id) : '';
+  }
+
+  /** Fill the driver select from the same reference endpoint the dispatch form uses. */
+  function loadAssignControl(outlet, route_, trip) {
+    var form = assignNode(outlet, 'assignForm');
+    if (!form) return;
+    assignTrip = trip;
+    assignDrivers = null;
+
+    form.addEventListener('submit', function (ev) {
+      if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+      submitAssign(outlet, route_);
+    });
+
+    request('/api/reference', { token: session.token }).then(function (res) {
+      if (assignNode(outlet, 'assignForm') !== form) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        assignDrivers = [];
+        setSelectFromEntries(outlet, 'assignDriver', [], T('assign.loadFailed'));
+        setAssignMessage(outlet, 'assign.loadFailed', null, null);
+        var submit = assignNode(outlet, 'assignSubmit');
+        if (submit) submit.disabled = true;
+        return;
+      }
+      var reference = res.data && res.data.reference ? res.data.reference : {};
+      assignDrivers = Array.isArray(reference.drivers) ? reference.drivers : [];
+      setSelectFromEntries(
+        outlet,
+        'assignDriver',
+        ASSIGN.driverEntries ? ASSIGN.driverEntries(assignDrivers, currentDriverId(trip)) : [],
+        T('assign.choose')
+      );
+    });
+  }
+
+  /** Replace a select's options with pure `{value,label,selected}` entries. */
+  function setSelectFromEntries(outlet, id, entries, placeholder) {
+    var node = assignNode(outlet, id);
+    if (!node) return;
+    var html = placeholder ? '<option value="">' + esc(placeholder) + '</option>' : '';
+    for (var i = 0; i < entries.length; i++) {
+      html += '<option value="' + esc(entries[i].value) + '"' +
+        (entries[i].selected ? ' selected' : '') + '>' + esc(entries[i].label) + '</option>';
+    }
+    node.innerHTML = html;
+  }
+
+  /** Show or clear the form-level message (the `alert` element carries `success`). */
+  function setAssignMessage(outlet, key, params, kind) {
+    var node = assignNode(outlet, 'assignMessage');
+    if (!node) return;
+    var message = key ? T(key, params) : '';
+    node.textContent = message;
+    node.hidden = message === '';
+    if (node.classList) {
+      node.classList.remove('hidden');
+      if (kind === 'success') node.classList.add('success');
+      else node.classList.remove('success');
+    }
+  }
+
+  function clearAssignErrors(outlet) {
+    var field = assignNode(outlet, 'assignDriverError');
+    if (field) { field.textContent = ''; field.hidden = true; }
+    setAssignMessage(outlet, null, null, null);
+  }
+
+  function submitAssign(outlet, route_) {
+    if (!ASSIGN.validateAssign || !assignTrip) return;
+    var select = assignNode(outlet, 'assignDriver');
+    var check = ASSIGN.validateAssign(
+      { driverId: select ? select.value : '' },
+      assignTrip,
+      assignDrivers || []
+    );
+
+    clearAssignErrors(outlet);
+    var errorNode = assignNode(outlet, 'assignDriverError');
+    if (!check.ok) {
+      if (errorNode) {
+        errorNode.textContent = T(check.errors.driverId);
+        errorNode.hidden = false;
+        if (errorNode.classList) errorNode.classList.remove('hidden');
+      }
+      if (select && select.focus) select.focus();
+      return;
+    }
+
+    var submit = assignNode(outlet, 'assignSubmit');
+    if (submit) submit.disabled = true;
+
+    request(ASSIGN.assignPath(assignTrip.id), {
+      method: 'POST',
+      token: session.token,
+      body: check.payload
+    }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        if (submit) submit.disabled = false;
+        var key = ASSIGN.assignErrorKey ? ASSIGN.assignErrorKey(res) : 'error.unexpected';
+        var detail = ASSIGN.assignErrorDetail ? ASSIGN.assignErrorDetail(res) : '';
+        setAssignMessage(outlet, key, detail ? { detail: detail } : null, null);
+        return;
+      }
+      var driver = (res.data && res.data.driver) || {};
+      var name = driver.name || T('trips.none');
+      // Re-render from the server so the driver shown and the new timeline event
+      // come from the same source of truth, then confirm what happened.
+      var next = ++renderToken;
+      renderTripDetail(outlet, route_, next).then(function () {
+        setAssignMessage(outlet, 'assign.assigned', { name: name }, 'success');
+      });
+    });
+  }
+
+  /* ---------------------------------------------- documents (F6) --- */
+
+  /**
+   * Documents panel wiring (board task #37, FAv1-F6): the pre-upload size/MIME
+   * check, the upload itself, and verify/reject. The decisions live in
+   * `lib/documents.js` (which delegates the checklist/POD gate to
+   * `pilot/lib/driver-core.js`); this section only touches the DOM and the
+   * network.
+   *
+   * The panel is injected by `documentsPanelHtml`, so its element ids are
+   * dynamic and resolved from the outlet — never with the static `el()` helper
+   * (which the shell test constrains to ids present in index.html).
+   */
+
+  function docNode(outlet, id) {
+    return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
+  }
+
+  /** Show / clear the panel-level message (an `alert`, `success` when a success). */
+  function setDocMessage(outlet, key, params, kind) {
+    var node = docNode(outlet, 'docMessage');
+    if (!node) return;
+    var message = key ? T(key, params) : '';
+    node.textContent = message;
+    node.hidden = message === '';
+    if (node.classList) {
+      node.classList.remove('hidden');
+      if (kind === 'success') node.classList.add('success');
+      else node.classList.remove('success');
+    }
+  }
+
+  /**
+   * Show / clear the file field error. A `<select>` built from DOC_TYPES cannot
+   * hold an unknown value, so a doc-type rejection is surfaced as the panel
+   * message instead of being lost.
+   */
+  function setDocFieldError(outlet, field, message) {
+    if (field !== 'file') {
+      if (message) setDocMessage(outlet, 'docs.error.docType', null, null);
+      return;
+    }
+    var node = docNode(outlet, 'docFileError');
+    if (!node) return;
+    node.textContent = message || '';
+    node.hidden = !message;
+    if (node.classList) {
+      if (message) node.classList.remove('hidden');
+      else node.classList.add('hidden');
+    }
+  }
+
+  function clearDocErrors(outlet) {
+    setDocFieldError(outlet, 'file', '');
+    setDocMessage(outlet, null, null, null);
+  }
+
+  /** The chosen `File`, or null. */
+  function selectedFile(outlet) {
+    var input = docNode(outlet, 'docFile');
+    if (!input || !input.files || !input.files.length) return null;
+    return input.files[0] || null;
+  }
+
+  function selectedDocType(outlet) {
+    var select = docNode(outlet, 'docType');
+    return select && select.value !== undefined ? String(select.value) : '';
+  }
+
+  /** Best-effort GPS fix for a capture; never blocks an upload for more than 5s. */
+  function captureGeo(callback) {
+    var done = false;
+    function finish(geo) { if (done) return; done = true; callback(geo); }
+    try {
+      if (typeof navigator === 'undefined' || !navigator.geolocation ||
+          typeof navigator.geolocation.getCurrentPosition !== 'function') {
+        finish(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        function (pos) {
+          var c = pos && pos.coords ? pos.coords : {};
+          finish({ lat: c.latitude, lng: c.longitude, accuracy: c.accuracy });
+        },
+        function () { finish(null); },
+        { timeout: 5000, maximumAge: 60000 }
+      );
+    } catch (err) {
+      finish(null);
+      return;
+    }
+    if (typeof setTimeout === 'function') setTimeout(function () { finish(null); }, 6000);
+  }
+
+  /** Read a File as a data URL (the API decodes an optional `data:` prefix). */
+  function readFileBase64(file, callback) {
+    if (typeof FileReader === 'undefined' || !file) { callback(''); return; }
+    try {
+      var reader = new FileReader();
+      reader.onload = function () {
+        callback(typeof reader.result === 'string' ? reader.result : '');
+      };
+      reader.onerror = function () { callback(''); };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      callback('');
+    }
+  }
+
+  function loadDocumentsControl(outlet, route_, trip, flash) {
+    if (!trip || !trip.id) return;
+    if (flash) setDocMessage(outlet, flash.key, flash.params, flash.kind);
+
+    var input = docNode(outlet, 'docFile');
+    if (input) {
+      input.addEventListener('change', function () {
+        var file = selectedFile(outlet);
+        if (!file) { setDocFieldError(outlet, 'file', ''); return; }
+        // Refuse an over-limit / unsupported file in the UI, before a request.
+        var check = DOC.validateUpload
+          ? DOC.validateUpload({
+              docType: selectedDocType(outlet),
+              mimeType: file.type,
+              size: file.size,
+            })
+          : { ok: true };
+        setDocFieldError(outlet, 'file', check.ok ? '' : T(check.key, check.params));
+      });
+    }
+
+    var form = docNode(outlet, 'docForm');
+    if (form) {
+      form.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        submitDocument(outlet, route_, trip);
+      });
+    }
+
+    var buttons = outlet.querySelectorAll ? outlet.querySelectorAll('button[data-doc-status]') : [];
+    for (var i = 0; i < buttons.length; i += 1) {
+      bindDocAction(outlet, route_, buttons[i]);
+    }
+  }
+
+  function bindDocAction(outlet, route_, button) {
+    button.addEventListener('click', function () {
+      submitDocumentStatus(outlet, route_, button);
+    });
+  }
+
+  function submitDocument(outlet, route_, trip) {
+    var file = selectedFile(outlet);
+    var check = DOC.validateUpload
+      ? DOC.validateUpload({
+          docType: selectedDocType(outlet),
+          mimeType: file ? file.type : '',
+          size: file ? file.size : 0,
+        })
+      : { ok: true };
+    clearDocErrors(outlet);
+    if (!check.ok) {
+      setDocFieldError(outlet, check.field, T(check.key, check.params));
+      return;
+    }
+    if (!file) { setDocFieldError(outlet, 'file', T('docs.error.empty')); return; }
+
+    var submit = docNode(outlet, 'docSubmit');
+    if (submit) submit.disabled = true;
+    var docType = selectedDocType(outlet);
+    // The capture carries when it was taken; the location is best-effort (the
+    // API stores what is present and accepts an upload without a fix).
+    var capturedAt = new Date().toISOString();
+
+    captureGeo(function (geo) {
+      readFileBase64(file, function (dataBase64) {
+        if (!dataBase64) {
+          if (submit) submit.disabled = false;
+          setDocFieldError(outlet, 'file', T('docs.error.file'));
+          return;
+        }
+        var payload = DOC.uploadPayload({
+          docType: docType,
+          filename: file.name,
+          mimeType: file.type,
+          dataBase64: dataBase64,
+          capturedAt: capturedAt,
+          geo: geo,
+        });
+        request(DOC.uploadPath(trip.id), { method: 'POST', token: session.token, body: payload })
+          .then(function (res) {
+            if (res.status === 401) { handleExpired(); return; }
+            if (!res.ok) {
+              if (submit) submit.disabled = false;
+              var detail = DOC.errorDetail ? DOC.errorDetail(res) : '';
+              setDocMessage(outlet, DOC.errorKey(res), detail ? { detail: detail } : null, null);
+              return;
+            }
+            // Re-render from the server so the list and the checklist come from
+            // the same source of truth, then confirm what happened.
+            var next = ++renderToken;
+            renderTripDetail(outlet, route_, next, {
+              key: 'docs.uploaded',
+              params: { docType: T(DOC.docTypeKey(docType)) },
+              kind: 'success',
+            });
+          });
+      });
+    });
+  }
+
+  function submitDocumentStatus(outlet, route_, button) {
+    var id = button && button.getAttribute ? button.getAttribute('data-doc') : '';
+    var status = button && button.getAttribute ? button.getAttribute('data-doc-status') : '';
+    if (!id) return;
+    button.disabled = true;
+    request(DOC.documentPath(id), {
+      method: 'PATCH',
+      token: session.token,
+      body: DOC.verifyPayload(status),
+    }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        button.disabled = false;
+        var detail = DOC.errorDetail ? DOC.errorDetail(res) : '';
+        setDocMessage(outlet, DOC.errorKey(res), detail ? { detail: detail } : null, null);
+        return;
+      }
+      var next = ++renderToken;
+      renderTripDetail(outlet, route_, next, {
+        key: String(status).toUpperCase() === 'REJECTED' ? 'docs.rejected' : 'docs.verified',
+        kind: 'success',
+      });
     });
   }
 
@@ -962,6 +1477,70 @@
     bindDrillDowns(outlet);
   }
 
+  /* -------------------------------------------- documents list (F6) --- */
+
+  /**
+   * The Documents workspace (board task #37, FAv1-F6): the trips whose paperwork
+   * matters right now, each linking into the trip-detail documents panel where
+   * upload / verify / reject live. One request — the existing trips list — and
+   * the same pure row shaping the trips screen uses.
+   */
+  function renderDocuments(outlet, token) {
+    outlet.innerHTML =
+      '<h1>' + esc(T('nav.documents')) + '</h1>' +
+      '<p class="lead">' + esc(T('docs.lead')) + '</p>' +
+      '<p class="alert" id="docsError" role="alert" hidden></p>' +
+      '<div id="docsList"><p class="muted">' + esc(T('common.loading')) + '</p></div>';
+
+    // Only the lifecycle stages where documentation is captured or checked.
+    var path = TRIPVIEW.tripsPath
+      ? TRIPVIEW.tripsPath({ status: 'LOADED,IN_TRANSIT,DELIVERED,POD_UPLOADED' })
+      : '/api/trips?status=LOADED%2CIN_TRANSIT%2CDELIVERED%2CPOD_UPLOADED';
+    return request(path, { token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      var box = outlet.querySelector('#docsList');
+      if (!box) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        var error = outlet.querySelector('#docsError');
+        if (error) { error.textContent = errorText(res); error.hidden = false; }
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = docsWorklistHtml((res.data && res.data.trips) || []);
+      bindDocsWorklist(outlet);
+    });
+  }
+
+  function docsWorklistHtml(trips) {
+    if (!trips.length) return '<div class="empty-state"><p>' + esc(T('docs.empty')) + '</p></div>';
+    var rows = trips.map(function (trip) {
+      var row = TRIPVIEW.tripRow ? TRIPVIEW.tripRow(trip) : { id: trip.id, status: trip.status };
+      return '<tr>' +
+        '<td><a href="/app/trips/' + esc(row.id) + '" data-doc-trip="' + esc(row.id) + '">' +
+          esc(row.origin || '?') + ' → ' + esc(row.destination || '?') + '</a></td>' +
+        '<td>' + esc(row.driver || T('trips.none')) + '</td>' +
+        '<td><span class="status s-' + esc(row.status) + '">' + esc(statusLabel(row.status)) + '</span></td>' +
+        '</tr>';
+    }).join('');
+    return '<table class="trips-table"><thead><tr>' +
+      '<th>' + esc(T('trips.colRoute')) + '</th><th>' + esc(T('trips.colDriver')) +
+      '</th><th>' + esc(T('trips.colStatus')) + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  function bindDocsWorklist(outlet) {
+    var links = outlet.querySelectorAll ? outlet.querySelectorAll('a[data-doc-trip]') : [];
+    for (var i = 0; i < links.length; i += 1) {
+      (function (link) {
+        link.addEventListener('click', function (ev) {
+          if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+          route({ path: link.getAttribute('href'), push: true });
+        });
+      })(links[i]);
+    }
+  }
+
   function showLogin(messageKey) {
     setHidden('appView', true);
     setHidden('loginView', false);
@@ -1202,6 +1781,11 @@
     i18n: function () { return i18n; },
   };
   api._setSession = function (token, user) { session = { token: token, user: user || null }; };
+  // Test seams for the scratch DOM-free harness (board task #37): the renderers
+  // are otherwise closure-private, and the pure modules cannot exercise the
+  // markup that carries the role gate.
+  api._documentsPanelHtml = documentsPanelHtml;
+  api._docsWorklistHtml = docsWorklistHtml;
 
   if (typeof document !== 'undefined') {
     boot();

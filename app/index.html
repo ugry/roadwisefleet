@@ -80,10 +80,15 @@
 <!-- Shared i18n core and DOM layer, reused from the pilot (board task #6). -->
 <script src="/pilot/lib/i18n.js"></script>
 <script src="/pilot/lib/i18n-ui.js"></script>
+<!-- The shared driver core owns the document checklist / POD-gate rules
+     (board task #4); the documents UI reuses it instead of restating them. -->
+<script src="/pilot/lib/driver-core.js"></script>
 <script src="/app/lib/app-core.js"></script>
 <script src="/app/lib/trips.js"></script>
+<script src="/app/lib/documents.js"></script>
 <script src="/app/lib/dispatch.js"></script>
 <script src="/app/lib/dashboard.js"></script>
+<script src="/app/lib/assign.js"></script>
 <script src="/app/app.js"></script>
 </body>
 </html>

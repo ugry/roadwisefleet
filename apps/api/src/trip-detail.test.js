@@ -85,6 +85,13 @@ test('shapeTripDetail maps the relations, timeline and P&L', () => {
     ],
   );
 
+  // Board task #36: only a same-status event is a reassignment; a lifecycle
+  // move always changes the status.
+  assert.deepEqual(
+    detail.statusEvents.map((e) => e.kind),
+    ['status', 'status'],
+  );
+
   // Document has no uploadedAt column: it mirrors createdAt.
   assert.equal(detail.documents[0].docType, 'pod');
   assert.deepEqual(detail.documents[0].uploadedAt, new Date('2026-09-21T10:00:00Z'));
@@ -194,4 +201,28 @@ test('tripDetailInclude orders the timeline and loads the actor', () => {
   assert.equal(include.statusEvents.include.actor.select.id, true);
   assert.equal(include.order.include.customer.select.name, true);
   assert.equal(include.settlement, true);
+});
+
+test('a same-status event is shaped as a reassignment with its actor (#36)', () => {
+  const detail = shapeTripDetail(
+    fullTrip({
+      driver: { id: 'd2', name: 'Driver Two', email: null, phone: null },
+      statusEvents: [
+        {
+          id: 'e1',
+          fromStatus: 'ASSIGNED',
+          toStatus: 'ASSIGNED',
+          happenedAt: new Date('2026-09-24T09:00:00Z'),
+          actor: { id: 'disp', name: 'Dispatcher Dee' },
+        },
+      ],
+    }),
+  );
+  assert.equal(detail.statusEvents.length, 1);
+  const event = detail.statusEvents[0];
+  assert.equal(event.kind, 'reassignment');
+  assert.equal(event.from, 'ASSIGNED');
+  assert.equal(event.to, 'ASSIGNED');
+  assert.deepEqual(event.actor, { id: 'disp', name: 'Dispatcher Dee' });
+  assert.equal(detail.driver.id, 'd2', 'the detail carries the newly assigned driver');
 });
