@@ -404,6 +404,12 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   normalisation, the `GET /api/trips` query string, CSV export and the flat row
   the table and CSV share. Loaded the same way and covered by
   `src/trips-view.test.js`.
+- `app/lib/documents.js` — the pure documents view model (board task #37, F6):
+  the shared doc-type/MIME allow-lists, the pre-upload file size check, the
+  upload / verify / reject payloads and the API-error-to-catalogue mapping. It
+  delegates the checklist and the POD gate to `pilot/lib/driver-core.js`
+  (loaded from the pilot beside it), so the app and the driver client cannot
+  disagree about what satisfies the gate. Covered by `src/documents-ui.test.js`.
 - `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
   `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
   routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
@@ -459,8 +465,9 @@ Behaviour:
   **Not in this task:** required-document selection (the F6 documents UI, board #37).
 
 Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/dispatch-form.test.js`
-+ `src/assign-form.test.js` run in the no-install CI job; `test/app-shell.test.ts`
-adds the HTTP-level `app.inject()` checks under `pnpm test:router`.
++ `src/assign-form.test.js` + `src/documents-ui.test.js` run in the no-install CI
+job; `test/app-shell.test.ts` adds the HTTP-level `app.inject()` checks under
+`pnpm test:router`.
 
 ### Trips list & detail (board task #34, FAv1-F3)
 `/app/trips` is the daily workhorse, built on the F1 shell:
@@ -573,6 +580,52 @@ driver is refused on the trip and no longer sees it, the new driver does) plus
 the timeline actor; `scratch/verify-trips-view.js` section 7 drives the real
 `app.js` (control rendered, current driver preselected, exact body POSTed,
 detail re-fetched, reassignment named on the timeline).
+
+### Documents UI (board task #37, FAv1-F6)
+The trip-detail screen now carries the documents panel the API already backed
+(`GET`/`POST /api/trips/:id/documents`, `PATCH /api/documents/:id`):
+
+- **Checklist + POD gate.** The required-document checklist and the
+  "can this trip move to POD uploaded" answer are `documentChecklist`,
+  `requiredMissing`, `podSatisfied` and `canMarkPodUploaded` from
+  `pilot/lib/driver-core.js`. The app does not restate the rules — the panel,
+  the driver client and `src/driver-pwa.test.js` read the same functions, so an
+  eCMR satisfies the requirement exactly once, everywhere.
+- **Upload.** A document type (the API's `DOC_TYPES`) plus a file. The file is
+  validated in the UI **before any request** against the shared MIME allow-list
+  and the 10 MiB limit: an over-limit file gets an in-panel message naming the
+  size and the limit (`"Photo is 31 MB — the maximum is 10 MB…"`), so a driver
+  never sees a blank page or a raw proxy `413`. The bytes are sent as JSON
+  base64 (`{ docType, filename, mimeType, dataBase64 }`) with the capture
+  timestamp always and a best-effort GPS fix (`capturedAt` / `geo`, omitted when
+  absent) — the same capture contract the driver PWA uses. The list is re-fetched
+  from the server after a write, so the panel never shows its own guess.
+- **Verify / reject.** Rendered only for a role that holds `trip:*`
+  (owner/dispatcher). A driver is never offered the action, and the API refuses
+  it with `403 forbidden` even if they tried.
+- **Never a storage key.** `shapeDocument` / `shapeTripDetail` already drop the
+  internal `storageKey`; the UI asserts its payloads carry none.
+
+The `/app/documents` route is the workspace that gets a dispatcher to a trip's
+panel: the trips in the documentation-relevant stages, each linking into its
+trip detail.
+
+Refusals the UI maps to a readable message (never a raw status): `unsupported_type`,
+`file_too_large`, `invalid_capture`, `invalid_upload`, `forbidden`, `not_found`,
+and a proxy `413`.
+
+Pure logic lives in `app/lib/documents.js`; the DOM/network half is
+`app.js` (`documentsPanelHtml`, `loadDocumentsControl`, `submitDocument`,
+`submitDocumentStatus`). Tests: `src/documents-ui.test.js` in the no-install CI
+job (the shared lists, the pre-upload check, the delegation to the driver core,
+the payloads, the error mapping and the role gate) and `test/documents-ui.test.ts`
+(`pnpm test:router`) which drives the real routes against the DB and proves the
+acceptance end to end: the POD gate `400 pod_required` → upload `201` → `200`,
+the driver verify `403` (owner `200`), and a rejected MIME `400 unsupported_type`
+with its detail — all in an isolated org, cleaned up in `after`. The scratch
+harness `scratch/verify-documents-ui.js` renders the real panel module for each
+role (checklist/gate present; upload + verify/reject for a managing role only;
+the over-limit refusal message).
 
 ### Delivery timestamps (board tasks #33/#40)
 The on-time KPI needs two timestamps that the schema did not have:

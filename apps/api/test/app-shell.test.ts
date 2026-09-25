@@ -55,6 +55,7 @@ test('the app assets are served with their real content types', async () => {
     ['/app/app.css', /text\/css/],
     ['/app/app.js', /javascript/],
     ['/app/lib/app-core.js', /javascript/],
+    ['/app/lib/documents.js', /javascript/],
     ['/app/lib/dispatch.js', /javascript/],
     ['/app/lib/dashboard.js', /javascript/],
     ['/app/locales/en.json', /application\/json/],
@@ -73,6 +74,13 @@ test('the app assets are served with their real content types', async () => {
   assert.match(dispatch.payload, /RoadwiseDispatch/);
   const dashboard = await app.inject({ method: 'GET', url: '/app/lib/dashboard.js' });
   assert.match(dashboard.payload, /RoadwiseDashboard/);
+  const documents = await app.inject({ method: 'GET', url: '/app/lib/documents.js' });
+  assert.match(documents.payload, /RoadwiseDocuments/);
+  // The documents UI reuses the driver core (board task #37): the shell loads it
+  // from the pilot, which must stay reachable for the app.
+  const driverCore = await app.inject({ method: 'GET', url: '/pilot/lib/driver-core.js' });
+  assert.equal(driverCore.statusCode, 200);
+  assert.match(driverCore.payload, /RoadwiseDriverCore/);
 });
 
 test('a missing asset 404s as JSON — HTML is never served as JavaScript', async () => {
