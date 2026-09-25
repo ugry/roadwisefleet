@@ -235,5 +235,27 @@
   "docs.error.filename": "That file name cannot be used. Rename the file and try again.",
   "docs.error.status": "That is not a document status you can set. Reload the page and try again.",
   "docs.error.notFound": "That document no longer exists. Reload the trip and try again.",
-  "docs.error.storage": "The file could not be stored. Try again; if it keeps happening, tell your fleet owner."
+  "docs.error.storage": "The file could not be stored. Try again; if it keeps happening, tell your fleet owner.",
+
+  "tracking.title": "Tracking link",
+  "tracking.lead": "Share a trip with a customer without giving them an account. Mint a link, copy it in one click, and revoke it when the delivery is done.",
+  "tracking.state.none": "No active link. Create one to share this trip.",
+  "tracking.state.active": "A link is active.",
+  "tracking.state.expired": "The link has expired. Create a new one to share this trip again.",
+  "tracking.state.activeUntil": "Active until {date}",
+  "tracking.mint": "Create tracking link",
+  "tracking.minting": "Creating the link…",
+  "tracking.minted": "Tracking link created.",
+  "tracking.copy": "Copy link",
+  "tracking.copied": "Link copied.",
+  "tracking.copyManual": "Copy is not available here — the link is selected; copy it with your keyboard.",
+  "tracking.expires": "Expires {date}.",
+  "tracking.revoke": "Revoke link",
+  "tracking.revoked": "Tracking link revoked. The shared link no longer works.",
+  "tracking.confirmRevoke": "Revoke this tracking link? Anyone holding it will lose access immediately.",
+  "tracking.colState": "Tracking link",
+  "tracking.colActions": "Actions",
+  "tracking.empty": "No trips to track yet. Create a trip first.",
+  "tracking.error.notFound": "That trip no longer exists in your company. Go back to the trips list.",
+  "tracking.error.invalid": "That tracking link is not valid or has expired."
 }

@@ -151,10 +151,14 @@
     },
     {
       id: 'tracking',
+      // Implemented by board task #39 (F8): the tracking-links workspace. The
+      // mint/copy/revoke control itself lives on the trip detail screen; this
+      // route lists which trips have a live link and gets a dispatcher there.
       path: '/app/tracking',
       i18n: 'nav.tracking',
       roles: ['owner', 'dispatcher'],
-      task: 'F8 · board #39'
+      view: 'tracking',
+      task: null
     },
     {
       id: 'finance',
@@ -415,6 +419,10 @@
     // Implemented view (board task #37, F6): the documents workspace list.
     if (route.view === 'documents') {
       return { title: translate('nav.documents'), body: translate('common.loading'), task: null };
+    }
+    // Implemented view (board task #39, F8): the tracking-links workspace.
+    if (route.view === 'tracking') {
+      return { title: translate('nav.tracking'), body: translate('common.loading'), task: null };
     }
     return {
       title: translate(route.i18n),
