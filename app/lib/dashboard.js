@@ -213,9 +213,15 @@
       var actor = event.actor && event.actor.name
         ? event.actor.name
         : translate('trips.actorSystem');
+      // Board task #36 (F5): a driver reassignment keeps the trip's status, so
+      // its event reads `from === to`. Say what actually happened rather than
+      // printing a no-op "Assigned → Assigned".
+      var reassigned = text(event.from) !== '' && text(event.from) === text(event.to);
       items.push({
         id: text(event.id),
-        text: from + ' → ' + to,
+        text: reassigned
+          ? translate('dashboard.activity.reassigned', { status: from })
+          : from + ' → ' + to,
         actor: actor,
         when: dateText(event.at, i18n),
         link: typeof event.link === 'string' && event.link ? event.link : null

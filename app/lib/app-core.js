@@ -53,6 +53,15 @@
    */
   var REPORTS_ROLES = ['owner', 'dispatcher', 'accountant'];
 
+  /**
+   * Roles that hold `trip:*` in the seeded capability map (owner, dispatcher).
+   * Used by the trip-detail driver control (board task #36, F5): assigning or
+   * reassigning a driver needs `trip:assign`, which `trip:*` grants — a driver
+   * never qualifies. Mirrors `apps/api/src/auth/permissions.js`; the API stays
+   * authoritative and returns 403 if this ever disagrees.
+   */
+  var TRIP_MANAGE_ROLES = ['owner', 'dispatcher'];
+
   /** Role labels (i18n keys). The app never prints a raw role id. */
   var ROLE_KEYS = {
     owner: 'role.owner',
@@ -290,6 +299,16 @@
     return isKnownRole(role) && REPORTS_ROLES.indexOf(role) !== -1;
   }
 
+  /**
+   * Does this role hold `trip:*` (so it may assign/reassign a trip's driver)?
+   * Deny by default: an unknown role never does.
+   * @param {unknown} role
+   * @returns {boolean}
+   */
+  function canManageTrips(role) {
+    return isKnownRole(role) && TRIP_MANAGE_ROLES.indexOf(role) !== -1;
+  }
+
   /** @param {unknown} role @returns {boolean} */
   function canOpen(role, pathname) {
     if (!isKnownRole(role)) return false;
@@ -449,6 +468,7 @@
     USER_KEY: USER_KEY,
     ROLES: ROLES,
     REPORTS_ROLES: REPORTS_ROLES,
+    TRIP_MANAGE_ROLES: TRIP_MANAGE_ROLES,
     ROLE_KEYS: ROLE_KEYS,
     ROLE_HOME: ROLE_HOME,
     ROUTES: ROUTES,
@@ -464,6 +484,7 @@
     navFor: navFor,
     canOpen: canOpen,
     canReadReports: canReadReports,
+    canManageTrips: canManageTrips,
     guardDecision: guardDecision,
     navHtml: navHtml,
     panelFor: panelFor,
