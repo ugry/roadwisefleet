@@ -5,14 +5,16 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 
 | File | Where it lives on the VPS | Notes |
 |---|---|---|
-| `nginx/roadwisefleet.conf` | `/etc/nginx/sites-available/roadwisefleet.conf` | Apex + www TLS, static site, `/pilot/` + `/api/` → `127.0.0.1:8080`, `/api/waitlist` → `127.0.0.1:8787`, www→apex 301, security-header includes. Certbot-managed lines are generated — keep them when editing. |
+| `nginx/roadwisefleet.conf` | `/etc/nginx/sites-available/roadwisefleet.conf` | Apex + www TLS, static site, `/pilot/` + `/app/` + `/api/` → `127.0.0.1:8080`, `/api/waitlist` → `127.0.0.1:8787`, www→apex 301, security-header includes. The `/app/` location (board #69) is inert until the owner reload. Certbot-managed lines are generated — keep them when editing. |
 | `nginx/snippets/roadwisefleet-headers-static.conf` | `/etc/nginx/snippets/` | HSTS + CSP + nosniff/frame/referrer/permissions headers for the landing pages. |
 | `nginx/snippets/roadwisefleet-headers-pilot.conf` | `/etc/nginx/snippets/` | Stricter headers for `/pilot/`, including `X-Robots-Tag: noindex, nofollow`. |
+| `nginx/snippets/roadwisefleet-headers-app.conf` | `/etc/nginx/snippets/` | **Board #69** — headers for `/app/` (Fleet Manager). Same lockdown as the pilot but `script-src 'self'`/`style-src 'self'` with **no** `'unsafe-inline'` (the app declares no inline code). |
 | `nginx/snippets/roadwisefleet-headers-api.conf` | `/etc/nginx/snippets/` | Headers for proxied API responses. |
-| `nginx/conf.d/roadwisefleet-limits.conf` | `/etc/nginx/conf.d/` | Per-IP `limit_req` zones (http context). Install **before** the site file — the four `limit_req` lines in it are enabled as of board #45. |
+| `nginx/conf.d/roadwisefleet-limits.conf` | `/etc/nginx/conf.d/` | Per-IP `limit_req` zones (http context). Install **before** the site file — the five `limit_req` lines in it are enabled as of board #45 (+ the `/app/` line, #69). |
 | `checks/pilot-exposure-check.sh` | run from a checkout | Read-only before/after verification sweep. |
 | `checks/nginx-limits-preflight.sh` | run from a checkout | Read-only, board #45: verifies every enabled `limit_req zone=` has a declared zone (repo + live), prints the install order. Run before any nginx reload. |
 | `checks/pilot-csp-check.sh` | run from a checkout | Read-only, board #65: asserts the pilot CSP covers every resource the pilot HTML/JS declares (CSP fallback semantics) and that the lockdown tokens are intact. `--live` compares the live headers; `--self-test` proves it catches the broken policy. Runs in the `pilot-csp-check` CI job. |
+| `checks/app-csp-check.sh` | run from a checkout | Read-only, board #69: same for the Fleet Manager `/app/` surface, and additionally asserts `script-src`/`style-src` stay strict (no `'unsafe-inline'`) while the app declares no inline code — so the pilot snippet is not reused. `--live` compares the live headers; `--self-test` proves each rejection. Runs in the `app-csp-check` CI job. |
 | `pilot-exposure.md` | — | Runbook: routing, topology, reboot resilience, deploy/rollback, health checks, logs, credentials. |
 | `pilot-api.md` | — | Runbook: pilot API unit, config, ops, update steps, hardening. |
 | `pilot-db.md` | — | Runbook: Postgres/Redis containers and backups. |
@@ -22,7 +24,7 @@ Public-exposure runbook: [`pilot-exposure.md`](./pilot-exposure.md).
 | `systemd/pilot-uptime-check.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply 5-minute uptime check for the pilot public surface + loopback liveness. Runbook: [`pilot-observability.md`](./pilot-observability.md). |
 | `systemd/pilot-backup-verify.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply nightly backup freshness + artifact-integrity check. |
 | `scripts/pilot-uptime-check.sh` | `/usr/local/bin/` | Probes `/`, `/pilot/`, `/api/trips`, `/api/waitlist`, `/health`; mails `ugur@` on failure. |
-| `scripts/pilot-backup-verify.sh` | `/usr/local/bin/` | `pg_restore --list` / gzip / tar integrity + freshness; mails `ugur@` on failure. |
+| `scripts/pilot-backup-verify.sh` | `/usr/local/bin/` | `pg_restore --list` / gzip / tar integrity + freshness (pg dump, waitlist tarball, uploads archive + manifest); mails `ugur@` on failure. `--self-test` proves the detection/alert decisions (incl. deleting the newest backup) in CI — board #43. |
 | `scripts/pilot-restore-drill.sh` | `/usr/local/bin/` | Quarterly restore drill into a throwaway container on the **first free port in 5440–5479** (auto; never 5432/5433 — board #62) with the dump's owner roles bootstrapped first. Live volume untouched. Also restores the uploads archive and checks every file against its sha256 manifest (`--with-uploads`). `--self-test` runs in the `restore-drill-selftest` CI job. |
 | `scripts/pilot-uploads-backup.sh` | `/usr/local/bin/` | **Board #46** — archives the document upload directory (POD/eCMR bytes) + sha256 manifest (both 0600), 30-day retention, refuses to write an empty archive. Runbook: [`uploads.md`](./uploads.md). |
 | `systemd/pilot-uploads-backup.{service,timer}` | `/etc/systemd/system/` | Ready-to-apply daily 03:45 UTC uploads backup (after the 03:15 pg dump). |
