@@ -26,7 +26,9 @@
 
 set -uo pipefail
 
-UPLOAD_DIR="${UPLOAD_DIR:-/opt/roadwisefleet/api/var/uploads}"
+# board #62: post-move location. The pre-B1 /opt/roadwisefleet/api/var/uploads is
+# abandoned — a default pointing there would archive a dead directory.
+UPLOAD_DIR="${UPLOAD_DIR:-/var/lib/roadwisefleet/uploads}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/roadwisefleet/uploads}"
 KEEP_DAYS="${KEEP_DAYS:-30}"
 ALERT_MAIL="${ALERT_MAIL:-ugur@elilaltd.com}"

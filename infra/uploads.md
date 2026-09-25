@@ -75,6 +75,36 @@ every file is a placeholder. **No real phone photo has ever been stored on the l
 is exactly what the #41 413 predicts. This task cannot be demonstrated with real bytes until #41 is
 applied.
 
+## 2b. Post-B1 host state and the board-#62 artifact fixes (2026-09-24)
+
+**Provenance:** the host facts below are quoted from the Team Leader's board comments on
+`eila/tasks#46` / `#43` (he holds root on elilavps2) — I did **not** verify them first-hand. The
+*artifact* changes are mine and are CI-checked (§6/§7).
+
+The B1/B4 host window was applied 2026-09-24 ~00:00 UTC:
+
+| Host fact | Value |
+|---|---|
+| Live uploads path | `/var/lib/roadwisefleet/uploads` (`0750 debian:debian`); moved with `rsync`, verified **24 files / 13,476,195 B on both sides before any delete**; the old tree is left in place and receives nothing new |
+| New writes | `0640` files / `0750` dirs (`UMask=0027` drop-in on `roadwise-api.service`); `find -perm -o+r` = **0** |
+| `UPLOAD_DIR` | appended to the API `.env` (0600; the value was not printed) |
+| Timers | `pilot-disk-check.timer` (hourly) and `pilot-uploads-backup.timer` (03:45 UTC) installed and enabled; first archives written 0600 with sha256 manifests |
+| Real bytes | a **3,200,120-byte** JPEG through `https://roadwisefleet.com` → **HTTP 201**, stored `0640` in the new tree |
+| Drill | **PASSED** (`--with-uploads`): dump 22 tables / 125 rows / 12 trips / 2 documents; uploads archive **25 files / 16,676,315 B / 25-of-25 sha256 OK** |
+
+Three defects in the **merged** install artifacts surfaced while applying that window. They were
+patched on the host, so the repo kept shipping the stale versions — board **#62** fixes that:
+
+| # | Defect | Fix (this change) |
+|---|---|---|
+| **D1** | `pilot-disk-check.service` / `pilot-uploads-backup.service` hardcoded the **pre-move** `UPLOAD_DIR`. A reinstall would make the disk check and the nightly backup operate on an **abandoned** directory — a silent monitoring *and* backup gap. | Units and both scripts now default to `/var/lib/roadwisefleet/uploads`; the units additionally read an optional `/etc/roadwisefleet/uploads.env` (0600, root — settings there win over `Environment=`), so the path is set in one place and cannot drift again. |
+| **D2** | the drill's default `SCRATCH_PORT=5433` collided with the host `postgresql@17-main` cluster (`bind: address already in use`; the host ran it with `SCRATCH_PORT=5434`). | Default is now `SCRATCH_PORT=auto`: the first free port in `5440–5479`, never 5432/5433, with automatic retry on the next candidate. A *pinned* port fails with a clear message instead of a bare bind error. |
+| **D3** | the drill never created the dump's owner role, so `ON_ERROR_STOP=1` aborted on `ALTER … OWNER TO roadwisefleet` (roles are cluster-level and are not in a database dump). | The drill derives the roles the dump references (`OWNER TO` / `AUTHORIZATION` / `GRANT\|REVOKE … TO\|FROM`) and creates each one with `LOGIN` in the throwaway cluster **before** loading. A reference that is not a simple identifier is skipped with a loud message and is never interpolated into SQL. |
+
+All three are asserted by `pilot-restore-drill.sh --self-test` in CI (job `restore-drill-selftest`,
+stubbed podman + fixture dump + fixture archive: no host, no network, no root) and by `shellcheck`,
+so a future reinstall cannot silently regress them.
+
 ## 3. Findings
 
 | # | Severity | Finding | Fix |
@@ -94,6 +124,7 @@ applied.
 | Directory mode | `0750`, owner = the API service user (`debian`) | group/service access only; **not** world-traversable (U1) |
 | File mode | `0640` | owner + service group read; nobody else (U1) |
 | `UPLOAD_DIR` | set in `apps/api/.env` (0600, never committed) | explicit beats a computed default that moves when the checkout layout moves |
+| `UPLOAD_DIR` for the ops units | default `/var/lib/roadwisefleet/uploads` in `pilot-disk-check.service` / `pilot-uploads-backup.service`, overridable via `/etc/roadwisefleet/uploads.env` (0600, root, optional) | one place to change the path for the check + the backup; **a reinstall cannot point them back at the pre-move directory** (board #62, D1) |
 | Transport | never served by nginx, never under a web root | documents are only reachable through the authenticated API |
 | Backups | `uploads-*.tar.gz` + `.manifest`, 0600, in `/var/backups/roadwisefleet/uploads` | §7 |
 
@@ -109,9 +140,15 @@ sudo find /var/lib/roadwisefleet/uploads      -type f | wc -l
 # 3. point the API at the new path (0600, edited in place, never committed)
 #    UPLOAD_DIR=/var/lib/roadwisefleet/uploads
 sudo install -m 0600 -o debian -g debian /dev/null /tmp/.env.new   # or edit with an editor
-# 4. add UMask=0027 to roadwise-api.service (defence in depth for new files)
+# 4. optional: one place for the ops units to read the same path (0600, root).
+#    The units work without it (their default is the same value); it exists so a
+#    future move does not need the units edited. Settings here win over the
+#    unit's own Environment= lines.
+sudo install -d -m 0750 /etc/roadwisefleet
+printf 'UPLOAD_DIR=/var/lib/roadwisefleet/uploads\n' | sudo install -m 0600 /dev/stdin /etc/roadwisefleet/uploads.env
+# 5. add UMask=0027 to roadwise-api.service (defence in depth for new files)
 sudo systemctl daemon-reload && sudo systemctl restart roadwise-api.service
-# 5. verify: upload one real photo through the public URL, then
+# 6. verify: upload one real photo through the public URL, then
 sudo find /var/lib/roadwisefleet/uploads -type f -printf '%m %u:%g %s %p\n'
 ```
 
@@ -181,22 +218,23 @@ prove nothing was already missing. That is what #43's freshness check and deleti
 
 | Acceptance criterion | Status |
 |---|---|
-| a >2.5 MB photo uploads from a phone through the public URL and the trip reaches `POD_UPLOADED` | **NOT MET** — needs #41 applied (PR #33, owner sign-off) then a real-device upload (F7a/F7c). No real photo has ever reached the server (§2). |
-| an over-limit file produces a readable message rather than a silent no-op | **NOT MET here** — the nginx half is PR #33; the readable client message is the F7a client half (§1). |
-| the upload lands on disk with a documented path + permissions | **delivered as documentation + code**; the live directory is still `0775`/`0644` until the host applies §4 (owner approval). |
-| disk usage is monitored with an alert before it fills | **scripted** (`pilot-disk-check`, T9/T10) — **not installed**. |
-| retention policy written down, matching the business/legal requirement | **draft written**; the requirement is with the secretary (§5) — not guessed, not claimed as met. |
-| the upload directory is included in the backup + restore drill | **scripted + CI-validated**; drill not yet run on the host (no `podman`/root from my session). |
-| no upload is stored world-readable | **code fix + CI test in this PR**; live tree unchanged until §4 is approved. |
+| a >2.5 MB photo uploads from a phone through the public URL and the trip reaches `POD_UPLOADED` | **MET on the live surface** — a **3,200,120-byte** JPEG through `https://roadwisefleet.com` → **HTTP 201**, stored in the new tree (`0640`) when the B1 window ran (§2b; the Team Leader's host evidence, not first-hand). The trip reaching `POD_UPLOADED` still needs the F7a/F7c device flow (#48). |
+| an over-limit file produces a readable message rather than a silent no-op | nginx half **applied** (#41 closed, proven with a real 9.75 MB POST); the readable *client* message is still the F7a client half (§1). |
+| the upload lands on disk with a documented path + permissions | **MET** — live path + modes in §2b (`/var/lib/roadwisefleet/uploads`, 0750/0640); enforced for new writes by code + a CI test. |
+| disk usage is monitored with an alert before it fills | **MET** — `pilot-disk-check.timer` installed (hourly); first run green (25 files, dir 750, filesystem 19 %). Thresholds T9/T10. |
+| retention policy written down, matching the business/legal requirement | **ANSWERED as far as it can be, DECISION PENDING owner + legal** — there is no company/legal position on record (secretary, `eila/requests#14`), so the ship-safe default stands: **retention disabled / delete nothing** until the owner signs off in writing (§5). |
+| the upload directory is included in the backup + restore drill | **MET** — nightly archive + manifest (0600), and the drill **PASSED** on the host with the real bytes (25 files / 16,676,315 B / 25-of-25 sha256 OK). |
+| no upload is stored world-readable | **MET** — live `find -perm -o+r` = **0**; new writes are 0640 (CI test in this repo). |
 
 ## 9. Blockers
 
 | # | Blocker | Who unblocks |
 |---|---|---|
-| **B1** | Storage move + `UMask` + installing the disk-check and uploads-backup timers: host change, root on elilavps2. `sudo` is not available to me and production changes need owner approval. | owner window, applied by Victor |
-| **B2** | #41 is `awaiting-owner` — without PR #33 applied, no upload > 1 MB can be tested at all. | owner sign-off on PR #33 |
-| **B3** | Retention legal minimum (§5). | secretary (isabelle.graves@) |
-| **B4** | Running the extended restore drill on the host (needs root + the `postgres:17-alpine` image). | Victor, in the same window as B1 |
+| **B1** | storage move + `UMask` + installing the timers — **CLEARED 2026-09-24 ~00:00 UTC** (host window applied; §2b). The three stale artifacts that window exposed are fixed in the board-#62 change. | done |
+| **B2** | #41 nginx limit — **CLEARED** (#41 closed; a 9.75 MB upload reached the API with HTTP 201). | done |
+| **B3** | retention legal minimum — **answered as far as possible**: no company/legal position on record, so it is an **owner + legal decision** (already open on `eila/tasks#13` §5). Default stays "delete nothing". | owner + legal |
+| **B4** | run the extended drill on the host — **CLEARED**: drill PASSED (`--with-uploads`) in the same window. | done |
+| **B5** | **install the #62-fixed artifacts.** The host carries a hand patch made during the window; reinstalling from a clean checkout of this change is a host change and belongs to an owner-approved window. Until then the *running* units are correct but the repo/host diverge. | owner window, applied by the Team Leader |
 
 Related: `#43` gets the uploads backup + drill from this change; `#44` gets the disk thresholds;
 `#41`'s nginx diff stays as pre-staged by Victor. Nothing in this task touches nginx, the API unit,
