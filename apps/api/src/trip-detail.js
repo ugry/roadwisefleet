@@ -126,6 +126,11 @@ export function shapeTripDetail(trip) {
     id: ev.id,
     from: ev.fromStatus,
     to: ev.toStatus,
+    // Board task #36 (F5): a driver reassignment keeps the current status, so
+    // its event has `from === to`. That is the only same-status event the API
+    // writes, and it is what the timeline renders as "reassigned" instead of a
+    // no-op transition. A normal lifecycle move always changes the status.
+    kind: ev.fromStatus === ev.toStatus ? 'reassignment' : 'status',
     at: ev.happenedAt,
     actor: ev.actor ? { id: ev.actor.id, name: ev.actor.name } : null,
   }));
