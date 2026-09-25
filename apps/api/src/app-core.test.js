@@ -180,9 +180,14 @@ test('panelFor marks implemented views and names the board task that fills a pla
   assert.equal(dispatch.title, 'nav.dispatch');
   assert.equal(dispatch.body, 'common.loading');
   assert.equal(dispatch.task, null);
-  // A route still awaiting its task keeps the placeholder that names the task.
+  // The documents workspace is implemented too (board task #37, FAv1-F6).
   const documents = appCore.panelFor(appCore.routeForPath('/app/documents'), t);
-  assert.match(documents.body, /common\.pending\(F6 · board #37\)/);
+  assert.equal(documents.title, 'nav.documents');
+  assert.equal(documents.body, 'common.loading');
+  assert.equal(documents.task, null);
+  // A route still awaiting its task keeps the placeholder that names the task.
+  const tracking = appCore.panelFor(appCore.routeForPath('/app/tracking'), t);
+  assert.match(tracking.body, /common\.pending\(F8 · board #39\)/);
   assert.equal(appCore.panelFor(appCore.routeForPath('/app/nope'), t).title, 'error.notFoundTitle');
   const overview = appCore.panelFor(appCore.routeForPath('/app/'), t);
   assert.equal(overview.title, 'overview.title');

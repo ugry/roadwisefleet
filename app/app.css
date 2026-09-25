@@ -531,3 +531,81 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
   .filters .field-grow { flex: 1 1 100%; }
   table.trips-table { display: block; overflow-x: auto; }
 }
+
+/* ------------------------------------------------ documents (F6) ---
+ * Board task #37: the trip-detail documents panel and the Documents
+ * workspace. Reuses the dispatch/assign card look; the checklist is a
+ * simple list, and the document table scrolls rather than widening the page.
+ */
+.doc-gate {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.doc-gate.ok {
+  border-color: oklch(0.55 0.12 150);
+  background: oklch(0.96 0.05 150);
+  color: oklch(0.33 0.09 150);
+}
+.doc-gate.missing {
+  border-color: oklch(0.8 0.12 70);
+  background: oklch(0.97 0.05 85);
+  color: oklch(0.4 0.09 70);
+}
+.doc-subtitle {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--ink);
+  margin: 18px 0 8px;
+}
+.doc-checklist {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doc-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 14px;
+}
+.doc-check-label { font-weight: 600; }
+.doc-check-badge {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.doc-check-state { margin-left: auto; color: var(--muted); }
+.doc-check-state.present { color: oklch(0.33 0.09 150); }
+.doc-table-wrap { overflow-x: auto; }
+.doc-actions { white-space: nowrap; }
+.doc-actions button { margin-right: 6px; padding: 6px 10px; }
+.doc-upload {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  max-width: 36rem;
+}
+.doc-upload .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.doc-upload button.primary { width: auto; padding: 11px 18px; }
+.doc-status { font-size: 13px; font-weight: 600; }

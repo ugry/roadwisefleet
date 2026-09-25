@@ -61,7 +61,10 @@ test('every element app.js reaches for exists in the shell', () => {
 test('the shell loads the shared i18n core, its own core and app.js with absolute paths', () => {
   assert.match(PAGE, /<script src="\/pilot\/lib\/i18n\.js"><\/script>/);
   assert.match(PAGE, /<script src="\/pilot\/lib\/i18n-ui\.js"><\/script>/);
+  // Board task #37 (F6): the documents UI reuses the driver core's checklist.
+  assert.match(PAGE, /<script src="\/pilot\/lib\/driver-core\.js"><\/script>/);
   assert.match(PAGE, /<script src="\/app\/lib\/app-core\.js"><\/script>/);
+  assert.match(PAGE, /<script src="\/app\/lib\/documents\.js"><\/script>/);
   assert.match(PAGE, /<script src="\/app\/app\.js"><\/script>/);
   assert.match(PAGE, /<link rel="stylesheet" href="\/app\/app\.css">/);
 });
@@ -170,7 +173,7 @@ test('no catalogue value is empty, and the language hook is wired EN-first', () 
 // --- static serving ---------------------------------------------------------
 
 test('servable files resolve inside the app root', () => {
-  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'locales/en.json']) {
+  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'lib/documents.js', 'locales/en.json']) {
     const file = resolveAppFile(rel);
     assert.ok(file, `${rel} should resolve`);
     assert.ok(String(file).startsWith(appDir));

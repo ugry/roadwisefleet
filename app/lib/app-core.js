@@ -140,10 +140,14 @@
     },
     {
       id: 'documents',
+      // Implemented by board task #37 (F6): the documents workspace. The
+      // upload / verify / reject controls live on the trip detail screen; this
+      // route is the worklist that gets a dispatcher there, one trip at a time.
       path: '/app/documents',
       i18n: 'nav.documents',
       roles: ['owner', 'dispatcher'],
-      task: 'F6 · board #37'
+      view: 'documents',
+      task: null
     },
     {
       id: 'tracking',
@@ -407,6 +411,10 @@
     // app.js; the core only supplies the title and an honest loading body.
     if (route.view === 'dispatch') {
       return { title: translate('nav.dispatch'), body: translate('common.loading'), task: null };
+    }
+    // Implemented view (board task #37, F6): the documents workspace list.
+    if (route.view === 'documents') {
+      return { title: translate('nav.documents'), body: translate('common.loading'), task: null };
     }
     return {
       title: translate(route.i18n),
