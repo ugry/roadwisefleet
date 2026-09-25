@@ -179,10 +179,16 @@
     },
     {
       id: 'my-trips',
+      // Implemented by board task #38 (F7a): the driver client. Own trips only
+      // (`GET /api/driver/trips`), one-tap statuses, the required-documents
+      // checklist, a camera capture with GPS + timestamp, an offline queue that
+      // syncs on reconnect and the POD gate. Rendered by app.js from the shared
+      // `pilot/lib/driver-core.js` rules.
       path: '/app/my-trips',
       i18n: 'nav.myTrips',
       roles: ['driver'],
-      task: 'F7 · board #38'
+      view: 'driver',
+      task: null
     }
   ];
 

@@ -609,3 +609,33 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
 }
 .doc-upload button.primary { width: auto; padding: 11px 18px; }
 .doc-status { font-size: 13px; font-weight: 600; }
+
+/* Driver client (board task #38, FAv1-F7a). */
+.driver-switcher { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.driver-tab {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.driver-tab.active { border-color: var(--accent, #2f6fed); font-weight: 600; }
+.driver-card { max-width: 40rem; }
+.driver-meta { display: grid; grid-template-columns: 8rem 1fr; gap: 4px 12px; margin: 12px 0; }
+.driver-meta dt { color: var(--muted, #667085); }
+.driver-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.driver-action { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+.driver-action[disabled] { opacity: 0.55; cursor: not-allowed; }
+.gate-note { font-size: 13px; color: var(--muted, #667085); }
+.driver-capture input[type="file"] { padding: 8px 0; }
+.driver-capture button.primary { width: auto; padding: 11px 18px; }
+.driver-queue { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sync-chip { font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); }
+.sync-chip.sync-offline, .sync-chip.sync-error { border-color: var(--danger, #b42318); color: var(--danger, #b42318); }
+.sync-chip.sync-synced { border-color: var(--success, #067647); color: var(--success, #067647); }
+.checklist { list-style: none; padding: 0; margin: 8px 0 0; }
+.checklist li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.checklist li.done .check { color: var(--success, #067647); }
+.checklist .req { font-size: 12px; color: var(--muted, #667085); }
+.checklist .docstate { float: right; font-size: 13px; color: var(--muted, #667085); }
+.alert.success { border-color: var(--success, #067647); color: var(--success, #067647); }

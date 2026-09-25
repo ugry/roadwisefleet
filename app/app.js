@@ -40,6 +40,9 @@
   // this one from `/pilot/lib/driver-core.js`. The documents UI never restates
   // the POD gate — it asks this module.
   var DRCORE = win && win.RoadwiseDriverCore ? win.RoadwiseDriverCore : {};
+  // The driver client view model (board task #38, F7a), loaded before this one.
+  // It injects DRCORE and DOC, so the driver screen never restates a shared rule.
+  var DRIVER = win && win.RoadwiseDriverView ? win.RoadwiseDriverView : {};
   var T = function (key, params) { return key; };
   var i18n = null;
   var session = { token: '', user: null };
@@ -212,6 +215,13 @@
     if (route && route.view === 'documents') {
       outlet.innerHTML = '';
       renderDocuments(outlet, token);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'driver') {
+      outlet.innerHTML = '';
+      renderMyTrips(outlet, token);
       if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
       if (outlet.focus) outlet.focus();
       return panel;
@@ -1541,6 +1551,442 @@
     }
   }
 
+  /* ------------------------------------------------ my trips (F7a #38) --- */
+
+  /**
+   * The driver client state. `queue` is the offline queue (persisted), `geo` is
+   * the last GPS fix (best-effort), `syncing` guards against a second reconnect
+   * racing the first — that plus `DRIVER.enqueue`'s id check is what makes a
+   * reconnect sync without duplicating a change.
+   */
+  var myTripsState = {
+    trips: [],
+    currentId: null,
+    geo: null,
+    geoState: 'idle',
+    queue: [],
+    syncing: false,
+    flash: null,
+  };
+
+  function queueStore() {
+    try {
+      if (typeof localStorage === 'undefined' || localStorage === null) return null;
+      localStorage.getItem(DRIVER.QUEUE_KEY);
+      return localStorage;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function readQueue() {
+    var store = queueStore();
+    return store ? DRIVER.parseQueue(store.getItem(DRIVER.QUEUE_KEY)) : [];
+  }
+
+  function writeQueue(items) {
+    myTripsState.queue = Array.isArray(items) ? items : [];
+    var store = queueStore();
+    if (!store) return;
+    try {
+      store.setItem(DRIVER.QUEUE_KEY, DRIVER.queueJson(myTripsState.queue));
+    } catch (err) {
+      /* quota: the capture stays in memory for this session, never lost silently */
+    }
+  }
+
+  function myMessage(outlet, message, kind) {
+    var node = outlet.querySelector('#myMessage');
+    if (!node) return;
+    node.className = 'alert' + (kind ? ' ' + kind : '');
+    node.textContent = message || '';
+    node.hidden = !message;
+  }
+
+  function readFileBase64(file) {
+    return new Promise(function (resolve, reject) {
+      if (typeof FileReader === 'undefined') { reject(new Error('no FileReader')); return; }
+      var reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result || '')); };
+      reader.onerror = function () { reject(reader.error || new Error('read failed')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /** Best-effort GPS: a denied/absent fix is fine, the capture still works. */
+  function requestGeo(outlet) {
+    if (myTripsState.geoState === 'pending') return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { myTripsState.geoState = 'unavailable'; return; }
+    myTripsState.geoState = 'pending';
+    myMessage(outlet, T('driver.gps.locating'), 'info');
+    navigator.geolocation.getCurrentPosition(function (position) {
+      if (DRCORE.isUsableFix && DRCORE.isUsableFix(position)) {
+        myTripsState.geo = { lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy };
+        myTripsState.geoState = 'ready';
+      } else {
+        myTripsState.geo = null;
+        myTripsState.geoState = 'coarse';
+      }
+      myMessage(outlet, T(myTripsState.geoState === 'ready' ? 'driver.gps.ready' : 'driver.gps.coarse'), 'info');
+    }, function () {
+      myTripsState.geo = null;
+      myTripsState.geoState = 'denied';
+      myMessage(outlet, T('driver.gps.denied'), 'info');
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  }
+
+  function currentMyTrip() {
+    var list = myTripsState.trips;
+    for (var i = 0; i < list.length; i += 1) {
+      if (String(list[i].id) === String(myTripsState.currentId)) return list[i];
+    }
+    return DRCORE.pickCurrentTrip ? DRCORE.pickCurrentTrip(list) : (list[0] || null);
+  }
+
+  function myTripsSwitcherHtml() {
+    var list = myTripsState.trips;
+    if (list.length < 2) return '';
+    var current = currentMyTrip();
+    var out = '<div class="driver-switcher" role="tablist">';
+    for (var i = 0; i < list.length; i += 1) {
+      var trip = list[i];
+      var active = current && String(trip.id) === String(current.id);
+      out += '<button type="button" role="tab" aria-selected="' + (active ? 'true' : 'false') +
+        '" class="driver-tab' + (active ? ' active' : '') +
+        '" data-my-trip="' + esc(trip.id) + '">' +
+        esc(statusLabel(trip.status)) + ' · ' + esc(trip.id) + '</button>';
+    }
+    return out + '</div>';
+  }
+
+  function driverActionsHtml(trip) {
+    var actions = DRIVER.statusActions ? DRIVER.statusActions(DRCORE, trip) : [];
+    if (!actions.length) return '<p class="muted">' + esc(T('driver.noActions')) + '</p>';
+    var out = '<div class="driver-actions">';
+    for (var i = 0; i < actions.length; i += 1) {
+      var a = actions[i];
+      out += '<button type="button" class="driver-action" data-my-status="' + esc(a.status) +
+        '" data-my-trip-id="' + esc(trip.id) + '"' +
+        (a.blocked ? ' disabled aria-disabled="true"' : '') +
+        (a.confirm ? ' data-my-confirm="' + esc(a.confirmKey) + '"' : '') +
+        '>' + esc(T(a.actionKey)) + '</button>';
+    }
+    out += '</div>';
+    if (!DRIVER.podReady(DRCORE, trip.status, trip.documents)) {
+      out += '<p class="gate-note">' + esc(T('driver.podGate')) + '</p>';
+    }
+    return out;
+  }
+
+  function driverChecklistHtml(trip) {
+    var rows = DRIVER.checklist ? DRIVER.checklist(DRCORE, trip.documents) : [];
+    if (!rows.length) return '';
+    var out = '<h3>' + esc(T('docs.checklistTitle')) + '</h3><ul class="checklist">';
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = rows[i];
+      var kind = row.present ? T('docs.attached') : T(row.required ? 'docs.notAttached' : 'docs.optional');
+      out += '<li' + (row.present ? ' class="done"' : '') + '>' +
+        '<span class="check">' + esc(row.present ? '✓' : '•') + '</span>' +
+        '<span class="label">' + esc(T(row.labelKey)) + '</span>' +
+        (row.required ? ' <span class="req">' + esc(T(row.alternative ? 'docs.alternative' : 'docs.required')) + '</span>' : '') +
+        ' <span class="docstate">' + esc(kind) + '</span></li>';
+    }
+    return out + '</ul>';
+  }
+
+  function driverCaptureHtml(trip) {
+    var options = DOC.docTypeEntries ? DOC.docTypeEntries() : [];
+    var out = '<h3>' + esc(T('driver.capture.title')) + '</h3>' +
+      '<p class="muted">' + esc(T('driver.capture.hint')) + '</p>' +
+      '<div class="dispatch-form driver-capture">' +
+      '<label for="myDocType">' + esc(T('docs.type')) + '</label>' +
+      '<select id="myDocType">';
+    for (var i = 0; i < options.length; i += 1) {
+      out += '<option value="' + esc(options[i].value) + '"' +
+        (options[i].value === 'pod' ? ' selected' : '') + '>' + esc(T(options[i].labelKey)) + '</option>';
+    }
+    out += '</select>' +
+      '<label for="myPhoto">' + esc(T('docs.file')) + '</label>' +
+      '<input id="myPhoto" type="file" accept="' + esc(DOC.acceptAttribute ? DOC.acceptAttribute() : 'image/*') +
+      '" capture="environment">' +
+      '<p class="muted" id="myCaptureMeta">' + esc(T('driver.capture.none')) + '</p>' +
+      '<button type="button" class="primary" id="myUpload" disabled data-my-trip-id="' + esc(trip.id) + '">' +
+      esc(T('docs.upload')) + '</button>' +
+      '</div>';
+    return out;
+  }
+
+  function driverQueueHtml() {
+    var indicator = DRIVER.indicator ? DRIVER.indicator(DRCORE, myTripsState.queue, {
+      online: typeof navigator === 'undefined' || navigator.onLine !== false,
+      syncing: myTripsState.syncing,
+      lastError: myTripsState.flash && myTripsState.flash.kind === 'err' ? myTripsState.flash.text : null,
+    }) : { state: 'synced', pending: 0, labelKey: 'driver.sync.synced' };
+    return '<div class="driver-queue" data-my-queue-count="' + indicator.pending + '">' +
+      '<span class="sync-chip sync-' + esc(indicator.state) + '">' +
+      esc(T(indicator.labelKey, { count: indicator.pending })) + '</span>' +
+      (indicator.pending > 0 ? '<button type="button" id="mySync" class="link-button">' + esc(T('driver.sync.now')) + '</button>' : '') +
+      '</div>';
+  }
+
+  function driverCardHtml(trip) {
+    var card = DRCORE.buildTourCard ? DRCORE.buildTourCard(trip) : { route: {}, status: trip.status, checklist: [] };
+    var route = (card.route && (card.route.origin || card.route.destination))
+      ? esc(card.route.origin || '?') + ' → ' + esc(card.route.destination || '?')
+      : esc(trip.id);
+    return '<div class="panel driver-card">' +
+      '<p class="title">' + route + '</p>' +
+      '<p><span class="status s-' + esc(card.status) + '">' + esc(statusLabel(card.status)) + '</span></p>' +
+      '<dl class="driver-meta">' +
+      '<dt>' + esc(T('trips.colCustomer')) + '</dt><dd>' + esc(card.customer || T('trips.none')) + '</dd>' +
+      '<dt>' + esc(T('trips.truck')) + '</dt><dd>' + esc(card.truck && card.truck.plate ? card.truck.plate : T('trips.none')) + '</dd>' +
+      '<dt>' + esc(T('trips.colRate')) + '</dt><dd>' + esc(card.rateEur === null ? T('trips.none') : money(card.rateEur)) + '</dd>' +
+      '<dt>' + esc(T('driver.eta')) + '</dt><dd>' + esc(T(card.etaKey || 'driver.etaUnavailable')) + '</dd>' +
+      '</dl>' +
+      driverActionsHtml(trip) +
+      driverChecklistHtml(trip) +
+      driverCaptureHtml(trip) +
+      '</div>';
+  }
+
+  function renderMyTripsBody(outlet) {
+    var trip = currentMyTrip();
+    var host = outlet.querySelector('#myTripsBody');
+    if (!host) return;
+    if (!trip) {
+      host.innerHTML = '<div class="empty-state"><p class="title">' + esc(T('driver.emptyTitle')) + '</p>' +
+        '<p>' + esc(T('driver.empty')) + '</p></div>';
+      return;
+    }
+    host.innerHTML = myTripsSwitcherHtml() + driverCardHtml(trip) + driverQueueHtml();
+    bindMyTrips(outlet);
+  }
+
+  function renderMyTrips(outlet, token) {
+    outlet.innerHTML =
+      '<h1>' + esc(T('nav.myTrips')) + '</h1>' +
+      '<p class="lead">' + esc(T('driver.lead')) + '</p>' +
+      '<p class="alert" id="myMessage" role="alert" hidden></p>' +
+      '<div id="myTripsBody"><p class="muted">' + esc(T('common.loading')) + '</p></div>';
+
+    myTripsState.queue = readQueue();
+    myTripsState.flash = null;
+
+    // Own trips only: the driver read endpoint scopes by the token (board #68).
+    return request(DRIVER.myTripsPath(), { token: session.token }).then(function (res) {
+      if (token !== renderToken) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        var host = outlet.querySelector('#myTripsBody');
+        if (host) host.innerHTML = '<div class="empty-state"><p>' + esc(errorText(res)) + '</p></div>';
+        return;
+      }
+      var trips = (res.data && res.data.trips) || [];
+      myTripsState.trips = trips;
+      var current = currentMyTrip();
+      myTripsState.currentId = current ? current.id : null;
+      renderMyTripsBody(outlet);
+      syncDriverQueue(outlet, token);
+      return trips;
+    });
+  }
+
+  function bindMyTrips(outlet) {
+    var tabs = outlet.querySelectorAll ? outlet.querySelectorAll('[data-my-trip]') : [];
+    for (var i = 0; i < tabs.length; i += 1) {
+      (function (tab) {
+        tab.addEventListener('click', function () {
+          myTripsState.currentId = tab.getAttribute('data-my-trip');
+          renderMyTripsBody(outlet);
+        });
+      })(tabs[i]);
+    }
+
+    var actions = outlet.querySelectorAll ? outlet.querySelectorAll('[data-my-status]') : [];
+    for (var j = 0; j < actions.length; j += 1) {
+      (function (button) {
+        button.addEventListener('click', function () {
+          if (button.disabled) return;
+          var confirmKey = button.getAttribute('data-my-confirm');
+          if (confirmKey && typeof win.confirm === 'function' && !win.confirm(T(confirmKey))) return;
+          sendDriverStatus(outlet, button.getAttribute('data-my-trip-id'), button.getAttribute('data-my-status'));
+        });
+      })(actions[j]);
+    }
+
+    var photo = outlet.querySelector('#myPhoto');
+    if (photo) {
+      photo.addEventListener('change', function () {
+        var upload = outlet.querySelector('#myUpload');
+        if (upload) upload.disabled = !(photo.files && photo.files.length);
+        var meta = outlet.querySelector('#myCaptureMeta');
+        if (meta && photo.files && photo.files[0]) {
+          meta.textContent = T('driver.capture.ready', { name: photo.files[0].name, size: DOC.formatBytes(photo.files[0].size) });
+        }
+      });
+    }
+    var upload = outlet.querySelector('#myUpload');
+    if (upload) {
+      upload.addEventListener('click', function () { handleDriverPhoto(outlet); });
+    }
+    var sync = outlet.querySelector('#mySync');
+    if (sync) {
+      sync.addEventListener('click', function () { syncDriverQueue(outlet, session.token); });
+    }
+    requestGeo(outlet);
+  }
+
+  function setMyFlash(outlet, text, kind) {
+    myTripsState.flash = text ? { text: text, kind: kind || 'info' } : null;
+    myMessage(outlet, text, kind);
+  }
+
+  function enqueueDriverItem(outlet, kind, tripId, payload) {
+    var item = DRCORE.makeQueueItem({ kind: kind, id: DRIVER.queueId(kind, tripId, Date.now()), tripId: tripId, payload: payload });
+    var next = DRIVER.enqueue(DRCORE, myTripsState.queue, item);
+    if (!next.added && next.reason !== 'duplicate') return false;
+    if (!DRIVER.queueFits(next.queue)) {
+      setMyFlash(outlet, T('driver.queue.full'), 'err');
+      return false;
+    }
+    writeQueue(next.queue);
+    return true;
+  }
+
+  function sendDriverStatus(outlet, tripId, status) {
+    var body = { status: status };
+    var online = typeof navigator === 'undefined' || navigator.onLine !== false;
+    if (!online) {
+      if (enqueueDriverItem(outlet, 'status', tripId, body)) {
+        setMyFlash(outlet, T('driver.queued', { count: myTripsState.queue.length }), 'info');
+        renderMyTripsBody(outlet);
+      }
+      return Promise.resolve(null);
+    }
+    return request('/api/trips/' + encodeURIComponent(tripId) + '/status', {
+      method: 'POST', token: session.token, body: body,
+    }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (res.status === 0) {
+        if (enqueueDriverItem(outlet, 'status', tripId, body)) {
+          setMyFlash(outlet, T('driver.queued', { count: myTripsState.queue.length }), 'info');
+          renderMyTripsBody(outlet);
+        }
+        return;
+      }
+      if (!res.ok) { setMyFlash(outlet, errorText(res), 'err'); return; }
+      setMyFlash(outlet, T('driver.statusChanged', { status: T(DRIVER.statusKey(status)) }), 'success');
+      renderPanel(APP.routeForPath('/app/my-trips'));
+    });
+  }
+
+  function handleDriverPhoto(outlet) {
+    var input = outlet.querySelector('#myPhoto');
+    var select = outlet.querySelector('#myDocType');
+    var trip = currentMyTrip();
+    if (!input || !trip) return;
+    var file = input.files && input.files[0];
+    if (!file) { myMessage(outlet, T('docs.error.empty'), 'err'); return; }
+    var docType = select ? select.value : 'pod';
+
+    // 1) The pre-upload check. An over-limit photo is refused here, with the
+    //    size and the limit named — no request, so neither the API's 400 JSON
+    //    nor the proxy's HTML 413 page can ever be what the driver sees.
+    var check = DRIVER.photoCheck(DOC, { docType: docType, mimeType: file.type, size: file.size });
+    if (!check.ok) {
+      myMessage(outlet, T(check.key, check.params), 'err');
+      return;
+    }
+
+    myMessage(outlet, T('driver.photo.reading'), 'info');
+    return readFileBase64(file).then(function (dataUrl) {
+      var base64 = String(dataUrl).split(',')[1] || '';
+      var capture = DRIVER.captureMeta(DRCORE, {
+        capturedAt: Date.now(),
+        geo: myTripsState.geo ? { lat: myTripsState.geo.lat, lng: myTripsState.geo.lng, accuracy: myTripsState.geo.accuracy } : null,
+      });
+      if (!capture.ok) { myMessage(outlet, T(capture.key), 'err'); return; }
+      var coords = DRIVER.captureCoords(DRCORE, capture.value);
+      var meta = outlet.querySelector('#myCaptureMeta');
+      if (meta) {
+        meta.textContent = coords
+          ? T('driver.capture.meta', { at: fmtDate(capture.value.capturedAt), lat: coords.lat, lng: coords.lng })
+          : T('driver.capture.metaNoGps', { at: fmtDate(capture.value.capturedAt) });
+      }
+      var payload = DOC.uploadPayload({
+        docType: docType,
+        filename: file.name,
+        mimeType: file.type,
+        dataBase64: base64,
+        capturedAt: capture.value.capturedAt,
+        geo: { lat: capture.value.lat, lng: capture.value.lng, accuracy: capture.value.accuracyM },
+      });
+
+      var online = typeof navigator === 'undefined' || navigator.onLine !== false;
+      if (!online) {
+        if (enqueueDriverItem(outlet, 'document', trip.id, payload)) {
+          myMessage(outlet, T('driver.queuedCapture', { count: myTripsState.queue.length }), 'info');
+          renderMyTripsBody(outlet);
+        }
+        return;
+      }
+      return request(DOC.uploadPath(trip.id), { method: 'POST', token: session.token, body: payload }).then(function (res) {
+        if (res.status === 401) { handleExpired(); return; }
+        if (res.status === 0) {
+          if (enqueueDriverItem(outlet, 'document', trip.id, payload)) {
+            myMessage(outlet, T('driver.queuedCapture', { count: myTripsState.queue.length }), 'info');
+            renderMyTripsBody(outlet);
+          }
+          return;
+        }
+        if (!res.ok) {
+          // 2) A server-side rejection still reads as a message that names the
+          //    limit and the remedy, whether it is the API's 400 or a proxy 413.
+          var mapped = DRIVER.uploadError(DOC, res);
+          myMessage(outlet, T(mapped.key, mapped.params), 'err');
+          return;
+        }
+        myMessage(outlet, T('docs.uploaded', { docType: T(DOC.docTypeKey(docType)) }), 'success');
+        renderPanel(APP.routeForPath('/app/my-trips'));
+      });
+    }).catch(function () {
+      myMessage(outlet, T('docs.error.file'), 'err');
+    });
+  }
+
+  function replayDriverItem(item) {
+    var url = DRIVER.queueItemUrl(DRCORE, item);
+    if (!url) return Promise.resolve({ id: item.id, ok: false, status: 400, error: 'unknown_item' });
+    return request(url, { method: 'POST', token: session.token, body: item.payload }).then(function (res) {
+      return { id: item.id, ok: Boolean(res.ok), status: res.status, error: res.data && res.data.error ? res.data.error : null };
+    });
+  }
+
+  function syncDriverQueue(outlet, token) {
+    if (myTripsState.syncing) return Promise.resolve(null);
+    var online = typeof navigator === 'undefined' || navigator.onLine !== false;
+    var plan = DRIVER.syncPlan(DRCORE, myTripsState.queue, online);
+    if (!plan.send.length) return Promise.resolve(null);
+    myTripsState.syncing = true;
+    if (token !== renderToken) { myTripsState.syncing = false; return Promise.resolve(null); }
+    renderMyTripsBody(outlet);
+    return Promise.all(plan.send.map(replayDriverItem)).then(function (results) {
+      var folded = DRIVER.syncResults(DRCORE, myTripsState.queue, results);
+      // Every success is removed by id, so replaying the same queue can never
+      // send the same change twice (prove by counting, not by eye).
+      writeQueue(folded.queue);
+      myTripsState.syncing = false;
+      if (token !== renderToken) return null;
+      if (folded.sent.length) setMyFlash(outlet, T('driver.sync.done', { count: folded.sent.length }), 'success');
+      renderMyTripsBody(outlet);
+      if (folded.sent.length) renderPanel(APP.routeForPath('/app/my-trips'));
+      return folded;
+    }, function () {
+      myTripsState.syncing = false;
+      renderMyTripsBody(outlet);
+    });
+  }
+
   function showLogin(messageKey) {
     setHidden('appView', true);
     setHidden('loginView', false);
@@ -1691,6 +2137,13 @@
       win.addEventListener('pageshow', function (ev) {
         if (ev && ev.persisted) route({ skipUrl: true });
       });
+      // Reconnect: flush the driver's offline queue without needing a reload.
+      // `syncDriverQueue` is a no-op unless the driver screen is open, and its
+      // `syncing` guard plus the queue's id check make a reconnect idempotent.
+      win.addEventListener('online', function () {
+        var outlet = el('outlet');
+        if (outlet && currentPath() === '/app/my-trips') syncDriverQueue(outlet, renderToken);
+      });
     }
   }
 
@@ -1786,6 +2239,11 @@
   // markup that carries the role gate.
   api._documentsPanelHtml = documentsPanelHtml;
   api._docsWorklistHtml = docsWorklistHtml;
+  // Test seams for the driver client harness (board task #38, F7a).
+  api._driverCardHtml = driverCardHtml;
+  api._driverQueueHtml = driverQueueHtml;
+  api._driverChecklistHtml = driverChecklistHtml;
+  api._driverSetQueue = function (items) { myTripsState.queue = Array.isArray(items) ? items : []; };
 
   if (typeof document !== 'undefined') {
     boot();
