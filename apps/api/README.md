@@ -70,8 +70,9 @@ payload and error mapping), trip-list filter validation, trips-view filter/query
 shaping, the dashboard KPIs/alerts/activity shaping and its view model, user/driver
 credential-field stripping, trip read visibility (the `trip:*` org-wide rule vs.
 the driver scope), the delivery-timestamp writer (`deliveredAt` on the
-DELIVERED transition, the optional `plannedAt` on dispatch), locale resolution and
-the pilot i18n catalogues) runs on the
+DELIVERED transition, the optional `plannedAt` on dispatch), driver assign/reassign
+(`trip:assign` gating, driver availability, the same-status timeline event), locale
+resolution and the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
 ```bash
@@ -104,7 +105,11 @@ transaction. It also proves the trip read isolation (board task #68) with two
 driver tokens and one `trip:*` token: each driver's list contains only their own
 trips, a driver with no trips gets 0 rows, another driver's trip is `404` (never
 `403`), a client-supplied `?driverId=` cannot widen a driver's scope, and the
-owner still reads the whole org.
+owner still reads the whole org. Finally it drives driver assignment (board task #36)
+through the real route against a throwaway org and proves the before/after driver
+views — the previous driver is refused on the trip and no longer sees it, the new
+driver does — plus the timeline actor and the suspended-driver refusal, deleting
+its fixtures afterwards.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -124,10 +129,11 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); **a caller without `trip:*` (a driver) is narrowed to their own trips — a client-supplied `driverId` cannot widen it** (board task #68); driver objects never carry credential fields (board task #63) |
-| `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
+| `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required); the optional `plannedAt` (ISO-8601) records the promised delivery time on the order in the same transaction (board task #66) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66), in the same transaction as the status event; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
+| `POST /api/trips/:id/assign` | bearer, `trip:*` (owner/dispatcher) | assign or reassign the trip's driver (`driverId` required). The change keeps the trip's status and is recorded as a status event naming the acting user (board task #36). `403` for a driver, `409 trip_closed` on a terminal trip, `409 already_assigned` for the current driver, `409 driver_unavailable` for a suspended/locked (or non-driver) assignee, `400 driver_not_found` for an unknown one |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
 | `GET /api/reference` | bearer, `trip:create` | every create-trip option list in one call (orders, drivers, trucks, customers) |
 | `GET /api/orders` | bearer, `trip:create` | org orders with the customer name folded in |
@@ -453,8 +459,8 @@ Behaviour:
   **Not in this task:** required-document selection (the F6 documents UI, board #37).
 
 Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/dispatch-form.test.js`
-run in the no-install CI job; `test/app-shell.test.ts` adds the HTTP-level
-`app.inject()` checks under `pnpm test:router`.
++ `src/assign-form.test.js` run in the no-install CI job; `test/app-shell.test.ts`
+adds the HTTP-level `app.inject()` checks under `pnpm test:router`.
 
 ### Trips list & detail (board task #34, FAv1-F3)
 `/app/trips` is the daily workhorse, built on the F1 shell:
@@ -473,6 +479,12 @@ run in the no-install CI job; `test/app-shell.test.ts` adds the HTTP-level
   or says the history pre-dates actor recording), the documents panel, the
   expenses panel and the P&L (`rateEur − Σ expenses`). A trip with no documents or
   expenses renders an empty state rather than a broken panel.
+- **Driver assignment (board task #36, F5).** The same detail screen carries the
+  assign/reassign control for owner/dispatcher only. It is one `POST
+  /api/trips/:id/assign` (`{ driverId }`), the detail is re-fetched from the
+  server afterwards, and the timeline entry is labelled as a reassignment — a
+  same-status event would otherwise read as a no-op transition. See "Driver
+  assignment" below for the refusals and the timeline shape.
 
 Pure logic lives in `app/lib/trips.js` (filter normalisation, query building, CSV
 and row shaping); the dynamic `/app/trips/:id` matching lives in
@@ -519,6 +531,48 @@ Pure logic lives in `src/dashboard.js` (the queries + shaping) and
 Tests: `src/dashboard.test.js` + `src/dashboard-view.test.js` in the no-install CI
 job; `test/dashboard.test.ts` (`pnpm test:router`) re-derives each KPI from Prisma;
 `scratch/verify-dashboard.js` drives the real `app.js` end to end.
+
+### Driver assignment (board task #36, FAv1-F5)
+Dispatch without reassignment is not dispatch, so the trip-detail screen has a
+driver control: pick a driver from the org's own list and the change is applied
+through `POST /api/trips/:id/assign`. Selecting a different driver is a
+**reassignment**; selecting the one already on the trip is refused
+(`409 already_assigned`) rather than silently doing nothing.
+
+The change is recorded as a **status event naming the acting user**. It does not
+move the state machine: the trip keeps its status, so the event has
+`fromStatus === toStatus`. `trip-detail.js` derives `kind: 'reassignment'` for
+exactly that shape and `kind: 'status'` for a real transition — the API's only
+same-status event is a driver change. The trip update and the timeline entry are
+written in one transaction, so the trip row and its history cannot disagree.
+
+Refusals are explicit, because a dispatch screen that fails silently is worse
+than one that says why:
+
+| Case | Response |
+|---|---|
+| Actor without `trip:assign` (a driver) | `403 forbidden` |
+| Trip in another org / unknown id | `404 not_found` |
+| Terminal trip (`SETTLED`/`CANCELLED`) | `409 trip_closed` |
+| The driver already on the trip | `409 already_assigned` |
+| Locked/suspended driver, or a non-driver user | `409 driver_unavailable` |
+| Unknown user in the org | `400 driver_not_found` |
+
+"Suspended/unavailable" is the schema's lock state (`User.lockedUntil` in the
+future) — the same signal `reference-data.js#listDrivers` uses for its ACTIVE
+driver list, so an assignable-looking driver is always an assignable one.
+Nothing in the schema changes and there is no migration.
+
+Pure logic lives in `src/trip-assignment.js` (validation, availability, the
+transactional write) and `app/lib/assign.js` (option entries, validation, error
+mapping); the role gate is `app-core.js#canManageTrips` (owner/dispatcher hold
+`trip:*`). Tests: `src/trip-assignment.test.js` + `src/assign-form.test.js` in
+the no-install CI job; `test/trip-assign.test.ts` (`pnpm test:router`) drives the
+real route against the DB and proves the before/after driver views (the previous
+driver is refused on the trip and no longer sees it, the new driver does) plus
+the timeline actor; `scratch/verify-trips-view.js` section 7 drives the real
+`app.js` (control rendered, current driver preselected, exact body POSTed,
+detail re-fetched, reassignment named on the timeline).
 
 ### Delivery timestamps (board tasks #33/#40)
 The on-time KPI needs two timestamps that the schema did not have:

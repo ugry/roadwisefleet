@@ -32,6 +32,8 @@
   var TRIPVIEW = TRIPS || {};
   // The pure dashboard shaping (board task #33, F2), loaded before this one.
   var DASH = win && win.RoadwiseDashboard ? win.RoadwiseDashboard : {};
+  // The pure assign/reassign shaping (board task #36, F5), loaded before this one.
+  var ASSIGN = win && win.RoadwiseAssign ? win.RoadwiseAssign : {};
   var T = function (key, params) { return key; };
   var i18n = null;
   var session = { token: '', user: null };
@@ -490,6 +492,7 @@
       '<dt>' + esc(T('trips.createdAt')) + '</dt><dd>' + esc(fmtDate(trip.createdAt)) + '</dd>' +
       '</dl>';
 
+    html += assignBoxHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.timeline')) + '</h2>' + timelineHtml(trip.statusEvents || []);
     html += '<h2 class="section-title">' + esc(T('trips.documents')) + '</h2>' + documentsHtml(trip.documents || []);
     html += '<h2 class="section-title">' + esc(T('trips.expenses')) + '</h2>' + expensesHtml(trip.expenses || []);
@@ -506,8 +509,15 @@
     if (!events.length) return '<p class="empty">' + esc(T('trips.noEvents')) + '</p>';
     var items = events.map(function (event) {
       var actor = event.actor && event.actor.name ? event.actor.name : T('trips.actorSystem');
-      return '<li>' +
-        '<div class="tl-what">' + esc(statusLabel(event.from)) + ' → ' + esc(statusLabel(event.to)) + '</div>' +
+      // Board task #36 (F5): a reassignment keeps the status, so its event is
+      // `from === to`. Name it as a reassignment — a "Assigned → Assigned" line
+      // would read like a no-op.
+      var reassigned = ASSIGN.isReassignment ? ASSIGN.isReassignment(event) : false;
+      var what = reassigned
+        ? T('trips.reassigned', { status: statusLabel(event.to) })
+        : statusLabel(event.from) + ' → ' + statusLabel(event.to);
+      return '<li' + (reassigned ? ' class="tl-reassign"' : '') + '>' +
+        '<div class="tl-what">' + esc(what) + '</div>' +
         '<div class="tl-when">' + esc(fmtDate(event.at)) + ' · ' + esc(actor) + '</div>' +
         '</li>';
     }).join('');
@@ -560,7 +570,173 @@
         box.innerHTML = '<p class="alert">' + esc(errorText(res)) + '</p>';
         return;
       }
-      box.innerHTML = tripDetailHtml((res.data && res.data.trip) || {});
+      var trip = (res.data && res.data.trip) || {};
+      box.innerHTML = tripDetailHtml(trip);
+      loadAssignControl(outlet, route_, trip);
+    });
+  }
+
+  /* --------------------------------------------- assign driver (F5) --- */
+
+  /**
+   * Assign / reassign the trip's driver (board task #36, FAv1-F5).
+   *
+   * The control is only rendered for a role that holds `trip:*` (owner,
+   * dispatcher) and only while the trip is still open: a driver can never
+   * assign, and a settled/cancelled trip takes no driver change. The pure
+   * decisions (option entries, validation, payload, error mapping) live in
+   * `lib/assign.js`; this section only reads/writes the DOM and the network.
+   * Element ids are dynamic, so they are resolved from the outlet.
+   */
+
+  /** The trip the visible assign form belongs to (its id and current driver). */
+  var assignTrip = null;
+  /** The loaded driver list, or null before it arrives. */
+  var assignDrivers = null;
+
+  function assignNode(outlet, id) {
+    return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
+  }
+
+  /** The driver section: a real form for a dispatcher, or an honest note. */
+  function assignBoxHtml(trip) {
+    if (!(APP.canManageTrips && APP.canManageTrips(session.user && session.user.roleId))) return '';
+    if (ASSIGN.isClosed && ASSIGN.isClosed(trip && trip.status)) {
+      return '<h2 class="section-title">' + esc(T('assign.title')) + '</h2>' +
+        '<p class="muted">' + esc(T('assign.closed')) + '</p>';
+    }
+    return '<h2 class="section-title">' + esc(T('assign.title')) + '</h2>' +
+      '<form class="assign-form" id="assignForm" novalidate>' +
+        '<p class="alert" id="assignMessage" role="alert" hidden></p>' +
+        '<div class="field">' +
+          '<label for="assignDriver">' + esc(T('assign.driver')) + '</label>' +
+          '<select id="assignDriver"><option value="">' + esc(T('common.loading')) + '</option></select>' +
+          '<p class="field-error" id="assignDriverError" hidden></p>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<span class="helper">' + esc(T('assign.hint')) + '</span>' +
+          '<button class="primary" type="submit" id="assignSubmit">' + esc(T('assign.submit')) + '</button>' +
+        '</div>' +
+      '</form>';
+  }
+
+  function currentDriverId(trip) {
+    if (!trip) return '';
+    if (trip.driverId) return String(trip.driverId);
+    return trip.driver && trip.driver.id ? String(trip.driver.id) : '';
+  }
+
+  /** Fill the driver select from the same reference endpoint the dispatch form uses. */
+  function loadAssignControl(outlet, route_, trip) {
+    var form = assignNode(outlet, 'assignForm');
+    if (!form) return;
+    assignTrip = trip;
+    assignDrivers = null;
+
+    form.addEventListener('submit', function (ev) {
+      if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+      submitAssign(outlet, route_);
+    });
+
+    request('/api/reference', { token: session.token }).then(function (res) {
+      if (assignNode(outlet, 'assignForm') !== form) return;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        assignDrivers = [];
+        setSelectFromEntries(outlet, 'assignDriver', [], T('assign.loadFailed'));
+        setAssignMessage(outlet, 'assign.loadFailed', null, null);
+        var submit = assignNode(outlet, 'assignSubmit');
+        if (submit) submit.disabled = true;
+        return;
+      }
+      var reference = res.data && res.data.reference ? res.data.reference : {};
+      assignDrivers = Array.isArray(reference.drivers) ? reference.drivers : [];
+      setSelectFromEntries(
+        outlet,
+        'assignDriver',
+        ASSIGN.driverEntries ? ASSIGN.driverEntries(assignDrivers, currentDriverId(trip)) : [],
+        T('assign.choose')
+      );
+    });
+  }
+
+  /** Replace a select's options with pure `{value,label,selected}` entries. */
+  function setSelectFromEntries(outlet, id, entries, placeholder) {
+    var node = assignNode(outlet, id);
+    if (!node) return;
+    var html = placeholder ? '<option value="">' + esc(placeholder) + '</option>' : '';
+    for (var i = 0; i < entries.length; i++) {
+      html += '<option value="' + esc(entries[i].value) + '"' +
+        (entries[i].selected ? ' selected' : '') + '>' + esc(entries[i].label) + '</option>';
+    }
+    node.innerHTML = html;
+  }
+
+  /** Show or clear the form-level message (the `alert` element carries `success`). */
+  function setAssignMessage(outlet, key, params, kind) {
+    var node = assignNode(outlet, 'assignMessage');
+    if (!node) return;
+    var message = key ? T(key, params) : '';
+    node.textContent = message;
+    node.hidden = message === '';
+    if (node.classList) {
+      node.classList.remove('hidden');
+      if (kind === 'success') node.classList.add('success');
+      else node.classList.remove('success');
+    }
+  }
+
+  function clearAssignErrors(outlet) {
+    var field = assignNode(outlet, 'assignDriverError');
+    if (field) { field.textContent = ''; field.hidden = true; }
+    setAssignMessage(outlet, null, null, null);
+  }
+
+  function submitAssign(outlet, route_) {
+    if (!ASSIGN.validateAssign || !assignTrip) return;
+    var select = assignNode(outlet, 'assignDriver');
+    var check = ASSIGN.validateAssign(
+      { driverId: select ? select.value : '' },
+      assignTrip,
+      assignDrivers || []
+    );
+
+    clearAssignErrors(outlet);
+    var errorNode = assignNode(outlet, 'assignDriverError');
+    if (!check.ok) {
+      if (errorNode) {
+        errorNode.textContent = T(check.errors.driverId);
+        errorNode.hidden = false;
+        if (errorNode.classList) errorNode.classList.remove('hidden');
+      }
+      if (select && select.focus) select.focus();
+      return;
+    }
+
+    var submit = assignNode(outlet, 'assignSubmit');
+    if (submit) submit.disabled = true;
+
+    request(ASSIGN.assignPath(assignTrip.id), {
+      method: 'POST',
+      token: session.token,
+      body: check.payload
+    }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        if (submit) submit.disabled = false;
+        var key = ASSIGN.assignErrorKey ? ASSIGN.assignErrorKey(res) : 'error.unexpected';
+        var detail = ASSIGN.assignErrorDetail ? ASSIGN.assignErrorDetail(res) : '';
+        setAssignMessage(outlet, key, detail ? { detail: detail } : null, null);
+        return;
+      }
+      var driver = (res.data && res.data.driver) || {};
+      var name = driver.name || T('trips.none');
+      // Re-render from the server so the driver shown and the new timeline event
+      // come from the same source of truth, then confirm what happened.
+      var next = ++renderToken;
+      renderTripDetail(outlet, route_, next).then(function () {
+        setAssignMessage(outlet, 'assign.assigned', { name: name }, 'success');
+      });
     });
   }
 
