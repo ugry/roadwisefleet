@@ -443,10 +443,10 @@ STUB
 printf '%s\n' "$*" >> "${NOTIFY_LOG:?}"
 exit 0
 STUB
-  # pnpm: succeed like a real install, except when the fixture asks it to fail.
+  # pnpm: succeed like a real install, except when the fixture-armed flag file exists.
   cat > "$BIN/pnpm" <<'STUB'
 #!/usr/bin/env bash
-if [ -n "${PNPM_FAIL:-}" ] && [ -s "${PNPM_FAIL}" ]; then
+if [ -n "${PNPM_FAIL:-}" ] && [ -e "${PNPM_FAIL}" ]; then
   echo "fixture: dependency install failed" >&2
   exit 1
 fi
