@@ -105,7 +105,7 @@ test('trips-core loads the driver relation with the public select, never a bare 
 
 test('the trip routes strip credential fields at the response boundary', () => {
   // GET /trips and GET /trips/:id are the two surfaces the review named.
-  assert.match(TRIPS_ROUTE, /stripCredentialFields\(\{\s*trips,\s*filters:/);
+  assert.match(TRIPS_ROUTE, /stripCredentialFields\(\{\s*trips(?::\s*\w+)?,\s*filters:/);
   assert.match(TRIPS_ROUTE, /stripCredentialFields\(\{\s*trip:\s*result\.trip\s*\}\)/);
   assert.match(TRIPS_ROUTE, /import\s*\{\s*stripCredentialFields\s*\}\s*from\s*'\.\.\/user-payload\.js'/);
 });

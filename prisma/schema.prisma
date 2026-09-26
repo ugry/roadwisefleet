@@ -120,7 +120,19 @@ model Trip {
   // compares it against `Order.plannedAt` (board tasks #33/#40). Nullable:
   // trips that never delivered, and trips delivered before the column existed.
   deliveredAt DateTime?
-  createdAt DateTime @default(now())
+  // Customer tracking link state (board task #39, F8). The signed link itself
+  // is stateless (`track-link.js`); these columns only make it *per-trip
+  // revocable* and re-displayable from the trip detail:
+  //   - `trackLinkVersion` is monotonic: revoking increments it, so every token
+  //     minted earlier (which carries the old version) stops verifying, and a
+  //     re-mint never revives a revoked link;
+  //   - `trackLinkIssuedAt`/`trackLinkExpiresAt` are the mint parameters, kept
+  //     so the identical token can be recomputed for `GET` (an HMAC over
+  //     trip id + version + expiry is deterministic).
+  trackLinkVersion   Int       @default(0)
+  trackLinkIssuedAt  DateTime?
+  trackLinkExpiresAt DateTime?
+  createdAt          DateTime  @default(now())
 
   documents    Document[]
   statusEvents StatusEvent[]

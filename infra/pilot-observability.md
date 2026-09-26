@@ -120,7 +120,7 @@ approval and root, which this agent does not hold.
 |---|---|---|
 | [`scripts/pilot-uptime-check.sh`](./scripts/pilot-uptime-check.sh) | `/usr/local/bin/` | §3.1 — probes `/`, `/pilot/` (+noindex), `/api/trips`→401, `/api/waitlist`→404, loopback `/health`→200; mails `ugur@` on failure with a 60-min cooldown, plus a recovery mail |
 | [`systemd/pilot-uptime-check.service`](./systemd/pilot-uptime-check.service), [`…timer`](./systemd/pilot-uptime-check.timer) | `/etc/systemd/system/` | runs the above every 5 min |
-| [`scripts/pilot-backup-verify.sh`](./scripts/pilot-backup-verify.sh) | `/usr/local/bin/` | §3.3 + B1 — dump exists, non-empty, <26 h old, and `pg_restore --list`/gzip/tar integrity check; waitlist tarball freshness + `tar -tzf` |
+| [`scripts/pilot-backup-verify.sh`](./scripts/pilot-backup-verify.sh) | `/usr/local/bin/` | §3.3 + B1 — dump exists, non-empty, <26 h old, and `pg_restore --list`/gzip/tar integrity check; waitlist tarball freshness + `tar -tzf`; uploads archive + manifest (board #46). `--self-test` proves the alert decisions in CI (board #43) |
 | [`systemd/pilot-backup-verify.service`](./systemd/pilot-backup-verify.service), [`…timer`](./systemd/pilot-backup-verify.timer) | `/etc/systemd/system/` | runs the above nightly at 04:15 UTC (after both backups) |
 | [`scripts/pilot-restore-drill.sh`](./scripts/pilot-restore-drill.sh) | `/usr/local/bin/` | §4 — automated restore into a throwaway container on the **first free port in 5440–5479** (`SCRATCH_PORT=auto`; never 5432/5433 — the host `postgresql@17-main` cluster owns 5433) with a runtime-random scratch password and the dump's owner roles bootstrapped first (board #62); never touches `roadwise-pgdata` |
 | [`logrotate/roadwisefleet`](./logrotate/roadwisefleet) | `/etc/logrotate.d/` | §3 log hygiene — weekly, 8 rotations, `copytruncate` |
@@ -190,6 +190,18 @@ missing dump-role bootstrap). This change puts the fixes in the repo and asserts
 (`restore-drill-selftest`), so a clean reinstall reproduces the passing drill **without a hand
 patch**. The *running* host copy is still the hand patch: reinstalling from a clean checkout is
 itself a host change (uploads.md §9 B5).
+
+**2026-09-24 (board #43) — the backup check is now machine-proven, not read.** `pilot-backup-verify.sh`
+had no self-test, so board #43's acceptance — *"deleting the newest backup is detected by the freshness
+check and alerts"* — rested on reading the script. It now carries `--self-test`, run on every push in
+the `infra-scripts` CI job: fixture backup sets (a dump that looks like a pg_dump, a waitlist tarball,
+an uploads archive + manifest) plus a stub `sendmail` that captures the message, with **every assertion
+reading the payload actually sent**. It asserts: a healthy set exits 0 **and sends nothing**; deleting
+the newest uploads archive leaves a stale predecessor → exit 1 with **exactly one** alert naming
+`uploads: newest archive is stale`; a missing manifest, an empty dump, a stale dump and a non-pg_dump
+file are each rejected by name; a completely missing set reports all three gaps in **one** deduplicated
+mail. This is a *CI* proof of the check's decisions — the alert still has to reach a human through the
+host install (above), which is unchanged.
 
 ## 5. Status
 

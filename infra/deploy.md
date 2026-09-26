@@ -384,11 +384,45 @@ systemctl list-timers roadwise-deploy-site.timer
 | Acceptance criterion | How it is met | Status |
 |---|---|---|
 | Merge → live pilot updates, no human action | 5-min timer + CI-green gate + in-place deploy | **artifact only — not installed** |
-| Failure → auto-rollback + alert fires | `rollback_to()` on install/migrate/health failure + `notify alert` | **artifact only — needs the install window** |
+| Failure → auto-rollback + alert fires | `rollback_to()` on install/migrate/health failure + `notify alert` | **rollback decision machine-checked in CI** (`deploy-site-selftest`, board #42); the live failure-injection still needs the install window |
 | Owner notified → tests without a command | `ready <sha> <url>` to `#eila` + `deploy-site-state.json` | **needs the notifier (B3) at install** |
 | No staging created | no second unit/port/database/symlink; the pilot checkout is deployed in place | designed |
 
 Nothing above has been executed on the host; nothing is claimed as done.
+
+### 10.6a CI proof (`--self-test`, board #42)
+
+`infra/deploy/roadwise-deploy-site.sh --self-test` runs in the
+`deploy-site-selftest` CI job on every push/PR. It drives the real script in a
+fixture git repo (a local bare `origin` + working checkout, no network) with
+stubbed `curl`/`systemctl`/`pnpm`/`roadwise-notify.sh` and a `python3` that
+intercepts only the `ci.yml` gate, and asserts on the state file / notifications
+the run actually produced:
+
+| Assertion | Value |
+|---|---|
+| a good deploy → `status=ready`, `sha=<target>` (the deployed commit), checkout on it | the acceptance's "reports success with the commit SHA" |
+| a deliberately broken deploy (dependency install fails) → checkout back on the previous commit, `status=rolled_back`, `failed_sha=<target>`, **exactly one** alert naming the reason and the failed SHA | the acceptance's "rolls back automatically and reports it" |
+| a deploy whose rollback is also unhealthy → `status=down`, non-zero exit, one manual-attention alert | the safety net beyond the acceptance |
+| a commit whose `ci.yml` run is not green → `status=pending`, nothing deployed, no notification | the CI gate |
+| the target already deployed and healthy → silent no-op | idempotency |
+
+Two behaviours the self-test pins, surfaced for the owner/Team Leader rather than
+changed here (deploy semantics on a reviewed artifact):
+
+- **A successfully rolled-back deploy exits `0`.** The state file says
+  `status=rolled_back` and the alert is sent, but `roadwise-deploy-site.service`
+  is a oneshot, so on the host a rollback would *not* show the unit as failed
+  (§5 documents non-zero exit for the superseded staging deployer). If the owner
+  wants systemd to surface it too, the site deployer should exit non-zero when
+  the target it attempted is not what is live.
+- **The next tick retries the same bad target.** After a rollback
+  `origin/main` still points at the failed commit and `state.sha` is the previous
+  one, so the 5-minute timer re-attempts it and alerts again; `roadwise-notify.sh`
+  has no cooldown, so a persisted runtime failure would alert every tick until
+  `main` moves. A guard (defer while the newest `main` commit equals
+  `failed_sha`) is the obvious fix, but it is a behaviour change, not made here.
+
 
 ### 10.7 Known considerations
 

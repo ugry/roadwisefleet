@@ -173,7 +173,7 @@ test('no catalogue value is empty, and the language hook is wired EN-first', () 
 // --- static serving ---------------------------------------------------------
 
 test('servable files resolve inside the app root', () => {
-  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'lib/documents.js', 'locales/en.json']) {
+  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'lib/documents.js', 'lib/driver.js', 'locales/en.json']) {
     const file = resolveAppFile(rel);
     assert.ok(file, `${rel} should resolve`);
     assert.ok(String(file).startsWith(appDir));

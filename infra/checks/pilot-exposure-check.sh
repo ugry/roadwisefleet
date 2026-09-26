@@ -102,6 +102,18 @@ else
   warns=$((warns + 1))
 fi
 
+hdr "3b. Fleet Manager app surface (board #69) — fails until the owner window"
+expect_status "$APEX/app/" 200 "GET /app/"
+expect_status "$APEX/app/app.js" 200 "GET /app/app.js"
+expect_header "$APEX/app/" "x-robots-tag" "GET /app/"
+soft_header   "$APEX/app/" "content-security-policy" "GET /app/"
+if [ "$(status "$APEX/app")" = "301" ]; then
+  printf '  ok    %-55s HTTP 301 -> %s\n' "GET /app (no slash)" "$(location "$APEX/app")"
+else
+  printf '  WARN  %-55s HTTP %s (want 301 -> /app/)\n' "GET /app (no slash)" "$(status "$APEX/app")"
+  warns=$((warns + 1))
+fi
+
 hdr "4. Routing split (pilot API vs legacy waitlist)"
 expect_status "$APEX/api/trips" 401 "GET /api/trips (pilot API auth guard)"
 expect_status "$APEX/api/health" 404 "GET /api/health (pilot API, no such route)"
