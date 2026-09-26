@@ -138,6 +138,25 @@ jobs:
       - name: Self-test pilot-restore-drill.sh (board #62)
         run: bash infra/scripts/pilot-restore-drill.sh --self-test
 
+  deploy-site-selftest:
+    name: Deploy-site self-test (no host, no network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #42: the automatic deploy path's acceptance is "a deliberately
+      # broken deploy rolls back automatically and reports it; a good deploy
+      # reports success with the commit SHA". The deployer only runs on the host
+      # as root, so this drives the real script in a fixture git repo with
+      # stubbed curl/systemctl/pnpm/notifier (and a python3 that intercepts only
+      # the ci.yml gate): a good deploy records the deployed SHA as `ready` and
+      # notifies once; a broken deploy rolls the checkout back and alerts exactly
+      # once; a deploy whose rollback is also unhealthy is marked `down` and
+      # exits non-zero; a non-CI-green commit is deferred; the idempotent no-op
+      # stays silent. No host, no network, no root.
+      - name: Self-test roadwise-deploy-site.sh (board #42)
+        run: bash infra/deploy/roadwise-deploy-site.sh --self-test
+
   pilot-csp-check:
     name: Pilot CSP vs. pilot assets (#65)
     runs-on: ubuntu-latest
