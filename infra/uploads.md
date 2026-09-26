@@ -105,6 +105,24 @@ All three are asserted by `pilot-restore-drill.sh --self-test` in CI (job `resto
 stubbed podman + fixture dump + fixture archive: no host, no network, no root) and by `shellcheck`,
 so a future reinstall cannot silently regress them.
 
+## 2c. Re-verification, 2026-09-26 (read-only, from elilavps2)
+
+| Check | Command | Result |
+|---|---|---|
+| live root | `ls -ld /var/lib/roadwisefleet/uploads` | **`drwxr-x---` (0750)** `debian:debian` — not world-readable ✔ |
+| backup timer | `systemctl status pilot-uploads-backup.timer` | active (waiting) since 2026-09-23 23:56:42 UTC; next trigger 03:45 UTC |
+| disk timer | `systemctl status pilot-disk-check.timer` | active (waiting); last run 2026-09-26 21:59:36 UTC |
+| last backup run | `systemctl status pilot-uploads-backup.service` | `code=exited, status=0/SUCCESS` at 2026-09-26 03:45:02 UTC |
+| **retired tree** | `ls -ld /opt/roadwisefleet/api/var/uploads` + `find … -printf '%s %m %p'` | **still present, `drwxrwxr-x` (0775)**, 24 files, all `0644`/`0664` → **world-readable**; newest 2026-09-23 23:12; includes the 9,753,570-byte QA JPEG and a 3,719,825-byte one (**U7**) |
+
+**Provenance:** first-hand `ls`/`find` metadata only (`/etc`, the API `.env` and
+`/var/backups/roadwisefleet` are not readable from my session). The installed
+`/usr/local/bin/pilot-*.sh` copies are dated **2026-09-23 23:56** — the pre-#62 versions — which is
+the repo/host divergence §9 B5 describes. The *effective* `UPLOAD_DIR` of the running units could
+not be re-read from my session, so B5 still needs the reinstall **and** a post-install verification
+in the owner window (the runbook's claim that the running units are correct rests on the B1 hand
+patch, not on a first-hand read from here).
+
 ## 3. Findings
 
 | # | Severity | Finding | Fix |
@@ -115,6 +133,7 @@ so a future reinstall cannot silently regress them.
 | **U4** | medium | **No disk-headroom alert.** `df` is not monitored by any check I can see (the monitoring stack watches uptime/metrics, threshold list T1–T8). A full `/` takes the API, Postgres **and** the upload path down together. | `pilot-disk-check.sh` + hourly timer (§6, thresholds T9–T10). |
 | **U5** | high | **No retention policy.** Nothing defines how long POD/eCMR documents must be kept, so nothing may be deleted safely — and nothing is protected by a written rule either. An implicit "keep forever" is fine legally but is not a policy: there is no documented answer, no expiry data, and no way to prove either. | §5 — policy draft, **legal minimum routed to the secretary, not guessed**. |
 | **U6** | low | **No integrity record.** Nothing stores a checksum of a stored document, so silent bit-rot or a truncated file is undetectable. | The backup manifest (sha256 per file) is the beginning of one; a periodic verify can reuse it. |
+| **U7** | high | **The retired pre-move tree still leaks.** The B1 window left `/opt/roadwisefleet/api/var/uploads` in place, still `drwxrwxr-x` (0775) with `0644`/`0664` files and real POD photos in it (incl. the 9,753,570-byte QA JPEG). The installed `pilot-disk-check` only scans the live root, so nothing detects it — which is why the acceptance "no upload is stored world-readable" is **not** fully met (§2c, §8). | `infra/checks/uploads-perms-check.sh --live` audits **both** roots; the new CI job keeps the code from binding `UPLOAD_DIR` back to the retired path; and §9 B5 locks the tree down now and removes it after the drill. |
 
 ## 4. Storage contract (target state)
 
@@ -199,6 +218,19 @@ explicitly** — with the disk headroom (§6) and the offsite question (F9c) as 
 Thresholds **T9** (uploads filesystem ≥ 80 % warn / ≥ 90 % crit) and **T10** (free space
 < 2 GB) are registered with the other owned thresholds in `monitoring/README.md`.
 
+A standalone guard, `infra/checks/uploads-perms-check.sh`, closes the two gaps the disk check cannot
+see (U7 / board #62 D1):
+
+- `--live` audits **both** the live root and the retired pre-move root for world-readable files
+  (a world-readable *file* fails; a world-traversable *dir* warns; a locked-down leftover warns so it
+  is removed after the drill);
+- **repo mode** (runs in CI with no host) fails if any of the four storage artifacts
+  (`pilot-disk-check.{service,sh}`, `pilot-uploads-backup.{service,sh}`) binds `UPLOAD_DIR` back to
+  the retired path — the exact drift board #62 (D1) found on a host *after* merge;
+- `--self-test` proves each decision on fixtures (no host, no network).
+
+Both the self-test and the repo check run in the `uploads-perms-check` CI job.
+
 ## 7. Backup + restore inclusion (links to F9c / #43)
 
 | Artifact | What it does |
@@ -224,7 +256,7 @@ prove nothing was already missing. That is what #43's freshness check and deleti
 | disk usage is monitored with an alert before it fills | **MET** — `pilot-disk-check.timer` installed (hourly); first run green (25 files, dir 750, filesystem 19 %). Thresholds T9/T10. |
 | retention policy written down, matching the business/legal requirement | **ANSWERED as far as it can be, DECISION PENDING owner + legal** — there is no company/legal position on record (secretary, `eila/requests#14`), so the ship-safe default stands: **retention disabled / delete nothing** until the owner signs off in writing (§5). |
 | the upload directory is included in the backup + restore drill | **MET** — nightly archive + manifest (0600), and the drill **PASSED** on the host with the real bytes (25 files / 16,676,315 B / 25-of-25 sha256 OK). |
-| no upload is stored world-readable | **MET** — live `find -perm -o+r` = **0**; new writes are 0640 (CI test in this repo). |
+| no upload is stored world-readable | **NOT fully met (U7)** — the live root is `0750`/`0640` and new writes are 0640 (CI test in this repo), but the **retired pre-move tree is still `0775`/`0644`** (§2c) and holds real POD photos, so any local account can still read them. Fix in the owner window (§9 B5). |
 
 ## 9. Blockers
 
@@ -234,7 +266,29 @@ prove nothing was already missing. That is what #43's freshness check and deleti
 | **B2** | #41 nginx limit — **CLEARED** (#41 closed; a 9.75 MB upload reached the API with HTTP 201). | done |
 | **B3** | retention legal minimum — **answered as far as possible**: no company/legal position on record, so it is an **owner + legal decision** (already open on `eila/tasks#13` §5). Default stays "delete nothing". | owner + legal |
 | **B4** | run the extended drill on the host — **CLEARED**: drill PASSED (`--with-uploads`) in the same window. | done |
-| **B5** | **install the #62-fixed artifacts.** The host carries a hand patch made during the window; reinstalling from a clean checkout of this change is a host change and belongs to an owner-approved window. Until then the *running* units are correct but the repo/host diverge. | owner window, applied by the Team Leader |
+| **B5** | **owner window: (a) install the #62-fixed artifacts and (b) stop the U7 leak.** The installed `/usr/local/bin/pilot-*.sh` are still the pre-#62 copies and the host carries a B1 hand patch (§2c), so the repo/host diverge; reinstalling from a clean checkout is a host change. Separately, `/opt/roadwisefleet/api/var/uploads` is still world-readable (`0775`/`0644`) and must be locked down now and deleted once the move is drill-verified. | owner window, applied by the Team Leader |
+
+**B5 remediation — the exact commands (nothing below was run by me):**
+
+```bash
+# (a) reinstall the corrected artifacts so the timers + scripts match the repo
+sudo install -m 0755 infra/scripts/pilot-disk-check.sh    /usr/local/bin/pilot-disk-check.sh
+sudo install -m 0755 infra/scripts/pilot-uploads-backup.sh /usr/local/bin/pilot-uploads-backup.sh
+sudo install -m 0644 infra/systemd/pilot-disk-check.service infra/systemd/pilot-uploads-backup.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl restart pilot-disk-check.timer pilot-uploads-backup.timer
+
+# (b) U7 — stop the leak first (non-destructive), then delete only after the drill
+sudo chmod -R o-rwx /opt/roadwisefleet/api/var/uploads
+sudo find /opt/roadwisefleet/api/var/uploads -type f | wc -l   # expect the archive's count
+#   ... only after the nightly archive (§7) is verified and the restore drill has passed:
+sudo rm -rf /opt/roadwisefleet/api/var/uploads
+
+# verify both roots afterwards
+bash infra/checks/uploads-perms-check.sh --live
+```
+
+The `rm -rf` is destructive and must not happen before the archive + drill prove the move;
+the `chmod` is the immediate, reversible stop-gap.
 
 Related: `#43` gets the uploads backup + drill from this change; `#44` gets the disk thresholds;
 `#41`'s nginx diff stays as pre-staged by Victor. Nothing in this task touches nginx, the API unit,
