@@ -452,15 +452,18 @@ if [ -n "${PNPM_FAIL:-}" ] && [ -s "${PNPM_FAIL}" ]; then
 fi
 exit 0
 STUB
-  # python3: intercept ONLY the ci.yml gate (sentinel repo), delegate otherwise.
+  # python3: intercept ONLY the ci.yml gate (sentinel repo anywhere in argv —
+  # the deployer calls `python3 - <repo> <workflow> <sha>`), delegate otherwise.
   local REAL_PY
   REAL_PY="$(command -v python3)"
   cat > "$BIN/python3" <<STUB
 #!/usr/bin/env bash
-if [ "\${1:-}" = "selftest/repo" ]; then
-  if [ "\${CI_FAIL:-0}" = "1" ]; then exit 4; fi
-  exit 0
-fi
+for a in "\$@"; do
+  if [ "\$a" = "selftest/repo" ]; then
+    if [ "\${CI_FAIL:-0}" = "1" ]; then exit 4; fi
+    exit 0
+  fi
+done
 exec "$REAL_PY" "\$@"
 STUB
   chmod +x "$BIN/curl" "$BIN/systemctl" "$BIN/roadwise-notify.sh" "$BIN/pnpm" "$BIN/python3"
