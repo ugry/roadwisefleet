@@ -192,6 +192,26 @@ jobs:
       - name: Check the repo policy against the app assets
         run: bash infra/checks/app-csp-check.sh
 
+  uploads-perms-check:
+    name: Uploads storage guard (#46)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #46 (findings U1/U7). Two things this job guards:
+      #   1. the four artifacts that decide where uploads live must ALL bind
+      #      UPLOAD_DIR to the post-move root — board #62 (D1) was that drift,
+      #      found on a host after merge because CI validated nothing here;
+      #   2. no upload may be world-readable, including in the retired pre-move
+      #      tree the B1 window left in place (dir 0775 / files 0644 live).
+      # The self-test proves a world-readable file fails in the live root AND in
+      # the retired root, and that a locked-down leftover only warns.
+      - name: Self-test the guard (fixtures, no host, no network)
+        run: bash infra/checks/uploads-perms-check.sh --self-test
+
+      - name: Check the repo storage declarations agree
+        run: bash infra/checks/uploads-perms-check.sh
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'
