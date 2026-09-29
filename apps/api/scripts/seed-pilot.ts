@@ -34,6 +34,11 @@ const ROLES = [
   ['dispatcher', ['trip:*', 'user:read', 'reports:read']],
   ['accountant', ['invoice:*', 'settlement:*', 'reports:read']],
   ['driver', ['trip:read', 'trip:status', 'pod:upload', 'expense:create']],
+  // Customer portal (board task #74, UXF-C1). Deliberately narrow: a customer
+  // login may create and read its OWN orders only (enforced by `customerId`
+  // scoping in the routes) — it holds no `trip:*`, so no org-wide surface is
+  // reachable with a customer token.
+  ['customer', ['order:create', 'order:read', 'customer:manage']],
 ] as const;
 
 const USERS = [

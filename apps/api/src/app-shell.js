@@ -60,15 +60,19 @@ export function contentTypeFor(file) {
 }
 
 /**
- * Resolve a request path (the `/app/*` wildcard, no leading slash) to an
- * absolute file inside `APP_ROOT`, or `null` when it is not a servable file.
+ * Resolve a request path (the `/app/*` wildcard, no leading slash) to a real
+ * file inside `root`, or `null` when it is not a servable file.
  *
  * `null` means "not a file we serve" — the caller then decides between the SPA
- * shell and a 404 (`servesShell`).
+ * shell and a 404 (`servesShell`). Generic over the root so the customer portal
+ * (`customer-shell.js`, board task #74) reuses the exact same traversal,
+ * dotfile and extension rules as the Fleet Manager app.
+ * @param {string} root absolute directory a request may never escape
  * @param {unknown} relPath
  * @returns {string|null}
  */
-export function resolveAppFile(relPath) {
+export function resolveFileIn(root, relPath) {
+  if (typeof root !== 'string' || root.length === 0) return null;
   if (typeof relPath !== 'string') return null;
   // Decode once more defensively: Fastify decodes route params, but a stray
   // percent-encoding must not become a traversal.
@@ -80,9 +84,9 @@ export function resolveAppFile(relPath) {
   }
   if (decoded.includes('\0')) return null;
 
-  const candidate = resolve(APP_ROOT, decoded);
-  if (candidate !== APP_ROOT && !candidate.startsWith(APP_ROOT + sep)) return null;
-  if (candidate === APP_ROOT) return null; // the directory itself is never served
+  const candidate = resolve(root, decoded);
+  if (candidate !== root && !candidate.startsWith(root + sep)) return null;
+  if (candidate === root) return null; // the directory itself is never served
 
   const segments = decoded.split('/').filter((s) => s.length > 0);
   if (segments.some((s) => s.startsWith('.'))) return null; // dotfiles, ./, ../
@@ -92,12 +96,31 @@ export function resolveAppFile(relPath) {
 
   try {
     const real = realpathSync(candidate);
-    if (real !== APP_ROOT && !real.startsWith(APP_ROOT + sep)) return null;
+    if (real !== root && !real.startsWith(root + sep)) return null;
     if (!statSync(real).isFile()) return null;
     return real;
   } catch (err) {
     return null;
   }
+}
+
+/**
+ * Resolve a request path to a file inside `APP_ROOT`.
+ * @param {unknown} relPath
+ * @returns {string|null}
+ */
+export function resolveAppFile(relPath) {
+  return resolveFileIn(APP_ROOT, relPath);
+}
+
+/**
+ * Read a SPA shell file (`index.html` by default) from a root.
+ * @param {string} root
+ * @param {string} [name]
+ * @returns {string}
+ */
+export function readShellFile(root, name = 'index.html') {
+  return readFileSync(resolve(root, name), 'utf8');
 }
 
 /**

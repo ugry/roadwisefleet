@@ -1,0 +1,4 @@
+{
+  "//": "Do not remove. These modules are ES modules: the browser loads them with type=module and apps/api imports them under tsx/Node. Without this marker Node treats customer/lib/*.js as CommonJS and every customer route fails with 'customerCore.<fn> is not a function' (found on the pilot 2026-09-29, PR #67 review). Never served: customer-shell.js refuses package.json.",
+  "type": "module"
+}
