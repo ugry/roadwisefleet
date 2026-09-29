@@ -1,0 +1,35 @@
+flowchart TB
+    subgraph TA["Type A · Solo owner-operator (1 truck)"]
+        A1["Owner = Driver = Dispatcher<br/>one login, one phone"]
+        A2["Apps: Driver app + Fleet tab"]
+    end
+
+    subgraph TB["Type B · Micro fleet (2-5 trucks)"]
+        B1["Owner-dispatcher<br/>also drives sometimes"]
+        B2["2-5 drivers (employed or freelance)"]
+    end
+
+    subgraph TC["Type C · Small fleet (6-20 trucks)"]
+        C1["Owner"]
+        C2["Dispatcher / transport manager"]
+        C3["Drivers"]
+        C4["Accountant / admin"]
+    end
+
+    subgraph TD["Type D · Partner / subcontractor (separate company)"]
+        D1["Partner owner"]
+        D2["Partner dispatcher"]
+        D3["Partner drivers"]
+    end
+
+    subgraph TE["Type E · Customer / shipper side"]
+        E1["Shipper admin"]
+        E2["Shipper operations"]
+        E3["End consignee (receives goods)"]
+    end
+
+    TA --> TA2["Same trip object,<br/>self-service authority"]
+    TB --> TB2["Requests flow owner to drivers"]
+    TC --> TC2["Full RBAC: owner, dispatcher, accountant"]
+    TD --> TD2["Cross-org trip: award, custody handover"]
+    TE --> TE2["Books, tracks, requests changes"]

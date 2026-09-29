@@ -1,0 +1,35 @@
+flowchart TB
+    LOG(["Driver opens app"]) --> HOME{"What is he doing now?"}
+
+    HOME -->|"wants work"| W1["Beacon: 'empty here, heading there'<br/>or browse loads"]
+    W1 --> W2{"Offer or accept"}
+    W2 -->|"solo / freelance"| W3["Accept load himself"]
+    W2 -->|"employed"| W4["Ask dispatcher for the load"]
+
+    HOME -->|"assigned trip"| T1["Trip card<br/>stops, documents needed, ETA"]
+    T1 --> T2{"Accept the assignment?"}
+    T2 -->|"yes"| T3["Start trip, update status"]
+    T2 -->|"no"| T4["Decline with reason"]
+    T4 --> REQ1["Request goes to dispatcher"]
+
+    T3 --> MID{"Problem on the road?"}
+    MID -->|"running late"| P1["Report delay<br/>new ETA"]
+    MID -->|"truck broken"| P2["Report breakdown<br/>photo evidence"]
+    MID -->|"dock refuses load"| P3["Report dock refusal"]
+    MID -->|"hours exhausted"| P4["Report hours"]
+    MID -->|"cannot continue"| P5["REQUEST CANCELLATION<br/>reason + evidence"]
+    MID -->|"nothing"| P6["Deliver, take POD photo, e-signature"]
+
+    P1 --> DEC["Dispatcher decides<br/>driver remains responsible while pending"]
+    P2 --> DEC
+    P3 --> DEC
+    P4 --> DEC
+    P5 --> DEC
+
+    DEC -->|"approved"| OK["Driver released or redirected<br/>clean audit trail"]
+    DEC -->|"declined"| CONT["Trip continues<br/>reason shown to driver"]
+    DEC -->|"SLA expired"| ESC["Escalated to owner<br/>auto-approve if evidence policy allows"]
+
+    P6 --> MONEY["Money: trip earnings, expenses,<br/>advance request, settlement status"]
+    MONEY --> REQ2["Requests: expense approval · advance"]
+    REQ2 --> DEC2["Dispatcher or owner approves"]

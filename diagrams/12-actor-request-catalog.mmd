@@ -1,0 +1,51 @@
+flowchart LR
+    subgraph CUST["CUSTOMER can ask for"]
+        C1["Quote"]
+        C2["Book a load"]
+        C3["Change date / address"]
+        C4["Cancel order"]
+        C5["Documents: POD, eCMR, invoice"]
+        C6["Live position + ETA"]
+        C7["Dispute a charge"]
+    end
+
+    subgraph FM["FLEET MANAGER can do / request"]
+        F1["Create + assign trip"]
+        F2["Cancel trip (own authority)"]
+        F3["Approve driver requests"]
+        F4["Approve expense / advance"]
+        F5["Invoice + payment reminder"]
+        F6["Mark settlement paid"]
+        F7["Reassign / subcontract"]
+        F8["Set policies, invite users"]
+    end
+
+    subgraph DRV["DRIVER can do / request"]
+        D1["Accept or decline assignment"]
+        D2["Start trip, deliver, upload POD"]
+        D3["Request cancellation"]
+        D4["Report delay / breakdown"]
+        D5["Request reassignment or rescue"]
+        D6["Request expense or advance"]
+        D7["Request clarification"]
+        D8["SOS / help"]
+    end
+
+    subgraph PART["PARTNER COMPANY can do / request"]
+        P1["Accept or decline offered load"]
+        P2["Assign own driver"]
+        P3["Request cancellation"]
+        P4["Upload documents"]
+    end
+
+    subgraph SYS["PLATFORM does automatically"]
+        S1["Policy check on every request"]
+        S2["SLA timer + escalation"]
+        S3["Notify only after decision"]
+        S4["Audit + webhook fan-out"]
+    end
+
+    CUST --> SYS
+    FM --> SYS
+    DRV --> SYS
+    PART --> SYS

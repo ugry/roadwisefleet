@@ -1,0 +1,26 @@
+flowchart TB
+    START(["Customer needs goods moved"]) --> Q1{"Already has agreed rates?"}
+    Q1 -->|"yes"| BOOK["Book from saved rate card<br/>instant price"]
+    Q1 -->|"no"| QUOTE["Request quote<br/>fleet answers in SLA"]
+
+    BOOK --> CONFIRM["Order confirmed<br/>order id + ETA promise"]
+    QUOTE --> CONFIRM
+
+    CONFIRM --> TRACK["Track shipment<br/>map + ETA + WhatsApp milestones"]
+    TRACK --> CHG{"Something changed?"}
+
+    CHG -->|"date or address"| R1["Change request<br/>fleet approves or counter-proposes"]
+    CHG -->|"no longer needed"| R2["Cancellation request<br/>fee policy applies after dispatch"]
+    CHG -->|"nothing"| DELIV["Delivered<br/>POD + eCMR sent automatically"]
+
+    R1 --> TRACK
+    R2 --> DEC{"Fleet decision"}
+    DEC -->|"approved"| CANCELLED(["Order cancelled<br/>fee if policy says so"])
+    DEC -->|"declined"| TRACK
+
+    DELIV --> INV["Invoice with documents attached"]
+    INV --> PAY["Pay<br/>later phase: online payment"]
+    PAY --> DONE(["Closed"])
+    INV --> DISP{"Disputes a charge?"}
+    DISP -->|"yes"| CLAIM["Dispute thread<br/>fleet + driver evidence"]
+    CLAIM --> INV
