@@ -55,6 +55,13 @@ test('the file rules are the app shell rules, reused and not re-implemented', ()
   assert.equal(resolveCustomerFile('index.txt'), null);
   assert.equal(resolveCustomerFile('lib/missing.js'), null);
   assert.equal(resolveFileIn(CUSTOMER_ROOT, 'lib/customer-core.js'), resolveCustomerFile('lib/customer-core.js'));
+  // `customer/package.json` declares the ES module type the API depends on; it is
+  // a directory manifest, so it is never served (it exists as a real file, which
+  // is why this is asserted separately from the missing-file cases).
+  assert.ok(existsSync(resolve(CUSTOMER_ROOT, 'package.json')), 'customer/package.json must exist');
+  assert.equal(resolveCustomerFile('package.json'), null, 'package.json must never be served');
+  assert.equal(resolveCustomerFile('lib/package.json'), null);
+  assert.equal(resolveFileIn(CUSTOMER_ROOT, 'package.json') !== null, true, 'app-shell itself would serve it');
 
   assert.equal(servesShell('login', false), true);
   assert.equal(servesShell('shipments/123', false), true);

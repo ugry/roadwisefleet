@@ -12,7 +12,7 @@
  * them to `<repo>/customer`. Plain JavaScript, covered by
  * `node --test apps/api/src/` with no install.
  */
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveFileIn, readShellFile } from './app-shell.js';
 
@@ -24,10 +24,17 @@ export const CUSTOMER_PREFIX = '/c/';
 
 /**
  * Resolve a `/c/*` request path to a real file inside `CUSTOMER_ROOT`.
+ *
+ * `package.json` is refused even though it is a real file: `customer/package.json`
+ * declares `"type": "module"` for the shared ES modules the API imports (without
+ * it every customer route fails under tsx — see the file), and a directory
+ * manifest is a build artifact, not a portal asset. Everything else follows the
+ * shared `app-shell.js` rules.
  * @param {unknown} relPath
  * @returns {string|null}
  */
 export function resolveCustomerFile(relPath) {
+  if (typeof relPath === 'string' && basename(relPath).toLowerCase() === 'package.json') return null;
   return resolveFileIn(CUSTOMER_ROOT, relPath);
 }
 

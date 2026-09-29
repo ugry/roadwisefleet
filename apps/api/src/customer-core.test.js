@@ -10,6 +10,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import * as core from '../../../customer/lib/customer-core.js';
 
@@ -328,4 +329,16 @@ test('the empty wizard form starts from the documented defaults', () => {
   assert.equal(form.paymentMethod, 'invoice');
   assert.deepEqual(form.stops, []);
   assert.equal(form.supplyChoice, '');
+});
+
+test('the shared core is declared an ES module (the API imports it under tsx)', () => {
+  // Found on the pilot 2026-09-29 (PR #67 review): without `"type": "module"` in
+  // <repo>/customer, tsx/Node load this file as CommonJS and
+  // `import * as customerCore from '.../customer-core.js'` in the API yields
+  // `{ default: … }`, so EVERY customer route 500s with
+  // "customerCore.validateSignup is not a function". The behavioural guard runs
+  // in `test/customer-signup-validation.test.ts` (under tsx); this one catches a
+  // deleted/edited marker on the no-install CI job too.
+  const pkg = JSON.parse(readFileSync(new URL('../../../customer/package.json', import.meta.url), 'utf8'));
+  assert.equal(pkg.type, 'module', 'customer/package.json must declare "type": "module"');
 });

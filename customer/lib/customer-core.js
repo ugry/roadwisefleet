@@ -25,8 +25,23 @@
  * honest "marketplace opens with UXF-M1 (#76)" answer instead of a dead end.
  */
 
-/** The seeded role a customer login holds (see `apps/api/scripts/seed-pilot.ts`). */
+/**
+ * The role a customer login holds. Created by the deploy path —
+ * `prisma/migrations/20260929230000_add_customer_role` (a migration is the only
+ * step the deployer is guaranteed to run; see the PR #67 review of 2026-09-29) —
+ * and re-asserted idempotently by the signup transaction, so a missing row can
+ * never turn a signup into a foreign-key error (Prisma P2003) again.
+ */
 export const CUSTOMER_ROLE = 'customer';
+
+/**
+ * The permission set of `CUSTOMER_ROLE`. One source of truth for the migration
+ * SQL, the signup transaction, the seeder and the tests — a customer login may
+ * create and read its OWN orders and manage its own account, and holds no
+ * `org:*` / `trip:*`, so no org-scoped route is reachable with its token.
+ * `apps/api/src/customer-role.test.js` fails if the migration drifts from this.
+ */
+export const CUSTOMER_PERMISSIONS = ['order:create', 'order:read', 'customer:manage'];
 
 /** The marketplace task that unblocks the fleet/solo/auto/recurring paths. */
 export const MARKETPLACE_TASK = 'UXF-M1 (#76)';

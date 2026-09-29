@@ -803,7 +803,7 @@ RoadwiseFleet) and `off_platform` (a carrier that is not — order + job link) a
 bookable today. Every path is rendered from the catalogue with a description and
 an honest state; the wizard offers the bookable fallback next to the phase notice.
 
-**Security model.** A customer login holds the seeded `customer` role
+**Security model.** A customer login holds the `customer` role
 (`order:create`, `order:read`, `customer:manage`) and **no** `org:*`/`trip:*`; its
 token carries `org: null`. Every read resolves the `customerId` from the
 authenticated user, never from a request parameter, so "not mine" is a flat `404`
@@ -816,25 +816,68 @@ never a `passwordHash`, and the customer read model exposes no fleet internal
 rather than silently accepted. The wizard's payload is stored in `OrderBooking`
 (a separate table) so the shared `Order` reads keep working.
 
-**Migration (operator).** `prisma/migrations/20260929140000_add_customer_portal/`
-adds `CustomerAccount`, `CustomerProfile`, `CustomerAddress` and `OrderBooking`
-(purely additive — the join to `User` is where the data was designed to live, and
-no scalar column was added to a shared model). Apply it with
-`pnpm --filter @roadwisefleet/api exec prisma migrate deploy` **before** the
-portal works against the pilot; until then the portal endpoints fail on the
-missing tables and `test/customer-portal.test.ts` prints a diagnostic and skips
-its DB-backed assertions.
+**Migrations (operator).** Two migrations ship with the portal:
+
+1. `prisma/migrations/20260929140000_add_customer_portal/` adds `CustomerAccount`,
+   `CustomerProfile`, `CustomerAddress` and `OrderBooking` (purely additive — the
+   join to `User` is where the data was designed to live, and no scalar column was
+   added to a shared model).
+2. `prisma/migrations/20260929230000_add_customer_role/` creates the `customer`
+   `Role` row (`order:create`, `order:read`, `customer:manage`), idempotently
+   (`ON CONFLICT (id) DO UPDATE`). The deployer runs only `prisma migrate deploy`
+   and never the seeder, so a migration is the only step guaranteed to run on
+   every deploy — without this row `POST /api/customer/signup` raised Prisma
+   `P2003` (foreign key on `User.roleId`) and answered **HTTP 500**, which is the
+   PR #67 review of 2026-09-29. `src/customer-role.test.js` is the dependency-free
+   guard: it fails if the migration is dropped, stops being idempotent, or drifts
+   from `CUSTOMER_PERMISSIONS` in `customer/lib/customer-core.js`. The signup
+   transaction *also* re-asserts the row idempotently, so a missing row can never
+   500 the entry point again.
+
+Apply both with `pnpm --filter @roadwisefleet/api exec prisma migrate deploy`
+**before** the portal works against the pilot; until then the portal endpoints
+fail on the missing tables and `test/customer-portal.test.ts` prints a diagnostic
+and skips its DB-backed assertions.
+
+**Shared modules are ES modules (`customer/package.json`).** `customer/lib/customer-core.js`
+is loaded twice: by the browser as a `<script type="module">` dependency, and by
+this API (`routes/customer.ts`) through Node/tsx. Without `"type": "module"` in
+`customer/package.json`, Node treats it as CommonJS, so the API's
+`import * as customerCore from '...'` resolves to `{ default: … }` and **every**
+customer route throws `customerCore.<fn> is not a function` → HTTP 500 (measured
+on the pilot 2026-09-29: signup was dead for a second, earlier reason than the
+missing `Role` row). The marker is not a file the portal serves:
+`customer-shell.js#resolveCustomerFile` refuses `package.json`.
+`src/customer-core.test.js` asserts the marker and
+`test/customer-signup-validation.test.ts` proves the API can actually call the
+core under tsx without a database.
+
+**Public signup (runbook note).** `POST /api/customer/signup` is deliberately
+unauthenticated — the customer has no account yet — and there is no email
+verification until a delivery provider is configured (the portal shows
+`verification_sender_not_configured`). Its only brake today is the nginx API
+rate-limit zone; that is accepted for the pilot and should be revisited before
+general availability (per-IP throttling and/or verification on first sign-in).
 
 **Infra.** Production nginx proxies `/api/`, `/pilot/`, `/app/` and `/track/` to
 the API; `/c/` needs the same `location /c/` block before the portal is reachable
 on roadwisefleet.com (filed as an infra request — not edited from here).
 
-**Evidence.** `node --test apps/api/src/` covers the shared rules and the serving
-rules with no install (`src/customer-core.test.js`, `src/customer-shell.test.js`);
-`pnpm --filter @roadwisefleet/api test:router` drives the end-to-end flow against
-the DB (signup → order + DRAFT trip visible to the fleet manager → a second
-customer's `404` → a `202` marketplace notice → a tracking link) once the
-migration is applied.
+**Evidence.** `node --test apps/api/src/` covers the shared rules, the serving
+rules, the ES-module marker and the deploy-path role guard with no install
+(`src/customer-core.test.js`, `src/customer-shell.test.js`,
+`src/customer-role.test.js`). `pnpm --filter @roadwisefleet/api test:router`
+boots the real server: `test/customer-signup-validation.test.ts` runs everywhere
+(no DB) and fails if the API cannot reach the shared core, and
+`test/customer-portal.test.ts` drives the end-to-end flow against the DB — the
+`customer` role exists **without** the fixture creating it, a signup with the row
+removed still returns 201 → order + DRAFT trip visible to the fleet manager → a
+second customer's `404` → a `202` marketplace notice → a tracking link — once the
+migrations are applied. Beware the lesson from 2026-09-29: that DB-backed suite
+skipped on every machine (no migration, no CI database), so green CI was never
+evidence for the portal; it was first executed against a scratch database built
+with `prisma migrate deploy`, which is how the missing `Role` row *and* the
+ES-module defect were separated from the fixture.
 
 
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the

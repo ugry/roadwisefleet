@@ -7,6 +7,12 @@
  *
  * What this proves, and why it is the layer the dependency-free core test cannot
  * reach:
+ *   - the `customer` Role row is created by the deploy path (migration
+ *     20260929230000_add_customer_role) and NOT by this fixture — and a signup
+ *     against a database where the row has been removed still returns 201 and
+ *     leaves the row in place. This is the PR #67 review of 2026-09-29: on the
+ *     pilot the missing row made signup answer HTTP 500 (Prisma P2003) while CI
+ *     stayed green because the fixture created the role itself;
  *   - a brand-new customer account books its own carrier end to end: signup →
  *     order + DRAFT trip → the trip is visible to the fleet manager of the
  *     carrier org (`GET /api/trips` with that org's owner token);
@@ -40,6 +46,7 @@ const { prisma } = await import('../src/db.js');
 const { env } = await import('../src/env.js');
 const { hashPassword } = await import('../src/auth/password.js');
 const { signToken } = await import('../src/auth/tokens.js');
+const { CUSTOMER_PERMISSIONS, CUSTOMER_ROLE } = await import('../../../customer/lib/customer-core.js');
 
 const QA_ORG = 'qa-customer-org';
 const OWNER_ID = 'qa-customer-owner';
@@ -99,6 +106,15 @@ async function cleanup(): Promise<void> {
     await prisma.trip.deleteMany({ where: { id: { in: tripIds } } });
   }
   if (customerIds.length > 0) {
+    // `OrderBooking` is the wizard's own table and has no cascade: it must go
+    // before the shared `Order` row it belongs to, or the delete is refused by
+    // `OrderBooking_orderId_fkey` (learned when this suite first ran for real,
+    // 2026-09-29).
+    const orders = await prisma.order.findMany({
+      where: { customerId: { in: customerIds } },
+      select: { id: true },
+    });
+    await prisma.orderBooking.deleteMany({ where: { orderId: { in: orders.map((o) => o.id) } } });
     await prisma.order.deleteMany({ where: { customerId: { in: customerIds } } });
     const accounts = await prisma.customerAccount.findMany({
       where: { customerId: { in: customerIds } },
@@ -114,18 +130,22 @@ async function cleanup(): Promise<void> {
   }
   await prisma.user.deleteMany({ where: { orgId: QA_ORG } });
   await prisma.org.deleteMany({ where: { id: QA_ORG } });
+  // The `customer` Role row belongs to the deploy path (migration
+  // 20260929230000_add_customer_role), not to this fixture: restore it if a
+  // failing test left it removed, so the database is never left unusable.
+  await prisma.role.upsert({
+    where: { id: CUSTOMER_ROLE },
+    update: {},
+    create: { id: CUSTOMER_ROLE, permissions: [...CUSTOMER_PERMISSIONS] },
+  });
 }
 
 async function seedFixture(): Promise<void> {
   await cleanup();
-  // Roles are global (no orgId). `customer` is the role this task adds to the
-  // seed; upserting the three here keeps the suite runnable before the seed is
-  // re-run.
-  await prisma.role.upsert({
-    where: { id: 'customer' },
-    update: { permissions: ['order:create', 'order:read', 'customer:manage'] },
-    create: { id: 'customer', permissions: ['order:create', 'order:read', 'customer:manage'] },
-  });
+  // Roles are global (no orgId). The fixture deliberately does NOT create the
+  // `customer` role any more: from the PR #67 review (2026-09-29) the suite must
+  // prove the deploy path creates it, not the fixture. The three roles below are
+  // pre-existing seeded roles this fixture needs for its carrier owner/driver.
   await prisma.role.upsert({
     where: { id: 'owner' },
     update: {},
@@ -177,7 +197,39 @@ if (!ready) {
   let firstTripId = '';
   let secondToken = '';
 
-  test('a new customer signs up and gets a customer session', async () => {
+  test('the deploy path created the customer role, not the fixture', async () => {
+    // PR #67 review (2026-09-29): the deployer only runs `migrate deploy`, and
+    // the fixture no longer upserts this row — so this assertion fails if the
+    // migration that creates it is dropped or applied out of order.
+    const role = await prisma.role.findUnique({ where: { id: CUSTOMER_ROLE } });
+    assert.ok(role, 'the `customer` Role row must exist after `prisma migrate deploy`');
+    assert.deepEqual(
+      [...role.permissions].sort(),
+      [...CUSTOMER_PERMISSIONS].sort(),
+      'the deploy path must create the role with exactly the portal permission set',
+    );
+  });
+
+  test('a new customer signs up even when the customer role row is absent', async (t) => {
+    // The exact production failure: the `User` insert raised Prisma P2003
+    // (foreign key on `roleId`) and the caller saw a 500. Remove the row first,
+    // then sign up: the transaction must re-create it. Users holding the role
+    // (a real pilot signup) would make the removal impossible — then the row is
+    // left alone and the diagnostic says so; the assertion above still covers it.
+    const referencing = await prisma.user.count({ where: { roleId: CUSTOMER_ROLE } });
+    if (referencing === 0) {
+      await prisma.role.deleteMany({ where: { id: CUSTOMER_ROLE } });
+      assert.equal(
+        await prisma.role.count({ where: { id: CUSTOMER_ROLE } }),
+        0,
+        'precondition: the customer role row is absent',
+      );
+    } else {
+      t.diagnostic(
+        `${referencing} user(s) already hold the customer role — the row cannot be removed on this database`,
+      );
+    }
+
     const res = await app.inject({ method: 'POST', url: '/api/customer/signup', payload: signupBody('qa-customer-1@roadwisefleet.test') });
     assert.equal(res.statusCode, 201, res.payload);
     const body = res.json();
@@ -187,6 +239,11 @@ if (!ready) {
     assert.equal(body.user.customer.orgId, QA_ORG);
     firstToken = body.token;
     firstCustomerId = body.user.customer.id;
+
+    // The signup left the row in place, with the portal's permission set.
+    const role = await prisma.role.findUnique({ where: { id: CUSTOMER_ROLE } });
+    assert.ok(role, 'the signup must re-create the `customer` Role row');
+    assert.deepEqual([...role.permissions].sort(), [...CUSTOMER_PERMISSIONS].sort());
 
     const me = await app.inject({ method: 'GET', url: '/api/customer/me', headers: bearer(firstToken) });
     assert.equal(me.statusCode, 200, me.payload);

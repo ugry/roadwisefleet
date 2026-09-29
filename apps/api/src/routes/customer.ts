@@ -24,10 +24,11 @@ import * as customerCore from '../../../../customer/lib/customer-core.js';
  *   POST   /api/customer/orders/:id/track-link  a shareable link for its trip
  *
  * Security model (designed in, not tested in):
- *   - a customer login holds NO `org:*` and no `trip:*`; its token carries
- *     `org: null`, and every read is scoped by the `customerId` resolved from
- *     the authenticated user, never from a request parameter. "Not mine" is a
- *     flat 404 — the tenant boundary never leaks existence.
+ *   - a customer login holds the `customer` role (`order:create`, `order:read`,
+ *     `customer:manage`) and **no** `org:*`/`trip:*`; the token's `org` is `null`.
+ *   - every read is scoped by the `customerId` resolved from the authenticated
+ *     user, never from a request parameter. "Not mine" is a flat 404 — the tenant
+ *     boundary never leaks existence.
  *   - the payload rules live in `customer/lib/customer-core.js`, shared with the
  *     browser, so the client can never be more permissive than the server.
  *   - user rows are selected explicitly (never `passwordHash`/`totpSecret`).
@@ -50,9 +51,10 @@ type PrincipalResult =
 
 /**
  * Resolve the authenticated user into a customer principal, or a refusal.
- * `customer:manage` is the RBAC gate (granted only to the seeded `customer`
- * role); the `CustomerAccount` row supplies the tenant id — the query is
- * explicit so no credential column can leak into the response.
+ * `customer:manage` is the RBAC gate (granted only to the `customer` role,
+ * created by migration 20260929230000_add_customer_role and re-asserted by the
+ * signup transaction); the `CustomerAccount` row supplies the tenant id — the
+ * query is explicit so no credential column can leak into the response.
  */
 async function resolveCustomer(req: FastifyRequest): Promise<PrincipalResult> {
   const user = req.user;
@@ -181,6 +183,18 @@ export async function customerRoutes(app: FastifyInstance) {
     let created: { customerId: string; userId: string; customerName: string };
     try {
       created = await prisma.$transaction(async (tx) => {
+        // The `customer` Role row is created by the deploy path (migration
+        // 20260929230000_add_customer_role — the deployer only ever runs
+        // `migrate deploy`). Re-assert it here, idempotently, so a signup can
+        // never 500 with a Prisma P2003 (foreign key on `User.roleId`) if the
+        // row is missing; the review on 2026-09-29 measured exactly that on the
+        // deployed pilot. Fixed values, so an anonymous caller cannot influence
+        // the permission set.
+        await tx.role.upsert({
+          where: { id: customerCore.CUSTOMER_ROLE },
+          update: { permissions: [...customerCore.CUSTOMER_PERMISSIONS] },
+          create: { id: customerCore.CUSTOMER_ROLE, permissions: [...customerCore.CUSTOMER_PERMISSIONS] },
+        });
         const customer = await tx.customer.create({
           data: {
             orgId: org.id,
