@@ -51,10 +51,10 @@
   .brand{font-family:var(--font-display);font-weight:600;font-size:19px;letter-spacing:.02em;text-transform:uppercase;line-height:1}
   .brand .tag{display:block;font-family:var(--font-body);font-size:11px;letter-spacing:.10em;color:var(--accent);font-weight:600}
   .appbar .spacer{flex:1}
-  .appbar a.ghost-link{color:var(--on-dark);font-size:13px;text-decoration:none;opacity:.9;padding:8px 2px}
+  .appbar a.ghost-link,.appbar button.ghost-link{color:var(--on-dark);font-size:13px;text-decoration:none;opacity:.9;padding:8px 2px;background:none;border:0;font-family:inherit;cursor:pointer}
   .appbar .lang-slot label.lang{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.85}
   .appbar select.lang-switcher{font-family:inherit;font-size:13px;padding:6px 7px;border-radius:8px;border:1px solid var(--navy-950);
-    min-height:36px;background:var(--on-dark);color:var(--ink)}
+    min-height:44px;background:var(--on-dark);color:var(--ink)}
   .syncbar{display:flex;align-items:center;gap:8px;margin:10px 0 0;padding:8px 2px 10px;font-size:13px;border-top:1px solid oklch(1 0 0 / .12)}
   .syncbar .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:0 0 auto}
   .syncbar.state-synced .dot{background:var(--success)}
@@ -81,7 +81,7 @@
   button.primary:active{filter:brightness(.95)}
   button.ghost{background:transparent;border-color:var(--border);color:var(--ink)}
   button.danger{background:transparent;border-color:var(--danger);color:var(--danger)}
-  button.small{min-height:36px;padding:6px 12px;font-size:13px}
+  button.small{min-height:44px;padding:8px 12px;font-size:13px}
   button:disabled{opacity:.45;cursor:default}
 
   /* --- tour card --------------------------------------------------------- */
@@ -141,6 +141,15 @@
   .who{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .who .spacer{flex:1}
   .trip-pick{max-width:100%}
+
+  /* --- accessibility pass (board task #70) -------------------------------- */
+  /* Solid, high-contrast keyboard focus ring (WCAG 2.4.7). */
+  :focus-visible{outline:3px solid var(--accent-deep);outline-offset:2px;border-radius:4px}
+  input:focus-visible,select:focus-visible{outline:3px solid var(--accent-deep);outline-offset:1px;box-shadow:none}
+  /* Honour the OS reduced-motion setting (WCAG 2.3.3). */
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
 </style>
 </head>
 <body>
@@ -181,7 +190,7 @@
       <span><span data-i18n="common.signedInAs"></span> <strong id="whoName"></strong></span>
       <span class="spacer"></span>
       <button id="refresh" class="ghost small" type="button" data-i18n="common.refresh"></button>
-      <a href="#" id="logout" data-i18n="common.signOut"></a>
+      <button id="logout" class="ghost-link" type="button" data-i18n="common.signOut"></button>
     </p>
 
     <div id="tripPickerWrap" class="hidden card" style="padding:12px 14px">

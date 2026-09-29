@@ -450,7 +450,7 @@
     var rows = trips.map(function (trip) {
       var row = TRIPVIEW.tripRow ? TRIPVIEW.tripRow(trip) : {};
       return '<tr class="clickable" data-trip="' + esc(row.id) + '">' +
-        '<td data-label="' + esc(T('trips.colRoute')) + '">' + esc(row.origin || '?') + ' → ' + esc(row.destination || '?') + '</td>' +
+        '<td data-label="' + esc(T('trips.colRoute')) + '"><button type="button" class="cell-open" data-trip="' + esc(row.id) + '">' + esc(row.origin || '?') + ' → ' + esc(row.destination || '?') + '</button></td>' +
         '<td data-label="' + esc(T('trips.colCustomer')) + '">' + esc(row.customer) + '</td>' +
         '<td data-label="' + esc(T('trips.colDriver')) + '">' + esc(row.driver) + '</td>' +
         '<td data-label="' + esc(T('trips.colStatus')) + '"><span class="status s-' + esc(row.status) + '">' + esc(statusLabel(row.status)) + '</span></td>' +
@@ -1835,11 +1835,11 @@
     var list = myTripsState.trips;
     if (list.length < 2) return '';
     var current = currentMyTrip();
-    var out = '<div class="driver-switcher" role="tablist">';
+    var out = '<div class="driver-switcher" role="group" aria-label="' + esc(T('nav.myTrips')) + '">';
     for (var i = 0; i < list.length; i += 1) {
       var trip = list[i];
       var active = current && String(trip.id) === String(current.id);
-      out += '<button type="button" role="tab" aria-selected="' + (active ? 'true' : 'false') +
+      out += '<button type="button" aria-pressed="' + (active ? 'true' : 'false') +
         '" class="driver-tab' + (active ? ' active' : '') +
         '" data-my-trip="' + esc(trip.id) + '">' +
         esc(statusLabel(trip.status)) + ' · ' + esc(trip.id) + '</button>';
@@ -1869,7 +1869,7 @@
   function driverChecklistHtml(trip) {
     var rows = DRIVER.checklist ? DRIVER.checklist(DRCORE, trip.documents) : [];
     if (!rows.length) return '';
-    var out = '<h3>' + esc(T('docs.checklistTitle')) + '</h3><ul class="checklist">';
+    var out = '<h2>' + esc(T('docs.checklistTitle')) + '</h2><ul class="checklist">';
     for (var i = 0; i < rows.length; i += 1) {
       var row = rows[i];
       var kind = row.present ? T('docs.attached') : T(row.required ? 'docs.notAttached' : 'docs.optional');
@@ -1884,7 +1884,7 @@
 
   function driverCaptureHtml(trip) {
     var options = DOC.docTypeEntries ? DOC.docTypeEntries() : [];
-    var out = '<h3>' + esc(T('driver.capture.title')) + '</h3>' +
+    var out = '<h2>' + esc(T('driver.capture.title')) + '</h2>' +
       '<p class="muted">' + esc(T('driver.capture.hint')) + '</p>' +
       '<div class="dispatch-form driver-capture">' +
       '<label for="myDocType">' + esc(T('docs.type')) + '</label>' +

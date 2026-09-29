@@ -683,3 +683,52 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
   padding: 14px;
   margin: 0 0 16px;
 }
+
+/* ------------------------------------------------ accessibility (board task #70) ---
+ * Touch targets: every interactive control is >=44px when the pointer is
+ * coarse (WCAG 2.5.8). The desktop layout keeps its compact sizing.
+ */
+@media (pointer: coarse) {
+  button { min-height: 44px; }
+  .filters select,
+  .filters input,
+  .field select,
+  .field input,
+  .field input[readonly] { min-height: 44px; }
+  .sidenav .nav-item { min-height: 44px; display: flex; align-items: center; }
+  .doc-actions button,
+  .track-actions button { min-height: 44px; min-width: 44px; }
+  .driver-tab,
+  .driver-action { min-height: 44px; }
+  select.lang-switcher { min-height: 44px; }
+  a.kpi,
+  a.alert-row { min-height: 44px; }
+  .cell-open { min-height: 44px; }
+}
+
+/* Honor the OS reduced-motion setting (WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* A table row's primary action rendered as a button so keyboard users can
+   reach it (WCAG 2.1.1); styled to read as the plain route text it replaced. */
+.cell-open {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+}
+.cell-open:hover { color: var(--accent-deep); }
