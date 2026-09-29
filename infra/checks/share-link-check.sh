@@ -390,18 +390,21 @@ self_test() {
   cat > "$st/curl-stub" <<'EOF'
 #!/usr/bin/env bash
 # Minimal curl stub for two modes: -I (headers) and the status-code probe.
+# NOTE the case order: /api/track/ must be tested BEFORE /track/, because
+# "/api/track/x" also contains "/track/".
 url="${!#}"
 case "$*" in
   *-w*)
     case "$url" in
+      */api/track/*) echo 404 ;;
       */track/*) echo 429 ;;
       *) echo 404 ;;
     esac
     ;;
   *)
     case "$url" in
-      */track/*) printf 'HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex, nofollow\r\n\r\n' ;;
       */api/track/*) printf 'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n' ;;
+      */track/*) printf 'HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex, nofollow\r\n\r\n' ;;
       */s/*) printf 'HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n' ;;
       *) printf 'HTTP/1.1 200 OK\r\n\r\n' ;;
     esac
