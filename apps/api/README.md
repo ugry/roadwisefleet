@@ -79,7 +79,10 @@ DELIVERED transition, the optional `plannedAt` on dispatch), driver assign/reass
 the tracking-link view model (link state, per-trip path, one-action copy target,
 error mapping), the customer-portal booking rules/read model and its `/c/`
 static-serving rules (board task #74; the same rules the browser runs, so the
-client can never be more permissive than the API), locale
+client can never be more permissive than the API), the Connect marketplace core
+(the load and offer state machines, expiry, the posting/beacon/offer/award
+validators, lane/date/equipment matching, the award plan and the tenancy
+predicates — board task #76), locale
 resolution and the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
@@ -123,6 +126,13 @@ org: mint → `GET` returns the identical URL → an anonymous fetch is `200` �
 a tampered token `404` → `DELETE` revokes it (the old link `404`, `GET` `link:
 null`) → a re-mint works while another trip's link is untouched, and a driver
 token gets `403` on all three verbs.
+It also drives the Connect marketplace (board task #76) end to end in dedicated
+`qa-market-*` orgs: a customer posts a load from its own order → a fleet offers →
+shipper and carrier exchange structured counters → the shipper awards and the
+`Trip` appears in the carrier's org against the same order → a third tenant gets
+`403` on every object it may not own (and can still browse an open load) → an
+expired offer reads `EXPIRED` and cannot be awarded (`409`) → escrow is refused
+with the UXF-OWN1 reason → beacons publish, browse, rank and stay owner-scoped.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -175,6 +185,21 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/customer/orders` | bearer, `customer:manage` | own shipments only (scope from the token, never the query) |
 | `GET /api/customer/orders/:id` | bearer, `customer:manage` | one own shipment + its booking detail; a foreign id is `404` |
 | `POST /api/customer/orders/:id/track-link` | bearer, `customer:manage` | mint (or re-read) the shareable tracking link for the order's trip, reusing the board-#5/#39 machinery; `404 no_trip` when the order has no trip |
+| `POST /api/marketplace/loads` | bearer, `order:create` (customer) or `trip:create` (fleet) | post a load (board task #76). A customer posts one of its own orders; a fleet posts a load it cannot cover (its own customer's order, `orderId` required). The lane/cargo/equipment are inherited from the order — nobody re-enters the load; `201 { load }` |
+| `GET /api/marketplace/loads` | bearer, `trip:create` | the carrier feed: open, not own, not expired loads, matched in the database by `origin`/`destination` (substring), `equipment`, `readyFrom`/`readyTo`; `?beaconId=` ranks the feed against the caller's own capacity beacon instead of filtering it |
+| `GET /api/marketplace/loads/mine` | bearer, `order:create` or `trip:create` | the caller's own postings + `offerCount` |
+| `GET /api/marketplace/loads/:id` | bearer | one load; the poster sees every offer and its whole chain, a carrier sees only its own offers; an unknown id is `404`, a foreign awarded load is `403` |
+| `POST /api/marketplace/loads/:id/offers` | bearer, `trip:create` | make a structured offer (`priceEur` > 0, optional pickup/delivery ETA + note); moves the load to `OFFERS`; bidding on your own load is `403 own_load` |
+| `POST /api/marketplace/loads/:id/award` | bearer, load poster only | award an offer: creates the `Trip` **in the carrier's org against the load's order** (`201 { load, trip, offer, declined }`); open rivals are `DECLINED`; invoice-first (`paymentMethod: "escrow"` → `400` with the UXF-OWN1 reason); `409 load_awarded` / `offer_expired` / `order_required` |
+| `POST /api/marketplace/loads/:id/cancel` | bearer, load poster only | cancel an open posting; open offers are declined; `409 load_closed` once decided |
+| `GET /api/marketplace/offers/mine` | bearer, `trip:create` | the carrier's own offers, each with its load card |
+| `POST /api/marketplace/offers/:id/counter` | bearer, a party to the thread | counter-offer as a NEW structured card (`parentOfferId`); the answered offer becomes `COUNTERED`; the shipper answers a carrier offer, the carrier answers a shipper counter |
+| `POST /api/marketplace/offers/:id/decline` | bearer, load poster only | decline an open offer; the load stays collectible |
+| `POST /api/marketplace/offers/:id/withdraw` | bearer, the carrier that made it | withdraw an own open offer |
+| `POST /api/marketplace/beacons` | bearer, `trip:create` | publish/replace the capacity beacon (location, heading, available-from, equipment, min rate); one active beacon per owner |
+| `GET /api/marketplace/beacons` | bearer, `trip:create` or `order:create` | active, unexpired capacity (filters `equipment`, `location`, `availableBefore`) — a shipper may browse capacity |
+| `DELETE /api/marketplace/beacons/:id` | bearer, owner only | deactivate an own beacon; a foreign id is `404`, never a leak |
+| `GET /api/marketplace/matches?loadId=` | bearer | the capacity beacons ranked for one load (lane fit · date fit · equipment fit), each with `score` + `reasons` |
 | `GET /c` | — | `302` to `/c/` (the customer portal mount point) |
 | `GET /c/*` | — | customer portal from `<repo>/customer`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `x-robots-tag: noindex, nofollow` |
 | `GET /api/waitlist` | `X-Admin-Token` | admin list |
@@ -861,7 +886,7 @@ on the pilot 2026-09-29: signup was dead for a second, earlier reason than the
 missing `Role` row). The marker is not a file the portal serves:
 `customer-shell.js#resolveCustomerFile` refuses `package.json`.
 `src/customer-core.test.js` asserts the marker and
-`test/customer-signup-validation.test.ts` proves the API can actually call the
+`test/customer-portal-guards.test.ts` proves the API can actually call the
 core under tsx without a database.
 
 **Public signup (runbook note).** `POST /api/customer/signup` is deliberately
@@ -879,7 +904,7 @@ on roadwisefleet.com (filed as an infra request — not edited from here).
 rules, the ES-module marker and the deploy-path role guard with no install
 (`src/customer-core.test.js`, `src/customer-shell.test.js`,
 `src/customer-role.test.js`). `pnpm --filter @roadwisefleet/api test:router`
-boots the real server: `test/customer-signup-validation.test.ts` runs everywhere
+boots the real server: `test/customer-portal-guards.test.ts` runs everywhere
 (no DB) and fails if the API cannot reach the shared core, and
 `test/customer-portal.test.ts` drives the end-to-end flow against the DB — the
 `customer` role exists **without** the fixture creating it, a signup with the row
@@ -891,6 +916,71 @@ evidence for the portal; it was first executed against a scratch database built
 with `prisma migrate deploy`, which is how the missing `Role` row *and* the
 ES-module defect were separated from the fixture.
 
+
+## Connect marketplace (`/api/marketplace/*`) — board task #76 (UXF-M1)
+The matching engine of diagram `docs/ux-flows/05-marketplace-flow.mmd`: demand
+posts a load, supply declares capacity (a beacon) or answers with a structured
+offer, the shipper awards, and the award becomes **the same `Trip` object** the
+carrier already executes — the customer never re-enters the load and the carrier
+never re-types it. This task is the backend the customer offer screen (#78) and
+the solo-driver app (#77) sit on; it is not a UI.
+
+**Files.** `src/marketplace.js` is the pure domain — the load and offer state
+machines, expiry, the validators, the matching rules, the award plan and the
+tenancy predicates. `src/routes/marketplace.ts` is only auth, tenancy,
+persistence and HTTP mapping. `src/marketplace.test.js` covers the pure half on
+the no-install runner; `test/marketplace.test.ts` drives the whole flow through
+the real server and a real database.
+
+**Data model.** Three additive tables (migration
+`prisma/migrations/20260929233000_add_marketplace/`) — no shared model gains a
+scalar column, so the running pilot is unaffected whether or not the migration is
+applied:
+- `LoadPosting` — the posted demand. Exactly one of `customerId` / `orgId` is the
+  posting tenant; `orderId` links the demand it came from (required for an award);
+  `status` runs `POSTED → OFFERS → AWARDED` with `EXPIRED`/`CANCELLED` exits;
+  `awardedOfferId`/`tripId` record the outcome.
+- `CapacityBeacon` — a fleet's empty truck or a solo driver's next free slot
+  (`location`, `heading`, `availableFrom`, `equipment`, `minRateEur`), owned by an
+  org or a user, one active per owner.
+- `MarketplaceOffer` — a structured card (`priceEur`, pickup/delivery ETA, note)
+  with `side` (`carrier` | `shipper`), the offer state machine
+  `SENT · VIEWED · COUNTERED · ACCEPTED · DECLINED · EXPIRED` (+ `WITHDRAWN`), and
+  `parentOfferId` for the counter chain — the audit trail, so nothing is
+  agreed verbally-only.
+
+**Award.** `awardPlan()` (pure) picks the winner, refuses an unknown/closed/
+expired offer and demands the load's order. The route then, in one transaction,
+creates the `Trip` in the **carrier's** org via `buildAwardTripData()`, flips the
+load to `AWARDED`, the winner to `ACCEPTED` and every other open offer to
+`DECLINED`. A solo driver is a one-person org (#77), so an awarded load always has
+a home; that assumption is written down here because #77 depends on it.
+
+**Payment.** Invoice-first (task #76): `invoice` is the only accepted award
+method; `escrow` is refused with `{ field: "paymentMethod", detail:
+"escrow_deferred_uxf_own1" }` until the owner answers the merchant-of-record
+question (UXF-OWN1, #73). No commission number is hard-coded anywhere.
+
+**Expiry.** Reads sweep lazily: `sweepExpired()` (scoped to the ids being read)
+persists `EXPIRED` on open rows past `expiresAt`, so an expired offer is real
+state — a later award of it returns `409 offer_expired`, never a silent success.
+
+**Tenancy.** The poster tenant comes from the token (a customer login's
+`CustomerAccount`, or the org), never a query. A carrier may read an *open* load
+(the board is public by design) and may only see its own offers; once the load is
+awarded only the poster and the awarded carrier may read it. Acting on an object
+you may see but not own is `403`; an object outside your tenancy is `404`.
+Every response goes through `stripCredentialFields`.
+
+**Not in this task (stated honestly).** The award does not send notifications
+(no provider is configured — #78 owns "notifies both sides"); the customer
+portal's marketplace supply choices still answer their `202` phase notice
+(#78 wires them to these endpoints); escrow is deferred (#73).
+
+**Apply the migration first:**
+`pnpm --filter @roadwisefleet/api exec prisma migrate deploy` — until then the
+marketplace endpoints fail on the missing tables and `test/marketplace.test.ts`
+prints a diagnostic and skips its DB-backed assertions.
 
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the
 waitlist JSONL, upserts every lead into `WaitlistEntry` (dedupe by email), and
