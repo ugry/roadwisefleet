@@ -581,7 +581,7 @@ self_test() {
   # 7. a channel switched off is suppressed: exit 0, nothing sent.
   : > "$STUB_SENT"
   : > "$LOG_FILE"
-  printf 'customer@example.com sms false\n' > "$st/prefs.conf"
+  printf '+15551234567 sms false\n' > "$st/prefs.conf"
   PREFS_FILE="$st/prefs.conf"
   write_envelope "$st/e2.key" in_transit sms +15551234567
   RWF_NOTIFY_WEBHOOK_CMD="$st/mail-stub"
@@ -590,11 +590,13 @@ self_test() {
   expect "a suppressed channel exits 0 (rc)" 0 "$rc"
   expect "a suppressed channel sends nothing" "" "$(cat "$STUB_SENT")"
   contains "the suppression is logged" "$(cat "$LOG_FILE")" "result=suppressed"
+  contains "the suppressed log redacts the phone" "$(cat "$LOG_FILE")" "***4567"
+  absent "the suppressed log never carries the full phone" "$(cat "$LOG_FILE")" "+15551234567"
 
   # 8. the same channel, switched on, is delivered.
   : > "$STUB_SENT"
   : > "$LOG_FILE"
-  printf 'customer@example.com sms true\n' > "$st/prefs.conf"
+  printf '+15551234567 sms true\n' > "$st/prefs.conf"
   write_envelope "$st/e3.key" in_transit sms +15551234567
   deliver_one "$st/e3.key" > "$st/out" 2>&1
   rc=$?
