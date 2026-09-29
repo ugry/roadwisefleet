@@ -3,8 +3,10 @@
  * (board task #39, FAv1-F8).
  *
  * The pure half of the tracking-link control: who may manage a link, the exact
- * request path, how a link's state (none / active / expired) is derived, and how
- * an API refusal reads back as a catalogue key.
+ * request path, how a link's state (none / active / expired) is derived, the
+ * share url (resolved against the page origin so a relative server value is
+ * still openable — board #84, GH#65), and how an API refusal reads back as a
+ * catalogue key.
  *
  * The signing, the token format and the per-trip revocation version all stay in
  * `apps/api/src/track-link.js` — this module never builds a token and never
@@ -114,13 +116,52 @@
   }
 
   /**
-   * The text the one-action copy button should put on the clipboard — the full
-   * shareable URL, never a bare token.
-   * @param {any} link
+   * Is this url already openable as written — it has its own scheme
+   * (`https:`, `http:`, …) or starts with `//` (protocol-relative)? Only such a
+   * url may pass through untouched.
+   * @param {string} url
+   * @returns {boolean}
+   */
+  function isAbsoluteUrl(url) {
+    return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url) || /^\/\//.test(url);
+  }
+
+  /**
+   * Resolve a shareable link url against a page origin (board #84).
+   *
+   * The API answers origin-relative (`/track/<token>`) whenever
+   * `PUBLIC_BASE_URL` is empty — which is what the live host does — and a
+   * customer who receives that path cannot open it anywhere. The UI resolves it
+   * against `location.origin`, so the value on the clipboard and in the
+   * read-only input is always `https://<host>/track/<token>`. An absolute url
+   * the API returns passes through untouched. With no origin (or an empty one,
+   * e.g. a Node test or a WebView that does not expose one) the server's value
+   * is left as it is — never invented, never dropped.
+   * @param {unknown} url
+   * @param {unknown} [origin]
    * @returns {string}
    */
-  function copyTarget(link) {
-    return link && typeof link.url === 'string' ? link.url : '';
+  function absoluteUrl(url, origin) {
+    var value = trim(url);
+    if (!value) return '';
+    if (isAbsoluteUrl(value)) return value;
+    var base = trim(origin);
+    if (!base) return value;
+    while (base.length > 1 && base.charAt(base.length - 1) === '/') base = base.slice(0, -1);
+    return value.charAt(0) === '/' ? base + value : base + '/' + value;
+  }
+
+  /**
+   * The text the one-action copy button should put on the clipboard — the full
+   * shareable URL, never a bare token. Pass the page origin so a relative
+   * server value (`/track/<token>`) becomes openable (board #84); omit it and
+   * the server's value is returned as-is.
+   * @param {any} link
+   * @param {unknown} [origin]
+   * @returns {string}
+   */
+  function copyTarget(link, origin) {
+    return absoluteUrl(link && typeof link.url === 'string' ? link.url : '', origin);
   }
 
   /** Error codes the API can answer with, mapped to a catalogue key. */
@@ -172,6 +213,8 @@
     linkFrom: linkFrom,
     linkState: linkState,
     stateKey: stateKey,
+    isAbsoluteUrl: isAbsoluteUrl,
+    absoluteUrl: absoluteUrl,
     copyTarget: copyTarget,
     errorKey: errorKey,
     errorDetail: errorDetail

@@ -690,6 +690,28 @@
     return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
   }
 
+  /**
+   * This page's origin (`https://roadwisefleet.com`), or '' where there is none
+   * (a Node harness, or a WebView that does not expose `location`).
+   * @returns {string}
+   */
+  function pageOrigin() {
+    return win && win.location && typeof win.location.origin === 'string' ? win.location.origin : '';
+  }
+
+  /**
+   * The full openable share URL for a link object (board #84): the API answers
+   * origin-relative when `PUBLIC_BASE_URL` is unset, so the dispatcher must not
+   * copy a bare `/track/<token>` path. Resolving against `location.origin` here
+   * means the clipboard value and the read-only input always agree and the
+   * customer can open what they get. An absolute value passes through untouched.
+   * @param {any} link
+   * @returns {string}
+   */
+  function shareUrl(link) {
+    return TRACK.copyTarget ? TRACK.copyTarget(link, pageOrigin()) : '';
+  }
+
   function trackingPanelHtml() {
     var role = session.user && session.user.roleId;
     if (!(TRACK.canManageTracking && TRACK.canManageTracking(role))) return '';
@@ -720,13 +742,19 @@
     return T(TRACK.errorKey ? TRACK.errorKey(res) : 'error.unexpected');
   }
 
-  function renderTrackingBody(outlet, body, link) {
+  /**
+   * The panel body markup for a link (board #39/#84). Pure string in, string
+   * out so the DOM-free harness can assert the share value that goes into the
+   * read-only input.
+   * @param {any} link
+   * @returns {string}
+   */
+  function trackingBodyHtml(link) {
     var state = TRACK.linkState ? TRACK.linkState(link) : (link ? 'active' : 'none');
     if (state === 'active') {
-      body.innerHTML =
-        '<p class="track-state active">' + esc(T('tracking.state.active')) + '</p>' +
+      return '<p class="track-state active">' + esc(T('tracking.state.active')) + '</p>' +
         '<div class="track-link-row">' +
-          '<input class="track-url" id="trackUrl" type="text" readonly value="' + esc(link.url) + '">' +
+          '<input class="track-url" id="trackUrl" type="text" readonly value="' + esc(shareUrl(link)) + '">' +
           '<button class="ghost" type="button" data-track-action="copy" id="trackCopy">' +
             esc(T('tracking.copy')) + '</button>' +
         '</div>' +
@@ -736,14 +764,16 @@
           '<button class="ghost danger" type="button" data-track-action="revoke" id="trackRevoke">' +
             esc(T('tracking.revoke')) + '</button>' +
         '</div>';
-      return;
     }
-    body.innerHTML =
-      '<p class="track-state none">' + esc(T(TRACK.stateKey ? TRACK.stateKey(state) : 'tracking.state.none')) + '</p>' +
+    return '<p class="track-state none">' + esc(T(TRACK.stateKey ? TRACK.stateKey(state) : 'tracking.state.none')) + '</p>' +
       '<div class="form-actions">' +
         '<button class="primary" type="button" data-track-action="mint" id="trackMint">' +
           esc(T('tracking.mint')) + '</button>' +
       '</div>';
+  }
+
+  function renderTrackingBody(outlet, body, link) {
+    body.innerHTML = trackingBodyHtml(link);
   }
 
   /** Load the trip's current link and wire the one-action controls. */
@@ -796,7 +826,7 @@
 
   /** One action: put the full URL on the clipboard (fallback: select it). */
   function copyTrackingLink(outlet) {
-    var url = TRACK.copyTarget ? TRACK.copyTarget(trackCurrent) : '';
+    var url = shareUrl(trackCurrent);
     var input = trackNode(outlet, 'trackUrl');
     if (!url) return;
     var after = function (ok) {
@@ -2327,7 +2357,7 @@
   function showWorkLink(outlet) {
     var box = outlet.querySelector ? outlet.querySelector('#trackWorkLink') : null;
     if (!box) return;
-    var url = TRACK.copyTarget ? TRACK.copyTarget(workLink) : '';
+    var url = shareUrl(workLink);
     if (!url) { box.innerHTML = ''; return; }
     box.innerHTML = '<div class="track-result"><div class="track-link-row">' +
       '<input class="track-url" id="trackWorkUrl" type="text" readonly value="' + esc(url) + '">' +
@@ -2343,7 +2373,7 @@
   }
 
   function copyWorkLink(outlet) {
-    var url = TRACK.copyTarget ? TRACK.copyTarget(workLink) : '';
+    var url = shareUrl(workLink);
     if (!url) return;
     var input = outlet.querySelector ? outlet.querySelector('#trackWorkUrl') : null;
     var after = function (ok) {
@@ -2635,6 +2665,11 @@
   // role gate or the "state only, never the token" list markup.
   api._trackingPanelHtml = trackingPanelHtml;
   api._trackingWorklistHtml = trackingWorklistHtml;
+  // The share value that goes on the clipboard / into the read-only input
+  // (board #84): exposed so the DOM-free harness proves the relative server
+  // url is resolved against the page origin.
+  api._trackingBodyHtml = trackingBodyHtml;
+  api._trackingShareUrl = shareUrl;
 
   if (typeof document !== 'undefined') {
     boot();
