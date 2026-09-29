@@ -1,0 +1,60 @@
+flowchart TD
+    classDef human fill:#f8f9fa,stroke:#495057,color:#000,stroke-width:2px
+    classDef surface fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef core fill:#fff3bf,stroke:#e8590c,color:#000
+    classDef infra fill:#e5dbff,stroke:#5f3dc4,color:#000
+
+    subgraph PEOPLE["The four personas"]
+        P1["Customer / Shipper<br/>(cargo owner)"]:::human
+        P2["Small firm<br/>(infrequent shipper / small carrier)"]:::human
+        P3["Fleet Manager<br/>(company running trucks)"]:::human
+        P4["Driver<br/>(employed by a fleet)"]:::human
+        P5["Solo Truck Driver<br/>(owner-operator)"]:::human
+    end
+
+    subgraph SURFACES["Product surfaces"]
+        S1["Customer portal + WhatsApp<br/>book · track · documents · pay"]:::surface
+        S2["Fleet web app<br/>dispatch · trips · compliance · finance"]:::surface
+        S3["Driver app (Android / PWA)<br/>trips · documents · money · messages"]:::surface
+        S4["Connect marketplace<br/>loads = trucks = drivers"]:::surface
+        S5["No-login links<br/>tracking · POD · job confirm"]:::surface
+    end
+
+    subgraph BACKBONE["Shared backbone (one backend)"]
+        B1["Auth · orgs · RBAC"]:::core
+        B2["Order / Trip object<br/>single source of truth"]:::core
+        B3["Status event bus<br/>fan-out to tracking, WhatsApp, finance"]:::core
+        B4["Documents vault<br/>eCMR · POD · invoices"]:::core
+        B5["Money ledger<br/>receivables · settlements · escrow"]:::core
+        B6["Trust layer<br/>verification · ratings · credit"]:::core
+        B7["Notifications<br/>push · WhatsApp · email · SMS"]:::surface
+    end
+
+    P1 --> S1
+    P1 --> S4
+    P2 --> S4
+    P2 --> S1
+    P3 --> S2
+    P3 --> S4
+    P4 --> S3
+    P5 --> S4
+    P5 --> S3
+
+    S1 --> BACKBONE
+    S2 --> BACKBONE
+    S3 --> BACKBONE
+    S4 --> BACKBONE
+    S5 --> B3
+
+    B2 --> B3
+    B3 --> B7
+    B4 --> S5
+    B5 --> S1
+    B6 --> S4
+
+    subgraph RULES["Core rules"]
+        R1["A marketplace load is an Order;<br/>an awarded load becomes a Trip"]:::infra
+        R2["A Fleet customer and a Connect customer<br/>are the same object"]:::infra
+        R3["Off-platform customers exist as<br/>lightweight records + share links"]:::infra
+        R4["Any trip status change is an event —<br/>everyone sees the same truth"]:::infra
+    end

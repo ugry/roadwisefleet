@@ -1,0 +1,110 @@
+flowchart TD
+    classDef demand fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef supply fill:#b2f2bb,stroke:#2b8a3e,color:#000
+    classDef engine fill:#fff3bf,stroke:#e8590c,color:#000
+    classDef dec fill:#ffe8cc,stroke:#d9480f,color:#000
+    classDef money fill:#e5dbff,stroke:#5f3dc4,color:#000
+    classDef warn fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef ok fill:#d3f9d8,stroke:#2b8a3e,color:#000
+
+    %% ================= DEMAND SIDE =================
+    subgraph DEM["DEMAND — who needs cargo moved"]
+        DEM1["Customer (registered or guest)"]:::demand
+        DEM2["Small firm — infrequent shipper"]:::demand
+        DEM3["Fleet with a load it cannot cover<br/>(subcontracting out)"]:::demand
+        DEM4["Fleet needing a return load<br/>(buys capacity, not sells)"]:::demand
+    end
+
+    D_POST["Post a load (one form or WhatsApp chat):<br/>route · cargo · equipment · dates · price mode<br/>instant-rate / request offers / budget"]:::demand
+    DEM1 --> D_POST
+    DEM2 --> D_POST
+    DEM3 --> D_POST
+    DEM4 --> DEM4B["Browse capacity beacons + partner list"]:::demand
+
+    %% ================= SUPPLY SIDE =================
+    subgraph SUP["SUPPLY — who has capacity"]
+        SUP1["Solo driver (verified owner-operator)"]:::supply
+        SUP2["Fleet company with empty trucks"]:::supply
+        SUP3["Partner carrier / subcontractor"]:::supply
+    end
+
+    S_BEACON["Publish capacity beacon:<br/>empty in X · heading to Y · available from Z ·<br/>truck specs · min rate"]:::supply
+    SUP1 --> S_BEACON
+    SUP2 --> S_BEACON
+    SUP3 --> S_BEACON
+    S_OFFER["Or respond to posted loads:<br/>instant accept / bid with price + ETA"]:::supply
+
+    %% ================= MATCH ENGINE =================
+    subgraph MATCH["MATCH ENGINE — beacons before browsing"]
+        EN1["Index: loads + beacons + preferences + lanes"]:::engine
+        EN2["Score each pairing:<br/>lane fit · date fit · equipment fit ·<br/>detour km · rating · reliability · price"]:::engine
+        EN3["Push: notify best supply of new loads;<br/>show shipper best supply for their lane"]:::engine
+        EN4{"Match type chosen by shipper"}:::dec
+        EN5["INSTANT PRICE — rate card applies,<br/>book in one tap (repeat lanes)"]:::engine
+        EN6["OPEN BIDDING — offers land in minutes;<br/>shipper compares all"]:::engine
+        EN7["DIRECT INVITE — shipper invites favorite<br/>fleet/driver: first refusal"]:::engine
+        EN8["AUTO-MATCH — shipper sets rules<br/>(max price, min rating) → best offer auto-awarded"]:::engine
+        EN1 --> EN2 --> EN3 --> EN4
+        EN4 --> EN5
+        EN4 --> EN6
+        EN4 --> EN7
+        EN4 --> EN8
+    end
+    D_POST --> EN1
+    S_BEACON --> EN1
+    DEM4B --> EN3
+    EN3 --> S_OFFER
+    S_OFFER --> EN4
+
+    %% ================= OFFER + NEGOTIATION =================
+    subgraph OFFERS["Offers — structured, comparable, auditable"]
+        OF1["Offer card: price · pickup ETA · delivery ETA ·<br/>truck · rating · verification badge · note"]:::engine
+        OF2["Chat / counter-offer →<br/>new structured card, nothing verbal-only"]:::engine
+        OF3["Offer states: SENT · VIEWED · COUNTERED ·<br/>ACCEPTED · DECLINED · EXPIRED"]:::engine
+        OF1 --> OF2 --> OF3
+    end
+    EN5 --> OF1
+    EN6 --> OF1
+    EN7 --> OF1
+    EN8 --> OF1
+    OF3 --> AWARD
+
+    %% ================= AWARD + CONTRACT =================
+    AWARD{"Shipper awards<br/>a fleet or a solo driver"}:::dec
+    C1["Contract created:<br/>counterparty · price locked · pickup/delivery windows"]:::ok
+    C2{"Payment method"}:::dec
+    C3["ESCROW — money reserved now;<br/>released to carrier on POD"]:::money
+    C4["ON ACCOUNT — credit check OK / WATCH / BLOCKED;<br/>carrier invoices after POD"]:::money
+    C5["VERIFIED-ONLY mode: only companies/drivers<br/>with valid documents can be awarded"]:::ok
+    AWARD --> C1 --> C2
+    C2 -->|"escrow"| C3 --> C5
+    C2 -->|"invoice"| C4 --> C5
+    C5 --> EXEC
+
+    %% ================= EXECUTE + SETTLE =================
+    subgraph EXEC["Execution — the trip both sides watch"]
+        EX1["Trip appears in the fleet's dispatch<br/>or the solo driver's Loads"]:::ok
+        EX2["Driver statuses stream to shipper tracking<br/>(same trip object, no re-entry)"]:::ok
+        EX3["Consignee gets a no-login tracking link"]:::ok
+        EX4["POD + eCMR uploaded → shipper notified"]:::ok
+        EX5["Payment released / invoice issued"]:::money
+        EX6["Two-way rating:<br/>shipper rates carrier and driver;<br/>carrier rates shipper"]:::ok
+        EX7{"Dispute?"}:::dec
+        EX8["Mediation with documents as evidence →<br/>credit note / insurance / partial release"]:::warn
+        EX1 --> EX2 --> EX3 --> EX4 --> EX5 --> EX6 --> EX7
+        EX7 -->|"no"| EX9["Closed — both sides can rebook<br/>and add each other to favorites"]:::ok
+        EX7 -->|"yes"| EX8 --> EX9
+    end
+
+    %% ================= OFF-PLATFORM BRIDGE =================
+    subgraph BRIDGE["Bridge — parties not registered on RoadwiseFleet"]
+        BR1{"Who is not registered?"}:::dec
+        BR2["Shipper not registered →<br/>guest booking via link/WhatsApp;<br/>tracking + POD by link"]:::demand
+        BR3["Carrier not registered →<br/>job link: accept by SMS/WhatsApp,<br/>status by link or phone dispatch"]:::supply
+        BR4["Invite both: 'keep your history and get paid faster'<br/>→ account conversion in 2 minutes"]:::ok
+        BR1 --> BR2
+        BR1 --> BR3
+        BR2 --> BR4
+        BR3 --> BR4
+    end
+    AWARD -.->|"off-platform party?"| BR1

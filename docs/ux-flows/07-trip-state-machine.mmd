@@ -1,0 +1,75 @@
+flowchart TD
+    classDef pre fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef exec fill:#d0ebff,stroke:#1971c2,color:#000
+    classDef post fill:#e5dbff,stroke:#5f3dc4,color:#000
+    classDef done fill:#b2f2bb,stroke:#2b8a3e,color:#000
+    classDef bad fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef dec fill:#fff3bf,stroke:#e8590c,color:#000
+
+    subgraph PRE["PRE-TRIP — order becomes work"]
+        S1["DRAFT<br/>order created by customer / FM / API"]:::pre
+        S2["CONFIRMED<br/>price, dates, payment method agreed"]:::pre
+        S3["POSTED (optional)<br/>on the Connect marketplace"]:::pre
+        S4["OFFERS IN<br/>fleets / solo drivers bid"]:::pre
+        S5["AWARDED<br/>counterparty chosen; Trip created"]:::pre
+        S6["ASSIGNED<br/>driver + truck picked; offer sent"]:::pre
+        S7["ACCEPTED BY DRIVER<br/>trip is now owned"]:::pre
+        S1 -->|"customer submits / WhatsApp / API"| S2
+        S2 -->|"FM: send to marketplace"| S3
+        S3 -->|"supply responds"| S4
+        S4 -->|"customer awards"| S5
+        S2 -->|"own fleet or saved carrier"| S5
+        S5 -->|"FM dispatches / solo confirms"| S6
+        S6 -->|"driver taps Accept"| S7
+    end
+
+    subgraph EX["EXECUTION — the truck moves"]
+        E1["EN ROUTE TO PICKUP<br/>driver driving; shipper tracking live"]:::exec
+        E2["ARRIVED AT PICKUP<br/>geofence detect or driver taps"]:::exec
+        E3["LOADED<br/>photo / CMR check; detention timer stops"]:::exec
+        E4["IN TRANSIT<br/>rest-time rules apply; ETA streams"]:::exec
+        E5["ARRIVED AT DELIVERY<br/>geofence detect or driver taps"]:::exec
+        E6["DELIVERED<br/>driver confirms — irreversible"]:::exec
+        E7["POD UPLOADED<br/>photo + e-signature"]:::done
+        E8["DOCS COMPLETE<br/>eCMR / customs / invoice source"]:::done
+        E1 --> E2 --> E3 --> E4 --> E5 --> E6 --> E7 --> E8
+    end
+    S7 -->|"driver departs"| E1
+
+    subgraph FIN["FINANCIAL CLOSE"]
+        F1["INVOICED<br/>built from POD + accessorials"]:::post
+        F2["PAID<br/>card / SEPA / escrow release / cash"]:::post
+        F3["DRIVER SETTLED<br/>settlement marked paid"]:::post
+        F4["CLOSED<br/>rated both ways; archived"]:::done
+        E8 -->|"FM / accountant issues"| F1
+        F1 -->|"customer pays"| F2
+        F2 -->|"finance pays driver"| F3
+        F3 -->|"rating exchanged"| F4
+    end
+
+    subgraph ALT["ALTERNATE ENDINGS — every exit is designed"]
+        A1["EXPIRED<br/>no award in time → repost or cancel"]:::bad
+        A2["CANCELLED (before pickup)<br/>free before assignment, fee after"]:::bad
+        A3["REFUSED AT PICKUP<br/>cargo not as described → decision: renegotiate / return"]:::bad
+        A4["BREAKDOWN / ACCIDENT<br/>recovery or truck swap; customer informed; ETA reset"]:::bad
+        A5["DELAYED<br/>reason + new ETA to customer; detention/accessorials logged"]:::bad
+        A6["CUSTOMS HOLD<br/>docs escalation; demurrage tracked"]:::bad
+        A7["DAMAGE / SHORTAGE CLAIM<br/>photos + statement → mediation / insurance"]:::bad
+    end
+    S3 -->|"deadline passes"| A1
+    S2 -->|"customer cancels"| A2
+    S6 -->|"carrier cancels / declines"| S6
+    S7 -->|"driver cancels (rare, rated)"| A2
+    E2 -->|"load not as agreed"| A3
+    E1 -->|"driver reports problem"| A4
+    E4 -->|"traffic / rest / weather"| A5
+    E5 -->|"paperwork problem"| A6
+    E7 -->|"customer disputes"| A7
+
+    A3 -->|"resolved: new terms"| E3
+    A4 -->|"swap truck"| E1
+    A5 -->|"back on schedule"| E4
+    A6 -->|"released"| E5
+    A7 -->|"settled"| F4
+
+    RULES["WHO CAN MOVE WHAT<br/>customer: cancel before pickup · change request · award<br/>FM/dispatcher: assign · reassign · cancel · enter statuses for off-platform drivers<br/>driver: accept · arrival · load · depart · deliver · POD (nothing else)<br/>system: geofence arrivals · delays · expiry · payment release on POD"]:::dec

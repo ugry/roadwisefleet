@@ -1,0 +1,134 @@
+flowchart TD
+    classDef entry fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef menu fill:#f8f9fa,stroke:#868e96,color:#000
+    classDef dec fill:#fff3bf,stroke:#e8590c,color:#000
+    classDef act fill:#d0ebff,stroke:#1971c2,color:#000
+    classDef ok fill:#b2f2bb,stroke:#2b8a3e,color:#000
+    classDef warn fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef money fill:#e5dbff,stroke:#5f3dc4,color:#000
+
+    %% ================= STAGE 0 — ACTIVATION =================
+    subgraph ACT["STAGE 0 — Getting the driver in (invite by the fleet)"]
+        I1["Invite arrives: SMS / email link<br/>from the fleet"]:::entry
+        I2["Open link → phone number OTP"]:::act
+        I3["Create password (or phone-only login)"]:::act
+        I4["Profile: name, photo, language<br/>(EN / DE / PL / TR / …)"]:::act
+        I5["Upload documents: ID · driving licence ·<br/>CPC · medical · ADR (optional)"]:::act
+        I6{"Fleet verifies the documents"}:::dec
+        I7["Active driver — app tour, first trip tutorial"]:::ok
+        I8["Correction requested — fix and resubmit"]:::warn
+        I1 --> I2 --> I3 --> I4 --> I5 --> I6
+        I6 -->|"ok"| I7
+        I6 -->|"not ok"| I8 --> I5
+        I9["Already a driver? Just log in"]:::act --> HOME
+        I7 --> HOME
+    end
+
+    %% ================= MENU =================
+    subgraph HOME["Bottom navigation — 5 tabs + always-visible SOS"]
+        M1["① Trips (home)"]:::menu
+        M2["② Documents"]:::menu
+        M3["③ Money"]:::menu
+        M4["④ Messages"]:::menu
+        M5["⑤ More — profile · tacho · safety"]:::menu
+        SOS["SOS — always on screen"]:::warn
+    end
+
+    %% ================= TRIPS =================
+    subgraph TRIPS["① Trips — one thumb, big buttons"]
+        T1["Current trip card: route, cargo,<br/>pickup / delivery, ETA, checkpoints"]:::act
+        T2["Required-documents badge<br/>(eCMR · POD · customs)"]:::act
+        T2 --> DOCS
+        T3{"Next legal status?"}:::dec
+        S_ACC["Accept assignment"]:::act
+        S_ENR["En route to pickup"]:::act
+        S_ARR["Arrived at pickup<br/>(geofence auto-detects)"]:::act
+        S_LOA["Loaded — confirm with photo / CMR"]:::act
+        S_DEP["Departed → In transit"]:::act
+        S_DLV["Arrived at delivery"]:::act
+        S_DEL["Delivered — irreversible, confirm dialog"]:::warn
+        S_POD["Capture POD → trip moves to POD_UPLOADED"]:::ok
+        T1 --> T3
+        T3 --> S_ACC --> S_ENR --> S_ARR --> S_LOA --> S_DEP --> S_DLV --> S_DEL --> S_POD
+        T4["Detention timer: starts at shipper geofence,<br/>stops on load — feeds the accessorial claim"]:::money
+        T5["Checkpoints: navigate · mark arrival · report problem"]:::act
+        T6["Return-load offers for the way back<br/>(accept / decline / ask question)"]:::act
+        T7["Trip history + earnings per trip"]:::act
+        T8["Offline: taps queue locally,<br/>sync when signal returns"]:::warn
+        T1 --> T4
+        T1 --> T5
+        T1 --> T6
+        T1 --> T7
+        T1 --> T8
+    end
+    M1 --> T1
+
+    %% ================= DOCUMENTS =================
+    subgraph DOCS["② Documents — photograph it once"]
+        D1["Per-trip checklist by region<br/>(eCMR/CMR · POD · T1 customs · e-way bill)"]:::act
+        D2{"Capture how?"}:::dec
+        D3["Camera photo — GPS + timestamp embedded"]:::act
+        D4["File upload (PDF / scan)"]:::act
+        D5["e-signature by consignee:<br/>draw on screen or type name"]:::act
+        D6["Field check: who signed, date, condition notes"]:::act
+        D7{"Doc rejected by office?"}:::dec
+        D8["See reason → retake / correct"]:::warn
+        D9["Offline queue: capture now,<br/>upload when connected"]:::warn
+        D10["My personal documents: licence · CPC · medical —<br/>expiry countdown + renew reminder"]:::act
+        D1 --> D2
+        D2 --> D3 --> D5 --> D6
+        D2 --> D4 --> D6
+        D6 --> D7
+        D7 -->|"no"| D9
+        D7 -->|"yes"| D8 --> D2
+        D1 --> D10
+    end
+    M2 --> D1
+
+    %% ================= MONEY =================
+    subgraph MONEY["③ Money — transparent, no surprises"]
+        MO1["This trip: rate + detention − deductions<br/>= my earning"]:::money
+        MO2["Advance request → APPROVED / REJECTED / PAID"]:::money
+        MO3["Add expense: fuel · toll · food · other<br/>+ receipt photo → goes to trip P&L"]:::money
+        MO4["Settlement status: € pending — pays on date"]:::money
+        MO5["Payout history + downloadable statements"]:::money
+        MO1 --> MO2 --> MO3 --> MO4 --> MO5
+    end
+    M3 --> MO1
+
+    %% ================= MESSAGES =================
+    subgraph MSG["④ Messages"]
+        ME1["Chat with dispatcher<br/>(text · voice note · quick replies)"]:::act
+        ME2["Auto-translation to my language"]:::act
+        ME3["Load offers: accept / decline / negotiate"]:::act
+        ME4["Company announcements"]:::act
+        ME1 --> ME2 --> ME3 --> ME4
+    end
+    M4 --> ME1
+
+    %% ================= MORE =================
+    subgraph MORE["⑤ More"]
+        MR1["Profile + documents, language,<br/>offline mode, battery-saver GPS"]:::act
+        MR2["Driving-hours assistant:<br/>driving since · break due · remaining · violation risk"]:::warn
+        MR3["Safety: SOS · secure parking finder ·<br/>cargo-theft alerts · incident report"]:::warn
+        MR4["Notifications: push · SMS fallback"]:::act
+        MR1 --> MR2 --> MR3 --> MR4
+    end
+    M5 --> MR1
+
+    %% ================= EXCEPTIONS =================
+    subgraph EXC["Exceptions — the paths that keep trips alive"]
+        X1{"What went wrong?"}:::dec
+        X2["Breakdown → report with photos + location;<br/>dispatcher sends recovery / swap"]:::warn
+        X3["Load refused at pickup → reason;<br/>office + customer decide"]:::warn
+        X4["Accident / theft → SOS first,<br/>then guided report"]:::warn
+        X5["No signature possible → note + photo + witness,<br/>office notified"]:::warn
+        X6["Running late → one-tap delay report with new ETA;<br/>customer auto-notified"]:::warn
+        X1 --> X2
+        X1 --> X3
+        X1 --> X4
+        X1 --> X5
+        X1 --> X6
+    end
+    T3 -.->|"problem"| X1
+    SOS -.-> X4
