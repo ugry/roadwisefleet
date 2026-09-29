@@ -18,6 +18,9 @@
     --on-accent: oklch(0.20 0.040 258);
     --on-dark: oklch(0.985 0.002 250);
     --success: oklch(0.56 0.130 158);
+    /* AA-safe success text (8.04:1 on --bg); the mid-tone --success is only for
+   fills/borders. Board task #70, WCAG 1.4.3. */
+    --success-deep: oklch(0.40 0.12 158);
     --danger: oklch(0.55 0.190 26);
     --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
     --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -55,7 +58,7 @@
   th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
   th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
   .status{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;background:var(--bg);border:1px solid var(--border);color:var(--ink);text-transform:uppercase}
-  .status.s-DELIVERED,.status.s-POD_UPLOADED,.status.s-INVOICED,.status.s-SETTLED{color:var(--success);border-color:var(--success)}
+  .status.s-DELIVERED,.status.s-POD_UPLOADED,.status.s-INVOICED,.status.s-SETTLED{color:var(--success-deep);border-color:var(--success-deep)}
   .status.s-CANCELLED{color:var(--danger);border-color:var(--danger)}
   .status.s-IN_TRANSIT,.status.s-LOADED{color:var(--accent-deep);border-color:var(--accent-deep)}
   .actions{display:flex;gap:6px;flex-wrap:wrap}
@@ -69,8 +72,11 @@
   tr.clickable:hover{background:oklch(0.985 0.003 250)}
   .overlay{position:fixed;inset:0;background:oklch(0.2 0.04 258 / .35);opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:19}
   .overlay.open{opacity:1;pointer-events:auto}
-  .drawer{position:fixed;top:0;right:0;height:100%;width:min(560px,100%);background:var(--surface);border-left:1px solid var(--border);box-shadow:-8px 0 30px oklch(0.2 0.04 258 / .18);transform:translateX(102%);transition:transform .18s ease;z-index:20;display:flex;flex-direction:column}
-  .drawer.open{transform:none}
+  /* visibility (not just transform) so a closed drawer is out of the tab order
+     and out of the accessibility tree — WCAG 2.1.1 / 4.1.2. Board task #70. */
+  .drawer{position:fixed;top:0;right:0;height:100%;width:min(560px,100%);background:var(--surface);border-left:1px solid var(--border);box-shadow:-8px 0 30px oklch(0.2 0.04 258 / .18);transform:translateX(102%);visibility:hidden;transition:transform .18s ease,visibility 0s linear .18s;z-index:20;display:flex;flex-direction:column}
+  .drawer:focus-visible{outline:none}
+  .drawer.open{transform:none;visibility:visible;transition:transform .18s ease}
   .drawer-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
   .drawer-head h2{font-family:var(--font-display);font-weight:600;font-size:18px;margin:0;flex:1}
   .drawer-body{padding:16px 18px 40px;overflow:auto}
@@ -85,10 +91,31 @@
   .tl-what{font-weight:600}
   .tl-when{font-size:12px;color:var(--muted)}
   .pnl{font-family:var(--font-display);font-size:22px;margin:0}
-  .pnl.pos{color:var(--success)}
+  .pnl.pos{color:var(--success-deep)}
   .pnl.neg{color:var(--danger)}
   .empty{color:var(--muted);font-size:13px}
   @media (max-width:640px){ table,thead,tbody,th,td,tr{display:block} thead{display:none} td{border:none;padding:3px 0} tr{border-bottom:1px solid var(--border);padding:8px 0} }
+
+  /* --- accessibility pass (board task #70) -------------------------------- */
+  /* Solid, high-contrast keyboard focus ring (WCAG 2.4.7). The input rule
+     above keeps the amber glow for mouse focus; :focus-visible wins for keys. */
+  :focus-visible{outline:3px solid var(--accent-deep);outline-offset:2px;border-radius:4px}
+  input:focus-visible,select:focus-visible{outline:3px solid var(--accent-deep);outline-offset:1px;box-shadow:none}
+  /* The route cell is a real button so the drawer opens from the keyboard too. */
+  .row-open{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:2px}
+  .row-open:hover{color:var(--accent-deep)}
+  /* Touch targets: >=44px wherever the pointer is coarse (WCAG 2.5.8). */
+  @media (pointer:coarse){
+    button.small{min-height:44px;min-width:44px;padding:10px 14px}
+    header.top select.lang-switcher{min-height:44px}
+    header.top nav a{display:inline-block;padding:10px 4px}
+    .row-open{min-height:44px}
+    .drawer-head button{min-height:44px}
+  }
+  /* Honour the OS reduced-motion setting (WCAG 2.3.3). */
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
 </style>
 </head>
 <body>
@@ -106,7 +133,7 @@
   <h1 data-i18n="nav.dashboard"></h1>
   <p class="muted" data-i18n="dash.lead"></p>
 
-  <div id="globalMsg" class="msg"></div>
+  <div id="globalMsg" class="msg" role="status" aria-live="polite"></div>
 
   <section id="loginCard" class="card">
     <h2 data-i18n="common.signIn"></h2>
@@ -173,7 +200,7 @@
 </main>
 
 <div id="overlay" class="overlay"></div>
-<aside id="drawer" class="drawer" aria-hidden="true" data-i18n-aria-label="dash.tripDetail">
+<aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true" tabindex="-1" data-i18n-aria-label="dash.tripDetail">
   <div class="drawer-head">
     <h2 id="drawerTitle" data-i18n="dash.tripDetail"></h2>
     <button class="ghost small" id="drawerClose" type="button" data-i18n="common.close"></button>
@@ -348,7 +375,7 @@
         return '<button class="ghost small" data-trip="' + esc(trip.id) + '" data-to="' + esc(s) + '">' + esc(statusLabel(s)) + '</button>';
       }).join('');
       return '<tr class="clickable" data-open="' + esc(trip.id) + '">' +
-        '<td>' + route + '</td>' +
+        '<td><button type="button" class="row-open" data-open="' + esc(trip.id) + '">' + route + '</button></td>' +
         '<td>' + driver + '</td>' +
         '<td><span class="status s-' + esc(trip.status) + '">' + esc(statusLabel(trip.status)) + '</span></td>' +
         '<td>' + money(trip.rateEur) + '</td>' +
@@ -367,19 +394,36 @@
         loadTripDetail(tr.getAttribute('data-open'));
       });
     });
+    // Keyboard equivalent of the row click (WCAG 2.1.1): the route cell is a
+    // real button, so Enter/Space on it opens the same drawer.
+    Array.prototype.forEach.call(body.querySelectorAll('button.row-open'), function (btn) {
+      btn.addEventListener('click', function (ev) {
+        if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+        loadTripDetail(btn.getAttribute('data-open'));
+      });
+    });
   }
 
+  // Board task #70: keep focus inside the dialog while it is open and return it
+  // to the control that opened it on close (WCAG 2.4.3).
+  var lastFocus = null;
   function openDrawer() {
+    lastFocus = document.activeElement;
     $('drawer').classList.add('open');
     $('drawer').setAttribute('aria-hidden', 'false');
     $('overlay').classList.add('open');
+    var dlg = $('drawer');
+    if (dlg && typeof dlg.focus === 'function') dlg.focus();
   }
 
   function closeDrawer() {
+    var wasOpen = $('drawer').classList.contains('open');
     $('drawer').classList.remove('open');
     $('drawer').setAttribute('aria-hidden', 'true');
     $('overlay').classList.remove('open');
     openTripId = null;
+    if (wasOpen && lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+    lastFocus = null;
   }
 
   // Trip detail (board task #2): one read-only GET /api/trips/:id, rendered into
@@ -533,7 +577,19 @@
   $('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
   $('drawerClose').addEventListener('click', closeDrawer);
   $('overlay').addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeDrawer(); return; }
+    // Trap Tab inside the open dialog so focus cannot wander behind it.
+    if (e.key !== 'Tab') return;
+    var drawer = $('drawer');
+    if (!drawer.classList.contains('open')) return;
+    var focusables = drawer.querySelectorAll('a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])');
+    if (!focusables.length) return;
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
   $('logout').addEventListener('click', function (e) {
     e.preventDefault();
     sessionStorage.removeItem(TOKEN_KEY);

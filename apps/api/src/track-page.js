@@ -30,6 +30,11 @@ export function trackPageHtml() {
     --bg:oklch(0.98 0.008 258); --surface:#fff; --border:oklch(0.9 0.01 258);
     --text:oklch(0.25 0.02 258); --muted:oklch(0.55 0.02 258); --accent:oklch(0.55 0.14 258);
     --ok:oklch(0.55 0.12 155); --warn:oklch(0.6 0.14 70);
+    /* Text-on-tint variants: the mid tones above are only 3.4–4.1:1 on their
+       own pill background, so the pills and flags use these darker values
+       (6.2–7.3:1). Board task #70, WCAG 1.4.3. */
+    --accent-text:oklch(0.45 0.14 258); --ok-text:oklch(0.44 0.11 155); --warn-text:oklch(0.42 0.11 70);
+    --muted-text:oklch(0.45 0.02 258);
     --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
   *{box-sizing:border-box}
@@ -41,9 +46,9 @@ export function trackPageHtml() {
   .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:14px}
   .muted{color:var(--muted)}
   .status{display:inline-block;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:600;
-    background:oklch(0.94 0.03 258);color:var(--accent)}
-  .status.done{background:oklch(0.94 0.05 155);color:var(--ok)}
-  .status.pending{background:oklch(0.95 0.05 70);color:var(--warn)}
+    background:oklch(0.94 0.03 258);color:var(--accent-text)}
+  .status.done{background:oklch(0.94 0.05 155);color:var(--ok-text)}
+  .status.pending{background:oklch(0.95 0.05 70);color:var(--warn-text)}
   .route{font-size:20px;font-weight:600;margin:10px 0 2px}
   dl.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0 0;font-size:14px}
   dl.kv dt{color:var(--muted)}
@@ -56,8 +61,8 @@ export function trackPageHtml() {
   .msg{margin:0;padding:12px 14px;border-radius:10px;font-size:14px}
   .msg.err{background:oklch(0.96 0.04 25);color:oklch(0.45 0.16 25)}
   .flag{display:inline-block;font-size:13px;font-weight:600;padding:3px 9px;border-radius:999px}
-  .flag.yes{background:oklch(0.94 0.05 155);color:var(--ok)}
-  .flag.no{background:oklch(0.95 0.01 258);color:var(--muted)}
+  .flag.yes{background:oklch(0.94 0.05 155);color:var(--ok-text)}
+  .flag.no{background:oklch(0.95 0.01 258);color:var(--muted-text)}
   footer{margin-top:22px;font-size:12px;color:var(--muted)}
 </style>
 </head>

@@ -40,6 +40,19 @@
   a.card p{margin:0;color:var(--muted);font-size:13px}
   a.card .go{display:inline-block;margin-top:14px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-deep)}
   footer{margin-top:34px;color:var(--muted);font-size:12px}
+
+  /* --- accessibility pass (board task #70) -------------------------------- */
+  /* Solid, high-contrast keyboard focus ring on the cards and the switcher. */
+  :focus-visible{outline:3px solid var(--accent-deep);outline-offset:2px;border-radius:6px}
+  a.card:focus-visible{outline:3px solid var(--accent-deep);outline-offset:3px}
+  /* Touch target for the language switcher on coarse pointers (WCAG 2.5.8). */
+  @media (pointer:coarse){
+    header.top select.lang-switcher{min-height:44px}
+  }
+  /* Honour the OS reduced-motion setting (WCAG 2.3.3). */
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
 </style>
 </head>
 <body>
