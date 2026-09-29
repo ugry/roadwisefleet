@@ -1,0 +1,11 @@
+[Unit]
+Description=RoadwiseFleet customer notification delivery timer
+Documentation=file:///opt/roadwisefleet/api/infra/notifications.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

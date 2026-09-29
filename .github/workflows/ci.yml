@@ -212,6 +212,26 @@ jobs:
       - name: Check the repo storage declarations agree
         run: bash infra/checks/uploads-perms-check.sh
 
+  notification-delivery:
+    name: Notification delivery (#79)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #79 (UXF-O2). The notification transport is provider-agnostic and
+      # inert until an owner-approved transport is configured; what CI can and
+      # must prove is the delivery CONTRACT: every catalogued event has a
+      # template and no template invents a sender, a failed send is retried
+      # exactly once then logged, a switched-off channel is suppressed and
+      # nothing is sent, and the log never carries the recipient in clear, the
+      # message body or the capability link. The self-test drives the real
+      # script with stubbed transports (no host, no network, no root).
+      - name: Self-test the transport (fixtures, no host, no network)
+        run: bash infra/scripts/pilot-notify-deliver.sh --self-test
+
+      - name: Check the repo notification catalogue
+        run: bash infra/scripts/pilot-notify-deliver.sh --check-repo
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'

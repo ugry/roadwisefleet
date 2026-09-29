@@ -1,0 +1,9 @@
+Subject: Proof of delivery is ready for {{trip_ref}}
+
+Hi {{customer_name}},
+
+The proof of delivery for {{trip_ref}} is ready. Download it any time from your link:
+
+{{link}}
+
+-- RoadwiseFleet
