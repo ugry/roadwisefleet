@@ -87,6 +87,49 @@ test('copyTarget is the full shareable URL, never a bare token', () => {
   assert.equal(tracking.copyTarget(null), '');
 });
 
+// --- the share value is openable off-host (board #84, GH#65) ----------------
+
+test('a relative link.url resolves against the page origin; an absolute one passes through', () => {
+  const ORIGIN = 'https://roadwisefleet.com';
+  // The API answers origin-relative (`/track/<token>`) when PUBLIC_BASE_URL is
+  // empty — the live host does — so the UI must not hand that path out.
+  assert.equal(tracking.isAbsoluteUrl('/track/abc.def'), false);
+  assert.equal(tracking.absoluteUrl('/track/abc.def', ORIGIN), 'https://roadwisefleet.com/track/abc.def');
+  assert.equal(tracking.copyTarget({ url: '/track/abc.def' }, ORIGIN), 'https://roadwisefleet.com/track/abc.def');
+  // An absolute url the API returns is never rewritten.
+  assert.equal(tracking.isAbsoluteUrl('https://other.test/track/abc'), true);
+  assert.equal(tracking.absoluteUrl('https://other.test/track/abc', ORIGIN), 'https://other.test/track/abc');
+  assert.equal(tracking.copyTarget({ url: 'https://other.test/track/abc' }, ORIGIN), 'https://other.test/track/abc');
+  // No double slash when the origin carries a trailing one; a scheme-relative
+  // url is already openable and is left as the server sent it.
+  assert.equal(tracking.absoluteUrl('/track/abc', 'https://roadwisefleet.com/'), 'https://roadwisefleet.com/track/abc');
+  assert.equal(tracking.absoluteUrl('//cdn.test/track/abc', ORIGIN), '//cdn.test/track/abc');
+  // A relative url without a leading slash is joined, never concatenated.
+  assert.equal(tracking.absoluteUrl('track/abc', ORIGIN), 'https://roadwisefleet.com/track/abc');
+  // No origin (Node, or a WebView without `location`) leaves the server's value
+  // alone; empty or non-string input is ''.
+  assert.equal(tracking.absoluteUrl('/track/abc'), '/track/abc');
+  assert.equal(tracking.absoluteUrl('/track/abc', ''), '/track/abc');
+  assert.equal(tracking.absoluteUrl('', ORIGIN), '');
+  assert.equal(tracking.absoluteUrl(undefined, ORIGIN), '');
+  assert.equal(tracking.copyTarget({ url: '/track/abc' }), '/track/abc');
+});
+
+test('the shell resolves the share value against the page origin (board #84)', () => {
+  // One helper reads `win.location.origin` and passes it to the pure resolver.
+  assert.match(APP_JS, /win\.location\.origin/);
+  assert.match(APP_JS, /TRACK\.copyTarget\(link, pageOrigin\(\)\)/);
+  // The read-only input renders the resolved value, never the raw server url.
+  assert.match(APP_JS, /esc\(shareUrl\(link\)\)/);
+  assert.doesNotMatch(APP_JS, /esc\(link\.url\)/);
+  // Both copy affordances (trip detail + tracking workspace) use the same
+  // helper, so neither can hand out a relative path again.
+  assert.match(APP_JS, /var url = shareUrl\(trackCurrent\);/);
+  assert.match(APP_JS, /var url = shareUrl\(workLink\);/);
+  assert.doesNotMatch(APP_JS, /TRACK\.copyTarget\(trackCurrent\)/);
+  assert.doesNotMatch(APP_JS, /TRACK\.copyTarget\(workLink\)/);
+});
+
 // --- error mapping ----------------------------------------------------------
 
 test('API failures map to catalogue keys that say what to do', () => {
