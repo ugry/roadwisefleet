@@ -13,6 +13,7 @@ import { trackPageRoutes, trackRoutes } from './routes/track.js';
 import { appRoutes } from './routes/app.js';
 import { customerAppRoutes } from './routes/customer-app.js';
 import { customerRoutes } from './routes/customer.js';
+import { marketplaceRoutes } from './routes/marketplace.js';
 import { serverOptions } from './server-options.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
@@ -39,6 +40,10 @@ export function buildServer() {
   app.register(trackRoutes, { prefix: '/api' });
   // Customer portal API (board task #74, UXF-C1).
   app.register(customerRoutes, { prefix: '/api' });
+
+  // Connect marketplace API (board task #76, UXF-M1): load postings, capacity
+  // beacons, structured offers and the award that creates the carrier's Trip.
+  app.register(marketplaceRoutes, { prefix: '/api' });
 
   // Public customer tracking page: root path `/track/:token` (no auth, not
   // under /pilot/), so a shared link reads like a customer-facing URL.

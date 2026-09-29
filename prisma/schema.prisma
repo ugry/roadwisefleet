@@ -29,6 +29,12 @@ model Org {
   apiKeys   ApiKey[]
   webhooks  Webhook[]
   auditLogs AuditLog[]
+
+  // Connect marketplace (board task #76, UXF-M1). Relation fields only: no
+  // scalar column is added to `Org`, so the running pilot is unaffected.
+  loadPostings     LoadPosting[]
+  beacons          CapacityBeacon[]
+  marketplaceOffers MarketplaceOffer[]
 }
 
 model Role {
@@ -64,6 +70,13 @@ model User {
   // explicit `select` fail until the migration is applied, login included. A
   // relation field adds no scalar and changes no existing query.
   customerAccount CustomerAccount?
+
+  // Connect marketplace (board task #76): loads posted by this user, its
+  // capacity beacons, and the offers it made (or answered as a counter).
+  postedLoads       LoadPosting[]
+  beacons           CapacityBeacon[]
+  marketplaceOffers MarketplaceOffer[] @relation("OfferCarrier")
+  offersCreated     MarketplaceOffer[] @relation("OfferCreator")
 }
 
 // A login that may act for a customer account (board task #74).
@@ -113,6 +126,9 @@ model Customer {
   // model, so the running pilot keeps working whether or not the portal
   // migration has been applied yet.
   profile         CustomerProfile?
+
+  // Connect marketplace (board task #76): the loads this customer posted.
+  loadPostings    LoadPosting[]
 }
 
 // Portal-maintained customer profile (board task #74). `notifyPrefs` is a small
@@ -168,6 +184,9 @@ model Order {
   // applied. The marketplace engine (#76) reads lane/date/equipment from here;
   // a column moves onto `Order` only if a query truly needs it there.
   booking OrderBooking?
+
+  // Connect marketplace (board task #76): a load posted from this order.
+  loadPostings LoadPosting[]
 }
 
 model OrderBooking {
@@ -220,6 +239,9 @@ model Trip {
   settlement   Settlement?
   stops        TripStop[]
   drivers      TripDriver[]
+
+  // Connect marketplace (board task #76): set when an award created this trip.
+  marketplaceLoad LoadPosting?
 }
 
 model Document {
@@ -384,4 +406,122 @@ model AuditLog {
   target   String?
   ip       String?
   at       DateTime @default(now())
+}
+
+// === Connect marketplace (board task #76, UXF-M1) ===
+//
+// Purely additive tables: no existing model gains a scalar column (only
+// relation fields, which change no query), so the running pilot keeps working
+// whether or not this migration has been applied yet — the same discipline as
+// the customer portal (#74).
+//
+// Payment is invoice-first in v1 (task #76): escrow waits for the owner's
+// merchant-of-record answer (UXF-OWN1, #73). Nothing here models money movement.
+
+// A demand object posted to the marketplace: a customer posts one of its own
+// orders, or a fleet posts a load it cannot cover (diagram 05). Exactly one of
+// `customerId` / `orgId` is set — that is the posting tenant and the only party
+// that may award or cancel it.
+model LoadPosting {
+  id          String    @id @default(cuid())
+  customerId  String?
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  orgId       String?
+  org         Org?      @relation(fields: [orgId], references: [id])
+  // The demand the load came from. Required for an award: the trip is created
+  // against it so nobody re-enters the load (diagram 05: "same trip object").
+  orderId     String?
+  order       Order?    @relation(fields: [orderId], references: [id])
+  origin      String
+  destination String
+  cargo       String?
+  equipment   String?
+  loadReadyAt DateTime?
+  deliverByAt DateTime?
+  pricingMode String    @default("quotes") // instant | quotes | budget
+  priceEur    Decimal?  @db.Decimal(12, 2) // instant rate / budget cap
+  // POSTED | OFFERS | AWARDED | EXPIRED | CANCELLED
+  status      String    @default("POSTED")
+  postedById  String?
+  postedBy    User?     @relation(fields: [postedById], references: [id])
+  expiresAt   DateTime?
+  // The winning offer and the trip it created. Plain id (no relation) on
+  // purpose: `MarketplaceOffer.load` is already the one relation between the two
+  // models, and the award is verified in code (`awardPlan`).
+  awardedOfferId String?
+  awardedAt   DateTime?
+  tripId      String?   @unique
+  trip        Trip?     @relation(fields: [tripId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  offers      MarketplaceOffer[]
+
+  @@index([status, loadReadyAt])
+  @@index([origin, destination])
+  @@index([customerId])
+  @@index([orgId])
+}
+
+// Declared capacity (diagram 05, "beacons before browsing"): a fleet's empty
+// truck or a solo driver's next free slot. Belongs to an org (fleet) or a user
+// (solo driver) — exactly one — and is scoped to that owner.
+model CapacityBeacon {
+  id            String    @id @default(cuid())
+  orgId         String?
+  org           Org?      @relation(fields: [orgId], references: [id])
+  driverId      String?
+  driver        User?     @relation(fields: [driverId], references: [id])
+  location      String
+  heading       String?
+  availableFrom DateTime?
+  equipment     String?
+  minRateEur    Decimal?  @db.Decimal(12, 2)
+  active        Boolean   @default(true)
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([active, availableFrom])
+  @@index([orgId])
+  @@index([driverId])
+}
+
+// A structured offer against a load (diagram 05): price, pickup/delivery ETA and
+// a note — never a verbal-only deal. A counter-offer is a NEW row that points at
+// the offer it answers (`parentOfferId`); the chain is the audit trail. The
+// carrier is a fleet org; `carrierUserId` names the solo driver when the carrier
+// is a one-person org (#77). One offer state machine lives in
+// `apps/api/src/marketplace.js` — the single source of truth.
+model MarketplaceOffer {
+  id            String      @id @default(cuid())
+  loadId        String
+  load          LoadPosting @relation(fields: [loadId], references: [id])
+  carrierOrgId  String
+  carrierOrg    Org         @relation(fields: [carrierOrgId], references: [id])
+  carrierUserId String?
+  carrierUser   User?       @relation("OfferCarrier", fields: [carrierUserId], references: [id])
+  carrierName   String
+  priceEur      Decimal     @db.Decimal(12, 2)
+  pickupEtaAt   DateTime?
+  deliveryEtaAt DateTime?
+  note          String?
+  // Which side of the load made this offer: `carrier` (a fleet/solo driver
+  // answering the load) or `shipper` (the load's owner answering with a
+  // counter). Drives who may counter next and who may award.
+  side          String      @default("carrier")
+  // SENT | VIEWED | COUNTERED | ACCEPTED | DECLINED | EXPIRED | WITHDRAWN
+  status        String      @default("SENT")
+  parentOfferId String?
+  parentOffer   MarketplaceOffer?  @relation("OfferCounter", fields: [parentOfferId], references: [id])
+  counters      MarketplaceOffer[] @relation("OfferCounter")
+  createdById   String?
+  createdBy     User?       @relation("OfferCreator", fields: [createdById], references: [id])
+  decidedAt     DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([loadId, status])
+  @@index([carrierOrgId, status])
 }

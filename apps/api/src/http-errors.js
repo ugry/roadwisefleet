@@ -15,6 +15,17 @@
  *   trip_closed        the trip's lifecycle has ended
  *   already_assigned   that driver already has the trip
  *   driver_unavailable the driver is locked/suspended (or not a driver)
+ *
+ * Connect marketplace (board task #76, UXF-M1) follows the same shape:
+ *   load_not_found,
+ *   offer_not_found    -> 404 (unknown, or outside the caller's tenancy)
+ *   load_awarded,
+ *   load_closed,
+ *   load_expired,
+ *   offer_closed,
+ *   offer_expired,
+ *   order_required     -> 409 (the posting/offer exists but cannot be decided)
+ *   forbidden          -> 403 (not the poster / not the carrier / cannot supply)
  */
 
 /**
@@ -24,6 +35,8 @@
 export function statusForError(error) {
   switch (error) {
     case 'forbidden':
+    case 'own_load':
+    case 'no_org':
       return 403;
     case 'not_found':
     case 'order_not_found':
@@ -31,7 +44,16 @@ export function statusForError(error) {
     case 'trip_closed':
     case 'already_assigned':
     case 'driver_unavailable':
+    case 'load_awarded':
+    case 'load_closed':
+    case 'load_expired':
+    case 'offer_closed':
+    case 'offer_expired':
+    case 'order_required':
       return 409;
+    case 'load_not_found':
+    case 'offer_not_found':
+      return 404;
     default:
       return 400;
   }
