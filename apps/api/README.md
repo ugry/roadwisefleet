@@ -21,6 +21,10 @@ pilot seed, minimal token auth and the core trip loop are wired.
 - `../../app/` — the Fleet Manager application served by this API under `/app/`
   (board task #32, see "Fleet Manager app" below). Its English catalogue lives in
   `app/locales/en.json`.
+- `../../customer/` — the customer portal served by this API under `/c/`
+  (board task #74, see "Customer portal" below) — a separate, mobile-first
+  surface, not part of the dispatcher app. Its English catalogue lives in
+  `customer/locales/en.json`.
 
 ## Run
 ```bash
@@ -73,7 +77,9 @@ the driver scope), the delivery-timestamp writer (`deliveredAt` on the
 DELIVERED transition, the optional `plannedAt` on dispatch), driver assign/reassign
 (`trip:assign` gating, driver availability, the same-status timeline event),
 the tracking-link view model (link state, per-trip path, one-action copy target,
-error mapping), locale
+error mapping), the customer-portal booking rules/read model and its `/c/`
+static-serving rules (board task #74; the same rules the browser runs, so the
+client can never be more permissive than the API), locale
 resolution and the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
@@ -159,6 +165,18 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /app` | — | `302` to `/app/` (the Fleet Manager mount point) |
 | `GET /app/*` | — | Fleet Manager app from `<repo>/app`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `x-robots-tag: noindex, nofollow` |
 | `POST /api/waitlist` | — | landing-page waitlist (honeypot + validation) |
+| `POST /api/customer/signup` | — | create a customer login (`name`, `email`, `password`, optional `company`/`phone`/`notifyPrefs`); creates the `Customer` + `User` + `CustomerAccount` link and attaches them to the carrier org (`CUSTOMER_HOST_ORG_ID`, else the oldest org); `201` with a bearer token whose `org` is `null`; `409 email_taken`; `400` with `field` + `messageKey` (board task #74) |
+| `GET /api/customer/me` | bearer, `customer:manage` | the account: company profile + notification prefs, the team, the address book and the honest verification state (no sender configured) |
+| `PATCH /api/customer/me` | bearer, `customer:manage` | partial profile/company/prefs update (only the fields present are applied) |
+| `GET`/`POST /api/customer/addresses` | bearer, `customer:manage` | the address book (own customer only) |
+| `DELETE /api/customer/addresses/:id` | bearer, `customer:manage` | remove one address; a foreign id is `404`, never a leak |
+| `POST /api/customer/team` | bearer, `customer:manage` | add a teammate login to the same customer account (inviter sets a temporary password); `409 email_taken` |
+| `POST /api/customer/orders` | bearer, `customer:manage` | the book-a-load wizard: validates the shared rule set, then a bookable supply choice (`own_carrier` \| `off_platform`) creates the `Order` + `OrderBooking` + a `DRAFT` `Trip` in the carrier org (`201`); a marketplace choice (`fleet` \| `solo` \| `auto` \| `recurring`) answers `202` with the honest `marketplace_unavailable` notice and creates nothing |
+| `GET /api/customer/orders` | bearer, `customer:manage` | own shipments only (scope from the token, never the query) |
+| `GET /api/customer/orders/:id` | bearer, `customer:manage` | one own shipment + its booking detail; a foreign id is `404` |
+| `POST /api/customer/orders/:id/track-link` | bearer, `customer:manage` | mint (or re-read) the shareable tracking link for the order's trip, reusing the board-#5/#39 machinery; `404 no_trip` when the order has no trip |
+| `GET /c` | — | `302` to `/c/` (the customer portal mount point) |
+| `GET /c/*` | — | customer portal from `<repo>/customer`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `x-robots-tag: noindex, nofollow` |
 | `GET /api/waitlist` | `X-Admin-Token` | admin list |
 
 Tenancy comes from the signed token's `org` claim — the old `x-org-id` header
@@ -765,7 +783,115 @@ has no comparable pair. Covered by `src/trips-core.test.js` (writer + validation
 no install) and `test/delivery-timestamps.test.ts` (the real transition path moved
 the KPI, re-derived with a direct DB query, inside a rolled-back transaction).
 
-## Waitlist → account handoff
+## Customer portal (`/c/`) — board task #74 (UXF-C1)
+The customer is a first-class persona (diagram `docs/ux-flows/01-customer-flow.mmd`),
+and the owner's first requirement is that the customer chooses **how** to ship.
+The portal is a separate mobile-first surface under `/c/`, served by this API
+itself (same origin with `/api/customer/*`, no new port, no CORS, no CDN) — the
+dispatcher app at `/app/` is deliberately not overloaded with customer screens.
+
+**Files.** `../../customer/` holds the surface: `index.html` (login / signup /
+signed-in shell), `customer.css` (mobile-first, `:focus-visible`,
+`@media (pointer: coarse)` 44px targets, reduced-motion), `customer.js` (the DOM
+half only) and `lib/customer-core.js` — the pure domain (signup, booking
+validation, the supply choices, the read model, the tenant rule) which the API
+**also** imports (`routes/customer.ts`). The browser and the server therefore run
+the SAME rule set; the client can never be more permissive than the API. The
+static root and SPA fallback are `src/customer-shell.js`, which reuses
+`app-shell.js#resolveFileIn`/`servesShell` rather than re-implementing the
+traversal/dotfile/extension rules.
+
+**Endpoints.** Signup, account (profile, notification prefs, team, addresses) and
+the book-a-load wizard (see the endpoint table). A bookable supply choice creates
+the `Order` **and** a `DRAFT` `Trip` in the carrier org, so the order lands in the
+fleet manager's trips list for dispatching — the customer never picks a driver and
+the rate is the carrier's to set. The marketplace choices answer `202` with
+`{ order: null, marketplace: { code: "marketplace_unavailable", task: "UXF-M1 (#76)", fallback: "own_carrier" } }`:
+reachable and explained, never a dead end.
+
+**Supply choice (the owner's requirement).** `fleet`, `solo`, `auto`, `recurring`
+are the marketplace paths (opening with UXF-M1/#76); `own_carrier` (a carrier on
+RoadwiseFleet) and `off_platform` (a carrier that is not — order + job link) are
+bookable today. Every path is rendered from the catalogue with a description and
+an honest state; the wizard offers the bookable fallback next to the phase notice.
+
+**Security model.** A customer login holds the `customer` role
+(`order:create`, `order:read`, `customer:manage`) and **no** `org:*`/`trip:*`; its
+token carries `org: null`. Every read resolves the `customerId` from the
+authenticated user, never from a request parameter, so "not mine" is a flat `404`
+— the tenant boundary never leaks existence. Responses are explicit selects:
+never a `passwordHash`, and the customer read model exposes no fleet internal
+(driver, truck, rate) — only the customer's own route, state and booking.
+
+**Payment.** Invoice-first (task #76): `invoice`, `card`, `sepa` and
+`pay_on_delivery` are accepted; `escrow` is refused with the UXF-OWN1 reason
+rather than silently accepted. The wizard's payload is stored in `OrderBooking`
+(a separate table) so the shared `Order` reads keep working.
+
+**Migrations (operator).** Two migrations ship with the portal:
+
+1. `prisma/migrations/20260929140000_add_customer_portal/` adds `CustomerAccount`,
+   `CustomerProfile`, `CustomerAddress` and `OrderBooking` (purely additive — the
+   join to `User` is where the data was designed to live, and no scalar column was
+   added to a shared model).
+2. `prisma/migrations/20260929230000_add_customer_role/` creates the `customer`
+   `Role` row (`order:create`, `order:read`, `customer:manage`), idempotently
+   (`ON CONFLICT (id) DO UPDATE`). The deployer runs only `prisma migrate deploy`
+   and never the seeder, so a migration is the only step guaranteed to run on
+   every deploy — without this row `POST /api/customer/signup` raised Prisma
+   `P2003` (foreign key on `User.roleId`) and answered **HTTP 500**, which is the
+   PR #67 review of 2026-09-29. `src/customer-role.test.js` is the dependency-free
+   guard: it fails if the migration is dropped, stops being idempotent, or drifts
+   from `CUSTOMER_PERMISSIONS` in `customer/lib/customer-core.js`. The signup
+   transaction *also* re-asserts the row idempotently, so a missing row can never
+   500 the entry point again.
+
+Apply both with `pnpm --filter @roadwisefleet/api exec prisma migrate deploy`
+**before** the portal works against the pilot; until then the portal endpoints
+fail on the missing tables and `test/customer-portal.test.ts` prints a diagnostic
+and skips its DB-backed assertions.
+
+**Shared modules are ES modules (`customer/package.json`).** `customer/lib/customer-core.js`
+is loaded twice: by the browser as a `<script type="module">` dependency, and by
+this API (`routes/customer.ts`) through Node/tsx. Without `"type": "module"` in
+`customer/package.json`, Node treats it as CommonJS, so the API's
+`import * as customerCore from '...'` resolves to `{ default: … }` and **every**
+customer route throws `customerCore.<fn> is not a function` → HTTP 500 (measured
+on the pilot 2026-09-29: signup was dead for a second, earlier reason than the
+missing `Role` row). The marker is not a file the portal serves:
+`customer-shell.js#resolveCustomerFile` refuses `package.json`.
+`src/customer-core.test.js` asserts the marker and
+`test/customer-signup-validation.test.ts` proves the API can actually call the
+core under tsx without a database.
+
+**Public signup (runbook note).** `POST /api/customer/signup` is deliberately
+unauthenticated — the customer has no account yet — and there is no email
+verification until a delivery provider is configured (the portal shows
+`verification_sender_not_configured`). Its only brake today is the nginx API
+rate-limit zone; that is accepted for the pilot and should be revisited before
+general availability (per-IP throttling and/or verification on first sign-in).
+
+**Infra.** Production nginx proxies `/api/`, `/pilot/`, `/app/` and `/track/` to
+the API; `/c/` needs the same `location /c/` block before the portal is reachable
+on roadwisefleet.com (filed as an infra request — not edited from here).
+
+**Evidence.** `node --test apps/api/src/` covers the shared rules, the serving
+rules, the ES-module marker and the deploy-path role guard with no install
+(`src/customer-core.test.js`, `src/customer-shell.test.js`,
+`src/customer-role.test.js`). `pnpm --filter @roadwisefleet/api test:router`
+boots the real server: `test/customer-signup-validation.test.ts` runs everywhere
+(no DB) and fails if the API cannot reach the shared core, and
+`test/customer-portal.test.ts` drives the end-to-end flow against the DB — the
+`customer` role exists **without** the fixture creating it, a signup with the row
+removed still returns 201 → order + DRAFT trip visible to the fleet manager → a
+second customer's `404` → a `202` marketplace notice → a tracking link — once the
+migrations are applied. Beware the lesson from 2026-09-29: that DB-backed suite
+skipped on every machine (no migration, no CI database), so green CI was never
+evidence for the portal; it was first executed against a scratch database built
+with `prisma migrate deploy`, which is how the missing `Role` row *and* the
+ES-module defect were separated from the fixture.
+
+
 `scripts/waitlist-handoff.ts` is a manual, email-free handoff: it reads the
 waitlist JSONL, upserts every lead into `WaitlistEntry` (dedupe by email), and
 for the named leads ensures an `Org` and an `owner` `User` exist. Re-running is
