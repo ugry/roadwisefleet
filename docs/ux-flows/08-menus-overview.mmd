@@ -1,0 +1,80 @@
+flowchart LR
+    classDef root fill:#343a40,stroke:#212529,color:#fff
+    classDef cust fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef fleet fill:#d0ebff,stroke:#1864ab,color:#000
+    classDef drv fill:#d3f9d8,stroke:#2b8a3e,color:#000
+    classDef solo fill:#fff3bf,stroke:#e8590c,color:#000
+    classDef item fill:#f8f9fa,stroke:#adb5bd,color:#000
+
+    subgraph CUSTOMER["CUSTOMER — web portal + WhatsApp"]
+        C0["Customer"]:::root
+        C1["Book a load<br/>form · saved addresses · recurring"]:::cust
+        C2["Shipments<br/>track · share link · change request"]:::cust
+        C3["Documents<br/>POD · eCMR · invoices"]:::cust
+        C4["Payments<br/>invoices · pay · credit terms"]:::cust
+        C5["My carriers<br/>favorites · rate cards · partners"]:::cust
+        C6["Account<br/>team · API keys · notifications"]:::cust
+    end
+
+    subgraph FLEETM["FLEET MANAGER — web app"]
+        F0["Fleet Manager"]:::root
+        F1["Dashboard<br/>KPIs · map · alerts"]:::fleet
+        F2["Dispatch<br/>board · assign · exceptions"]:::fleet
+        F3["Trips<br/>timeline · docs · P&L · invoice"]:::fleet
+        F4["Drivers<br/>profiles · expiry · scorecards · pay"]:::fleet
+        F5["Vehicles<br/>registry · maintenance · telematics"]:::fleet
+        F6["Customers<br/>directory · rates · off-platform intake"]:::fleet
+        F7["Compliance<br/>eCMR vault · tacho · expiries"]:::fleet
+        F8["Finance<br/>aging · settlements · payouts"]:::fleet
+        F9["Analytics<br/>utilization · cost/km · margin"]:::fleet
+        F10["Connect<br/>capacity · loads · partners · escrow"]:::fleet
+        F11["Settings<br/>roles · rate cards · API · i18n"]:::fleet
+    end
+
+    subgraph DRIVERM["DRIVER (employed) — Android / PWA"]
+        D0["Driver"]:::root
+        D1["Trips<br/>status taps · detention · checkpoints"]:::drv
+        D2["Documents<br/>camera · e-sign POD · offline"]:::drv
+        D3["Money<br/>earnings · advances · expenses · payout"]:::drv
+        D4["Messages<br/>dispatcher · offers · announcements"]:::drv
+        D5["More<br/>tacho · SOS · parking · settings"]:::drv
+    end
+
+    subgraph SOLOM["SOLO DRIVER — Connect app"]
+        S0["Solo Driver"]:::root
+        S1["Loads<br/>feed · filters · bids · my offers"]:::solo
+        S2["My truck<br/>beacon · position · heading · stats"]:::solo
+        S3["My customers<br/>off-platform jobs · tracking links · invoices"]:::solo
+        S4["Chat<br/>negotiation · quote cards · translate"]:::solo
+        S5["Wallet<br/>escrow · expenses · payouts"]:::solo
+        S6["Community<br/>parking · fuel · borders · SOS"]:::solo
+    end
+
+    C0 --- C1
+    C0 --- C2
+    C0 --- C3
+    C0 --- C4
+    C0 --- C5
+    C0 --- C6
+    F0 --- F1
+    F0 --- F2
+    F0 --- F3
+    F0 --- F4
+    F0 --- F5
+    F0 --- F6
+    F0 --- F7
+    F0 --- F8
+    F0 --- F9
+    F0 --- F10
+    F0 --- F11
+    D0 --- D1
+    D0 --- D2
+    D0 --- D3
+    D0 --- D4
+    D0 --- D5
+    S0 --- S1
+    S0 --- S2
+    S0 --- S3
+    S0 --- S4
+    S0 --- S5
+    S0 --- S6

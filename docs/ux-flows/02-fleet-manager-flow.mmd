@@ -1,0 +1,219 @@
+flowchart TD
+    classDef entry fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef menu fill:#f8f9fa,stroke:#868e96,color:#000
+    classDef dec fill:#fff3bf,stroke:#e8590c,color:#000
+    classDef act fill:#d0ebff,stroke:#1971c2,color:#000
+    classDef ok fill:#b2f2bb,stroke:#2b8a3e,color:#000
+    classDef warn fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef money fill:#e5dbff,stroke:#5f3dc4,color:#000
+
+    %% ================= STAGE 0 — ONBOARDING =================
+    subgraph ONB["STAGE 0 — Company onboarding (one sitting, ~15 min)"]
+        O1["Sign up: company name, country,<br/>VAT / TIN, contact person"]:::entry
+        O2["Verify email + phone"]:::act
+        O3["Upload transport licence + insurance<br/>→ company verification"]:::act
+        O4{"Verified?"}:::dec
+        O5["Verified badge on profile<br/>(needed to bid in Connect)"]:::ok
+        O6["Pending review — can still run<br/>own-fleet operations"]:::warn
+        O7["Onboarding wizard"]:::act
+        W1["Add first drivers — invite by SMS / email"]:::act
+        W2["Add vehicles — plate, type, dimensions, Euro class"]:::act
+        W3["Set rate cards per lane (optional)"]:::act
+        W4["Enable regional modules:<br/>EU eCMR · tacho · TR · others"]:::act
+        W5["Invite team: Dispatcher · Accountant"]:::act
+        W6["Connect toggle: publish my empty capacity"]:::act
+        O1 --> O2 --> O3 --> O4
+        O4 -->|"yes"| O5 --> O7
+        O4 -->|"no"| O6 --> O7
+        O7 --> W1 --> W2 --> W3 --> W4 --> W5 --> W6 --> HOME
+    end
+
+    %% ================= STAGE 1 — MENUS =================
+    subgraph HOME["STAGE 1 — Fleet home (left sidebar)"]
+        M1["① Dashboard"]:::menu
+        M2["② Dispatch"]:::menu
+        M3["③ Trips"]:::menu
+        M4["④ Drivers"]:::menu
+        M5["⑤ Vehicles"]:::menu
+        M6["⑥ Customers"]:::menu
+        M7["⑦ Compliance"]:::menu
+        M8["⑧ Finance"]:::menu
+        M9["⑨ Analytics"]:::menu
+        M10["⑩ Connect — marketplace"]:::menu
+        M11["⑪ Settings"]:::menu
+    end
+
+    %% ================= DASHBOARD =================
+    subgraph DASH["① Dashboard — what needs attention now"]
+        D1["KPI strip: active trips · on-time % ·<br/>pending pay € · empty miles %"]:::act
+        D2["Live map: trucks, status, ETA, geofences"]:::act
+        D3["Alerts strip: detention running · document missing ·<br/>licence expiring · empty truck near a load"]:::warn
+        D4["Today's activity feed; click any item to drill down"]:::act
+        D5["Range: today / 7d / 30d; auto-refresh"]:::act
+        D1 --> D2 --> D3 --> D4 --> D5
+    end
+    M1 --> D1
+
+    %% ================= DISPATCH =================
+    subgraph DISP["② Dispatch — turn orders into running trips"]
+        DP1["Dispatch board: columns by status<br/>(New · Assigned · At pickup · In transit · Delivered)"]:::act
+        DP2{"Where does the order come from?"}:::dec
+        DP3["Own customer (registered or off-platform)<br/>— see Customers menu"]:::act
+        DP4["Connect marketplace load<br/>— browse / accept (backhaul)"]:::act
+        DP5["API / ERP push (POST /v1/orders)"]:::act
+        DP6["Repeat a past trip in 1 click"]:::act
+        DP7["Assign driver + truck:<br/>availability AVAILABLE / ON_TRIP / OFF_DUTY / SICK;<br/>truck not in maintenance"]:::act
+        DP8{"Driver accepts the offer?"}:::dec
+        DP9["Driver accepted → trip ASSIGNED"]:::ok
+        DP10["Declined / expired → pick next driver<br/>or broadcast to Connect partners"]:::warn
+        DP11["Return-load match: empty truck near a load →<br/>offer to driver for the way back"]:::act
+        DP12["Monitor: geofence arrival, ETA drift,<br/>detention timer, docs missing"]:::act
+        DP13{"Exception?"}:::dec
+        DP14["Breakdown → swap truck / recovery,<br/>notify customer with new ETA"]:::warn
+        DP15["Driver sick / no-show → reassign,<br/>notify customer"]:::warn
+        DP16["Customs hold / refused load →<br/>decision tree with customer"]:::warn
+        DP1 --> DP2
+        DP2 -->|"own customer"| DP3
+        DP2 -->|"marketplace"| DP4
+        DP2 -->|"API"| DP5
+        DP2 -->|"repeat"| DP6
+        DP3 --> DP7
+        DP4 --> DP7
+        DP5 --> DP7
+        DP6 --> DP7
+        DP7 --> DP8
+        DP8 -->|"yes"| DP9
+        DP8 -->|"no"| DP10 --> DP7
+        DP9 --> DP11 --> DP12 --> DP13
+        DP13 -->|"no"| DP12
+        DP13 -->|"yes"| DP14
+        DP13 -->|"yes"| DP15
+        DP13 -->|"yes"| DP16
+    end
+    M2 --> DP1
+
+    %% ================= TRIPS =================
+    subgraph TRIPS["③ Trips — every trip, drillable"]
+        T1["List + filters: status · driver · region · date · text"]:::act
+        T2["Trip detail"]:::act
+        T3["Timeline of status events (who, when)"]:::act
+        T4["Documents checklist (eCMR · POD · customs)"]:::act
+        T5["Detention log → accessorial claim €"]:::money
+        T6["P&L: freight rate − fuel − tolls − other"]:::money
+        T7["Invoice draft built from the POD"]:::money
+        T8["Share customer tracking link (WhatsApp / email)"]:::act
+        T9["CSV export; invoice; archive"]:::act
+        T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7 --> T8 --> T9
+    end
+    M3 --> T1
+
+    %% ================= DRIVERS =================
+    subgraph DRIVERS["④ Drivers — the people, their papers, their money"]
+        DR1["Directory + status: ACTIVE · INVITED ·<br/>SUSPENDED · OFFBOARDED"]:::act
+        DR2["Profile: licence · CPC · medical ·<br/>IBAN · language"]:::act
+        DR3["Expiry alerts — 30 / 60 / 90 days"]:::warn
+        DR4["Scorecard: on-time %, delivered count,<br/>avg delay, tenure — drives bonuses"]:::act
+        DR5["Advances and settlements"]:::money
+        DR6["Invite new driver (SMS / email link + OTP)"]:::act
+        DR7["Recruit via Connect: post a driver vacancy<br/>(Find drivers)"]:::act
+        DR8["Suspend / reactivate"]:::warn
+        DR1 --> DR2 --> DR3 --> DR4 --> DR5
+        DR1 --> DR6 --> DR7
+        DR1 --> DR8
+    end
+    M4 --> DR1
+
+    %% ================= VEHICLES =================
+    subgraph VEH["⑤ Vehicles — trucks and trailers"]
+        V1["Registry: plate · type · dims · Euro class ·<br/>ownership: OWNED / LEASED / SUBCONTRACTED"]:::act
+        V2["Maintenance schedule + block assignment when due"]:::act
+        V3["Breakdown log + repair history"]:::warn
+        V4["Toll tags · fuel cards · telematics pairing"]:::act
+        V5["Odometer, next service, tyres"]:::act
+        V1 --> V2 --> V3 --> V4 --> V5
+    end
+    M5 --> V1
+
+    %% ================= CUSTOMERS =================
+    subgraph CUST["⑥ Customers — mine, theirs, and the ones without accounts"]
+        C1["Directory: registered customers +<br/>off-platform customers"]:::act
+        C2["Contracts & agreed rate cards per lane"]:::money
+        C3["Credit status: OK · WATCH · BLOCKED"]:::money
+        C4{"Customer type?"}:::dec
+        C5["Registered: they book in the portal / WhatsApp;<br/>I see the order in intake"]:::act
+        C6["Off-platform: I create the customer in 30 sec<br/>and enter the order manually"]:::act
+        C7["Send tracking link by WhatsApp / SMS;<br/>POD + invoice follow the same link"]:::act
+        C8["Invite them to open a portal account<br/>(keeps history, no more typing)"]:::ok
+        C9["Quote builder: fixed price or rate card<br/>→ send quote → they accept"]:::money
+        C1 --> C2 --> C3 --> C4
+        C4 -->|"registered"| C5
+        C4 -->|"off-platform"| C6 --> C7 --> C8
+        C1 --> C9
+    end
+    M6 --> C1
+
+    %% ================= COMPLIANCE =================
+    subgraph COMP["⑦ Compliance — nothing expires without warning"]
+        CO1["eCMR vault: per-trip legal documents"]:::act
+        CO2["Tachograph download reminders per truck/driver"]:::warn
+        CO3["Driver-file expiry calendar (licence, CPC, medical)"]:::warn
+        CO4["Per-country checklists (EU · TR · others)"]:::act
+        CO5["Audit export — CSV of all events and documents"]:::act
+        CO1 --> CO2 --> CO3 --> CO4 --> CO5
+    end
+    M7 --> CO1
+
+    %% ================= FINANCE =================
+    subgraph FIN["⑧ Finance — who owes whom"]
+        FI1["Receivables aging: 0–30 · 31–60 · 61–90 · 90+"]:::money
+        FI2["Invoices: DRAFT · ISSUED · PAID ·<br/>OVERDUE · VOID; reminders"]:::money
+        FI3["Driver settlements: PENDING · PAID"]:::money
+        FI4["Expense approvals (fuel · toll · food)"]:::money
+        FI5["Trip profitability + cost per km"]:::money
+        FI6["Export to accounting (CSV / XML)"]:::money
+        FI7["Escrow payouts from Connect loads"]:::money
+        FI1 --> FI2 --> FI3 --> FI4 --> FI5 --> FI6 --> FI7
+    end
+    M8 --> FI1
+
+    %% ================= ANALYTICS =================
+    subgraph ANA["⑨ Analytics — where the money leaks"]
+        A1["Fleet utilization % · empty-mile %"]:::act
+        A2["Cost/km · fuel burn · tolls"]:::act
+        A3["On-time % · driver performance trends"]:::act
+        A4["Customer & region profitability"]:::act
+        A5["CSV / PDF export"]:::act
+        A1 --> A2 --> A3 --> A4 --> A5
+    end
+    M9 --> A1
+
+    %% ================= CONNECT =================
+    subgraph CONN["⑩ Connect — buy capacity, sell capacity, find partners"]
+        CN1["Company profile: fleet size, lanes,<br/>verification badge, ratings"]:::act
+        CN2["Publish capacity beacons: truck empty in X,<br/>heading Y, from when"]:::act
+        CN3["Browse posted loads → bid / instant-book<br/>(backhaul instead of driving empty)"]:::act
+        CN4["Post a load I cannot cover →<br/>subcontract to verified partner or solo driver"]:::act
+        CN5["Partners: trusted carriers list,<br/>ratings given and received"]:::act
+        CN6["Escrow / payment guarantee for partner loads"]:::money
+        CN7{"Connect on or off?"}:::dec
+        CN7 -->|"on"| CN2
+        CN7 -->|"off"| CN0["Private mode — own customers only"]:::warn
+        CN1 --> CN7
+        CN2 --> CN3 --> CN4 --> CN5 --> CN6
+    end
+    M10 --> CN1
+
+    %% ================= SETTINGS =================
+    subgraph SET["⑪ Settings"]
+        S1["Org profile & billing plan"]:::act
+        S2["Users and roles: Owner · Dispatcher ·<br/>Accountant (RBAC per menu)"]:::act
+        S3["Rate cards & pricing rules"]:::money
+        S4["API keys (scopes) + webhooks"]:::act
+        S5["Integrations: WhatsApp · accounting · ERP"]:::act
+        S6["Language, notifications, regional modules"]:::act
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    end
+    M11 --> S1
+
+    C6 -.->|"detail: see Off-platform flow"| XOFF["Off-platform customers diagram"]:::warn
+    CN2 -.->|"matching detail: see Marketplace flow"| XMKT["Marketplace flow diagram"]:::warn
