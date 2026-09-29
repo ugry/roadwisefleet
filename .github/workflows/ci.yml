@@ -60,6 +60,158 @@ jobs:
             echo "::endgroup::"
           done
 
+  api-tests:
+    name: API tests (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Native Node test runner, no install step: the trip-status suite
+      # (apps/api/src/trip-status.test.js, 10 tests) has no dependencies.
+      - name: Run API tests
+        run: node --test apps/api/src/
+
+      # The waitlist microservice is dependency-free too. Its limiter was
+      # effectively global behind nginx (board #45); these tests are the
+      # per-client-IP proof, so they must run on every push.
+      - name: Run waitlist service tests
+        run: node --test services/waitlist/
+
+  shellcheck:
+    name: Shellcheck (infra scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Warning severity: catches real bugs (unquoted expansions, subshell
+      # variable loss, parse errors) in the deploy/ops scripts that run on a
+      # host, where CI previously validated nothing. Style-level noise is
+      # filtered out; every script in the repo passes this gate today.
+      - name: Run shellcheck (warning severity)
+        run: |
+          set -e
+          mapfile -t files < <(git ls-files -z '*.sh' | tr '\0' '\n')
+          echo "checking ${#files[@]} tracked shell scripts"
+          shellcheck --severity=warning "${files[@]}"
+
+  infra-scripts:
+    name: Infra script self-tests (no host, no network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The ops scripts run on a host, so a syntax check is not evidence that
+      # they behave. --self-test drives the real script (fixture nginx logs, a
+      # stubbed systemctl + probe helper, DRY_RUN) and asserts the decisions the
+      # acceptance criteria depend on: thresholds, exactly one alert per
+      # incident, one recovery message, no alert while the API is down, and no
+      # alert for a single restart. No host, no network, no root.
+      - name: Self-test pilot-api-error-watch.sh (board #44)
+        run: bash infra/scripts/pilot-api-error-watch.sh --self-test
+
+      # Board #43: this is the check that makes a backup *verified* rather than
+      # merely scheduled. It drives the real script against fixture backup sets
+      # with a stub sendmail (every assertion reads the message actually sent)
+      # and proves the acceptance-relevant decision: deleting the newest backup
+      # is detected by the freshness check and raises exactly one alert.
+      - name: Self-test pilot-backup-verify.sh (board #43)
+        run: bash infra/scripts/pilot-backup-verify.sh --self-test
+
+  restore-drill-selftest:
+    name: Restore drill self-test (no host, no network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #62: the three restore-drill defects (stale UPLOAD_DIR in the
+      # units, the SCRATCH_PORT=5433 collision with the host postgresql@17-main
+      # cluster, and the missing dump-role bootstrap) were all found and patched
+      # on the host AFTER the artifacts were merged, so CI had never validated
+      # them. This drives the real script with a stubbed podman, a fixture
+      # plain-SQL dump and a fixture uploads archive: no host, no network, no
+      # root, no Postgres. The api-error-watch self-test lives in the
+      # `infra-scripts` job (PR #37); once that lands the two can share a job.
+      - name: Self-test pilot-restore-drill.sh (board #62)
+        run: bash infra/scripts/pilot-restore-drill.sh --self-test
+
+  deploy-site-selftest:
+    name: Deploy-site self-test (no host, no network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #42: the automatic deploy path's acceptance is "a deliberately
+      # broken deploy rolls back automatically and reports it; a good deploy
+      # reports success with the commit SHA". The deployer only runs on the host
+      # as root, so this drives the real script in a fixture git repo with
+      # stubbed curl/systemctl/pnpm/notifier (and a python3 that intercepts only
+      # the ci.yml gate): a good deploy records the deployed SHA as `ready` and
+      # notifies once; a broken deploy rolls the checkout back and alerts exactly
+      # once; a deploy whose rollback is also unhealthy is marked `down` and
+      # exits non-zero; a non-CI-green commit is deferred; the idempotent no-op
+      # stays silent. No host, no network, no root.
+      - name: Self-test roadwise-deploy-site.sh (board #42)
+        run: bash infra/deploy/roadwise-deploy-site.sh --self-test
+
+  pilot-csp-check:
+    name: Pilot CSP vs. pilot assets (#65)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #65: the /pilot/ CSP was applied without 'self', so every
+      # <script src="lib/..."> the pages load was blocked and the pilot never
+      # booted in a browser. This job rejects a PR whose pilot policy does not
+      # cover the resources the pilot HTML/JS actually declares (with CSP
+      # fallback semantics), and rejects one that "boots" by relaxing the
+      # lockdown. The self-test proves the checker catches the broken policy.
+      - name: Self-test the checker (fixtures, no host, no network)
+        run: bash infra/checks/pilot-csp-check.sh --self-test
+
+      - name: Check the repo policy against the pilot assets
+        run: bash infra/checks/pilot-csp-check.sh
+
+  app-csp-check:
+    name: App CSP vs. app assets (#69)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #69 / GitHub #48: /app/ gets its own policy, not the pilot one.
+      # This rejects a PR whose app policy omits script-src 'self' (the app
+      # shell would never boot, as in board #65/#39), one that reuses the pilot
+      # snippet's 'unsafe-inline' while the app declares no inline code, and one
+      # that "boots" by relaxing the lockdown. The self-test proves each.
+      - name: Self-test the checker (fixtures, no host, no network)
+        run: bash infra/checks/app-csp-check.sh --self-test
+
+      - name: Check the repo policy against the app assets
+        run: bash infra/checks/app-csp-check.sh
+
+  uploads-perms-check:
+    name: Uploads storage guard (#46)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #46 (findings U1/U7). Two things this job guards:
+      #   1. the four artifacts that decide where uploads live must ALL bind
+      #      UPLOAD_DIR to the post-move root — board #62 (D1) was that drift,
+      #      found on a host after merge because CI validated nothing here;
+      #   2. no upload may be world-readable, including in the retired pre-move
+      #      tree the B1 window left in place (dir 0775 / files 0644 live).
+      # The self-test proves a world-readable file fails in the live root AND in
+      # the retired root, and that a locked-down leftover only warns.
+      - name: Self-test the guard (fixtures, no host, no network)
+        run: bash infra/checks/uploads-perms-check.sh --self-test
+
+      - name: Check the repo storage declarations agree
+        run: bash infra/checks/uploads-perms-check.sh
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'

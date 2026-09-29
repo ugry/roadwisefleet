@@ -56,6 +56,8 @@ model User {
   createdAt        DateTime  @default(now())
 
   tripsAsDriver Trip[]
+  tripDrivers   TripDriver[]
+  statusEvents  StatusEvent[]
 }
 
 model Truck {
@@ -82,6 +84,7 @@ model Customer {
 
   orders         Order[]
   whatsappThreads WhatsappThread[]
+  rateCards      RateCard[]
 }
 
 model Order {
@@ -92,6 +95,10 @@ model Order {
   destination String
   cargo       String?
   status      String   @default("DRAFT") // DRAFT | BOOKED | DISPATCHED | COMPLETED | CANCELLED
+  // Planned delivery time, promised to the customer. The on-time KPI compares
+  // `Trip.deliveredAt` against this (board tasks #33/#40). Nullable: orders
+  // created before the column existed, and orders with no promised time.
+  plannedAt   DateTime?
   createdAt   DateTime @default(now())
 
   trips Trip[]
@@ -109,7 +116,23 @@ model Trip {
   truck     Truck?   @relation(fields: [truckId], references: [id])
   status    String   @default("DRAFT") // state machine §7 of the diagrams doc
   rateEur   Decimal? @db.Decimal(12, 2)
-  createdAt DateTime @default(now())
+  // Actual delivery time, set when the trip reaches DELIVERED. The on-time KPI
+  // compares it against `Order.plannedAt` (board tasks #33/#40). Nullable:
+  // trips that never delivered, and trips delivered before the column existed.
+  deliveredAt DateTime?
+  // Customer tracking link state (board task #39, F8). The signed link itself
+  // is stateless (`track-link.js`); these columns only make it *per-trip
+  // revocable* and re-displayable from the trip detail:
+  //   - `trackLinkVersion` is monotonic: revoking increments it, so every token
+  //     minted earlier (which carries the old version) stops verifying, and a
+  //     re-mint never revives a revoked link;
+  //   - `trackLinkIssuedAt`/`trackLinkExpiresAt` are the mint parameters, kept
+  //     so the identical token can be recomputed for `GET` (an HMAC over
+  //     trip id + version + expiry is deterministic).
+  trackLinkVersion   Int       @default(0)
+  trackLinkIssuedAt  DateTime?
+  trackLinkExpiresAt DateTime?
+  createdAt          DateTime  @default(now())
 
   documents    Document[]
   statusEvents StatusEvent[]
@@ -129,6 +152,10 @@ model Document {
   status           String    @default("PENDING") // PENDING | UPLOADED | VERIFIED | REJECTED
   expiresAt        DateTime? // drives compliance-vault expiry alerts
   issuingAuthority String?
+  capturedAt       DateTime? // when the driver took the photo (POD capture, board #4)
+  captureLat       Decimal?  @db.Decimal(9, 6) // GPS fix at capture time (nullable: no fix)
+  captureLng       Decimal?  @db.Decimal(9, 6)
+  captureAccuracyM Int? // fix accuracy in metres
   createdAt        DateTime  @default(now())
 }
 
@@ -188,6 +215,8 @@ model StatusEvent {
   trip        Trip     @relation(fields: [tripId], references: [id])
   fromStatus  String
   toStatus    String
+  actorId     String? // who moved the trip; nullable for pre-actor history
+  actor       User?    @relation(fields: [actorId], references: [id])
   happenedAt  DateTime @default(now())
 }
 

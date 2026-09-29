@@ -1,0 +1,26 @@
+# Reference copy — RoadwiseFleet pilot Redis unit on elilavps2.
+#
+# Mirror of the live /etc/systemd/system/roadwise-redis.service
+# (mode 0600, root:root). This is a value-free reference template for review
+# and restore; it is NOT applied by CI and changing it does not change the
+# running unit.
+#
+# No credential values appear here: the Redis container takes no credential and
+# is published loopback-only.
+#
+# Authoritative copy: the host file. The sandbox cannot read /etc directly, so
+# only fields observable read-only are reproduced: Description and ExecStart
+# (from the running process) plus the unit path/mode and enabled/active state.
+# Ordering, Type=, restart and [Install] directives are NOT reproduced here
+# because they were not independently readable this run — consult the host file
+# before using this as a restore template.
+
+[Unit]
+Description=RoadwiseFleet Redis (pilot)
+
+[Service]
+ExecStart=/usr/bin/podman run --rm --name roadwise-redis \
+  -p 127.0.0.1:6379:6379 \
+  -v roadwise-redisdata:/data \
+  docker.io/library/redis:7-alpine \
+  redis-server --appendonly yes
