@@ -1,0 +1,9 @@
+{
+  "htmlLabels": false,
+  "flowchart": { "htmlLabels": false, "curve": "basis" },
+  "sequence": { "htmlLabels": false },
+  "class": { "htmlLabels": false },
+  "er": { "htmlLabels": false },
+  "state": { "htmlLabels": false },
+  "theme": "neutral"
+}
