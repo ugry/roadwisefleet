@@ -70,6 +70,37 @@ fingerprint of the 8787 waitlist service; `application/json; charset=utf-8` is
 the Fastify/pilot-API fingerprint. That is how the split is verified without
 reading the host config.
 
+### Observed live state after the application window (2026-09-23 22:51 UTC)
+
+The owner authorised the nginx changes on 2026-09-23; the window was applied by
+the Team Leader (backup `/var/backups/nginx-config/20260923T225154Z/`, see §2).
+External probes from elilavps1 (`mail.elilaltd.com` — a different host from
+elilavps2, so this is not a loopback test):
+
+```
+$ curl -sI https://roadwisefleet.com/
+HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()
+Content-Security-Policy: default-src 'self'; ...             (full policy in nginx/snippets/)
+
+$ curl -sI https://www.roadwisefleet.com/pilot/   301  Location: https://roadwisefleet.com/pilot/   (F2 closed)
+$ curl -sI http://roadwisefleet.com/anything      301  Location: https://roadwisefleet.com/anything
+$ curl -sI https://roadwisefleet.com/pilot/       200  X-Robots-Tag: noindex, nofollow  + HSTS/XFO/CSP
+$ curl -sI https://roadwisefleet.com/api/waitlist 401  (legacy 8787 service; exact-match block)
+$ curl -sI https://roadwisefleet.com/api/auth/me  401  (pilot API)
+$ POST 2.5 MB /api/trips/X/documents              400  (API answered; was nginx 413)  <-- board #41
+$ POST 2.5 MB /api/auth/login                     413  (nginx, 1 MB default kept — scope confined)
+```
+
+The landing pages are byte-identical before/after (`/` 65067 B, `/dashboard`
+62321 B, `/diagrams` 9386 B), so there is no visible site change. The 2.5 MB
+upload probe reaches the API instead of being rejected by nginx, which is the
+fix for board #41; a >25 MB body is still refused on that route.
+
 ---
 
 ## 2. nginx configuration
@@ -85,11 +116,16 @@ reading the host config.
 | TLS | Let's Encrypt, `CN=roadwisefleet.com` **with www in the SAN**, managed by certbot |
 | Certbot lines | `# managed by Certbot` — regenerated on renewal; keep verbatim |
 | Pre-change backup | `roadwisefleet.conf.bak-20260922` (the orchestrator's stopgap backup, 2026-09-22 15:05 UTC) |
+| **Applied** | **2026-09-23 22:51 UTC** (owner-authorised window). The mirror is byte-identical to the running host file: `sha256 c34193a347f2a6680cbd74af6b7b0023f0ae6aadfef0fa6b8d9a077af265271e` |
+| Window backup | `/var/backups/nginx-config/20260923T225154Z/` (`etc-nginx.tgz` + `nginx -T` before + the old site file) |
 
-**Provenance.** This sandbox cannot read `/etc` (the read is denied by policy),
-so the review copies in `nginx/` are reconstructed from (a) the observed live
-responses in §1 and (b) the previous mirror committed in this repo. Before
-applying, diff the live file against the mirror — certbot may have rewritten it.
+**Provenance.** Before 2026-09-23 the sandbox could not read `/etc`, so the
+review copies in `nginx/` were reconstructed from (a) the observed live
+responses in §1 and (b) the previous mirror in this repo. That is no longer the
+case: on 2026-09-23 the mirror was installed on the host and the host file was
+verified byte-identical (sha256 above), so the mirror *is* the applied
+configuration. When editing it, still diff against the live file first —
+certbot may have rewritten the `# managed by Certbot` block on renewal.
 
 ### Apply (requires owner approval — production change)
 
@@ -264,6 +300,11 @@ that every enabled `limit_req zone=X` has a declared `limit_req_zone`, checks th
 live copies when run on the host, and prints the exact install order. Rollback is
 re-commenting the five lines and reloading.
 
+Step 1 is **done** (installed 2026-09-23 22:51 UTC with the exposure window — it
+is inert on its own). Step 2 is still pending: it is board `eila/tasks#45` and
+needs the owner's go for one more reload. Reversing is just re-commenting the
+lines.
+
 **Why both nginx and the app limiter exist (decision, board #45).** The app
 limiter in `services/waitlist/server.js` was *fixed*, not removed:
 
@@ -288,9 +329,11 @@ Proof that the app limiter is no longer global: `services/waitlist/server.test.j
 **Applied 2026-09-23 22:51 UTC** (`nginx` reload in the owner window): the live
 responses now carry HSTS, `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY`, `Referrer-Policy` and CSP on the static site, the pilot
-surface and the API (verified from the live headers).
+surface and the API (verified from the live headers). That same window installed
+the upload-location snippet include carrying the board-#41
+`client_max_body_size 25m` block (this PR).
 
-**Board #65 regression — fixed in the repo, awaiting the next reload.** The pilot
+**Board #65 regression — fixed in the repo and verified live.** The pilot
 snippet went live with a "self-contained" template CSP that allowed
 `script-src 'unsafe-inline'` but **not `'self'`**, so every
 `<script src="lib/i18n.js">` the pilot pages load was blocked and
@@ -300,9 +343,10 @@ now carries `script-src 'self' 'unsafe-inline'`, `style-src 'self'
 'unsafe-inline'`, `worker-src 'self'` and `manifest-src 'self'` while keeping
 `default-src 'none'` and the rest of the lockdown. `infra/checks/pilot-csp-check.sh`
 asserts the policy against the pilot's real resource inventory in CI
-(`pilot-csp-check` job), so this class of failure cannot ship again. **The live
-header is still the broken one until the owner applies the corrected snippet**
-(the same window as #7/#41/#45; verify with the `--live` mode of the check).
+(`pilot-csp-check` job), so this class of failure cannot ship again. **Verified
+live 2026-09-24 23:07 UTC:** `https://roadwisefleet.com/pilot/` returns
+`script-src 'self' 'unsafe-inline'` (plus `worker-src`/`manifest-src 'self'`), so
+the corrected snippet is applied and the P0 is closed on the surface.
 
 **CSP choice and evidence.** The pages are static files with inline `<style>` and
 inline `<script>`, so `'unsafe-inline'` is required in `script-src`/`style-src`
@@ -347,9 +391,9 @@ hard-to-reverse, policy-level decision and needs a subdomain audit first.
 
 | ID | Item | Owner |
 |---|---|---|
-| O1 | Apply the header/redirect change on the host (`nginx -t` → reload) — production change, needs owner approval. | ops + owner |
-| O2 | `www` still serves `200` on HTTPS (F2) and no page has `<link rel="canonical">`; the config here fixes the redirect, the canonical tag is a page change. | ops (redirect) / dev (canonical) |
-| O3 | Waitlist limiter was effectively global behind the proxy (`req.socket.remoteAddress` is always `127.0.0.1`) — five signups an hour from anywhere rejected every real visitor. **Fixed in code (board #45, PR pending):** it keys on `X-Real-IP` when — and only when — the peer is loopback, else on the peer address, with the `node:test` regression in the `api-tests` CI job. nginx-side zones are the outer layer (§7). | ~~developer~~ done (ops) / apply in the owner window |
+| O1 | **DONE 2026-09-23 22:51 UTC** — header/redirect/zones window applied and verified from an external host (§1). The zones file is installed (step 1 of §7); enabling the four `limit_req` lines is step 2, still pending the owner's reload (board `eila/tasks#45`). | ops + owner |
+| O2 | `www` HTTPS redirect **fixed 2026-09-23** (`301`); the `<link rel="canonical">` tag is still a page change. | dev (canonical) |
+| O3 | Waitlist limiter **was** effectively global behind the proxy (`req.socket.remoteAddress` is always `127.0.0.1`). **Fixed in code (board #45):** it keys on `X-Real-IP` when — and only when — the peer is loopback, else on the peer address, with the `node:test` regression in the `api-tests` CI job. nginx-side zones are the outer layer (§7). | ~~developer~~ done (ops) / enable in the owner window |
 | O4 | `GET /api/waitlist` with the admin token returns the whole waitlist in one JSON body, unauthenticated-by-default-rate-limit and unthrottled. Acceptable for a pilot; it should move behind the pilot API's auth and get a rate limit before any real launch. | ops (rate limit) / dev (auth) |
 | O5 | GitHub Pages publishes a byte-identical copy of the landing pages that posts to the production waitlist API, with no `canonical`/`noindex` (issue #2, F3). | dev / marketing |
 | O6 | `/robots.txt` and `/sitemap.xml` are 404 (issue #2, F5). | dev |
