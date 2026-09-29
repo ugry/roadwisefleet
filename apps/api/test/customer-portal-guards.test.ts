@@ -1,9 +1,9 @@
 /**
- * Public signup validation (board task #74, UXF-C1) — the guard that runs
+ * Customer portal API guards (board task #74, UXF-C1) — the checks that run
  * WITHOUT a database and WITHOUT the portal migration.
  *
- * Why it exists: on 2026-09-29 the portal answered HTTP 500 to every request.
- * `apps/api/src/routes/customer.ts` imports the shared ES module
+ * Why they exist: on 2026-09-29 the deployed portal answered HTTP 500 to every
+ * request. `apps/api/src/routes/customer.ts` imports the shared ES module
  * `customer/lib/customer-core.js`, but that directory did not declare
  * `"type": "module"`, so Node/tsx loaded it as CommonJS and the route saw
  * `{ default: … }` — every handler threw `customerCore.<fn> is not a function`.
@@ -11,9 +11,9 @@
  * everywhere), and the dependency-free suite imports the core directly, so it
  * never runs the API's own import chain.
  *
- * This file boots the REAL server under tsx (the production invocation, see
- * `"start": "tsx src/server.ts"`) and asserts the validation layer answers
- * before the database is touched, so it runs on a bare checkout: no
+ * These tests boot the REAL server under tsx (the production invocation, see
+ * `"start": "tsx src/server.ts"`) and only exercise paths that are decided
+ * before the database is touched, so they run on a bare checkout: no
  * `DATABASE_URL`, no migration, no fixtures.
  *
  *   pnpm --filter @roadwisefleet/api test:router
@@ -64,4 +64,20 @@ test('a short password is refused with its own field', async () => {
   });
   assert.equal(res.statusCode, 400, res.payload);
   assert.equal(res.json().field, 'password');
+});
+
+test('the portal is served from /c/ and its module manifest is never served', async () => {
+  // The mount really is wired (an asset and the SPA shell answer 200) …
+  const asset = await app.inject({ method: 'GET', url: '/c/locales/en.json' });
+  assert.equal(asset.statusCode, 200, asset.payload);
+  assert.match(asset.headers['content-type'] as string, /application\/json/);
+  const shell = await app.inject({ method: 'GET', url: '/c/login' });
+  assert.equal(shell.statusCode, 200, shell.payload);
+  assert.match(shell.headers['content-type'] as string, /text\/html/);
+
+  // … and `customer/package.json` — the marker that declares the shared modules
+  // as ESM — is a directory manifest, not a portal asset: it must 404 even
+  // though it is a real file on disk.
+  const manifest = await app.inject({ method: 'GET', url: '/c/package.json' });
+  assert.equal(manifest.statusCode, 404, manifest.payload);
 });
