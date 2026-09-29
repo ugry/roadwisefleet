@@ -422,8 +422,9 @@ Static, dependency-free, no build step and no CDN, served by the API itself
 - `app/lib/tracking.js` — the pure tracking-link view model (board task #39, F8):
   the `trip:*` gate, the per-trip endpoint path, the link state
   (`none`/`active`/`expired`), the one-action copy target (the full URL, never a
-  bare token) and the API-error-to-catalogue mapping. Covered by
-  `src/tracking-ui.test.js`.
+  bare token), the absolute-share-url resolution against a page origin (board
+  #84: a relative server url becomes openable) and the API-error-to-catalogue
+  mapping. Covered by `src/tracking-ui.test.js`.
 - `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
   `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
   routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
@@ -711,6 +712,16 @@ design had:
   behind a confirm. The `/app/tracking` workspace lists the org's trips with their
   link state (the API sends only `{ active, expiresAt }` — **never the token**) and
   offers mint/revoke; a just-minted link appears there with a copy button.
+- **Openable share value (board #84).** `PUBLIC_BASE_URL` is empty on the live
+  host, so the API answers origin-relative (`/track/<token>`) — a path a customer
+  cannot open anywhere else. The UI resolves it against `location.origin` before
+  it renders the read-only field and before it puts anything on the clipboard
+  (`app/lib/tracking.js#absoluteUrl`, invoked with `pageOrigin()` in `app.js`), so
+  the customer always receives `https://<host>/track/<token>`. An absolute `url`
+  the API returns passes through untouched; with no origin (a Node run, or a
+  WebView without `location`) the server's value is left as-is. Setting
+  `PUBLIC_BASE_URL=https://roadwisefleet.com` on the API service env (Lance /
+  owner window) is the other half — either alone fixes the customer-visible bug.
 - **Token exposure.** The token is rendered only on the acting trip's own
   authenticated surface (and in the mint response). The list/workspace markup
   never contains it.
@@ -720,8 +731,9 @@ Pure logic lives in `app/lib/tracking.js`; the DOM/network half is `app.js`
 `copyTrackingLink`, `revokeTrackingLink`, and the `/app/tracking` workspace).
 
 Tests: `src/tracking-ui.test.js` in the no-install CI job (state/path/copy
-derivation, the `trip:*` gate, the error mapping, the catalogue keys, and the
-"no token in the list markup" guard) and `test/tracking-link.test.ts`
+derivation, the `trip:*` gate, the error mapping, the catalogue keys, the
+share-value resolution for a relative **and** an absolute `url` (board #84), and
+the "no token in the list markup" guard) and `test/tracking-link.test.ts`
 (`pnpm test:router`) which drives the real routes against the DB in an isolated
 org: mint `201` → `GET` returns the same URL → anonymous `/track/<token>` `200`
 HTML + `/api/track/<token>` `200` JSON → tampered token `404` → revoke `200` →
