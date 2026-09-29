@@ -11,6 +11,8 @@ import { referenceRoutes } from './routes/reference.js';
 import { documentRoutes } from './routes/documents.js';
 import { trackPageRoutes, trackRoutes } from './routes/track.js';
 import { appRoutes } from './routes/app.js';
+import { customerAppRoutes } from './routes/customer-app.js';
+import { customerRoutes } from './routes/customer.js';
 import { serverOptions } from './server-options.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
@@ -35,6 +37,8 @@ export function buildServer() {
   app.register(referenceRoutes, { prefix: '/api' });
   app.register(documentRoutes, { prefix: '/api' });
   app.register(trackRoutes, { prefix: '/api' });
+  // Customer portal API (board task #74, UXF-C1).
+  app.register(customerRoutes, { prefix: '/api' });
 
   // Public customer tracking page: root path `/track/:token` (no auth, not
   // under /pilot/), so a shared link reads like a customer-facing URL.
@@ -44,6 +48,10 @@ export function buildServer() {
   // `/app/`, plus its SPA fallback. Files come from <repo>/app; the app talks to
   // the same-origin `/api/*` routes above.
   app.register(appRoutes);
+
+  // Customer portal (board task #74, UXF-C1): the customer-facing account
+  // surface at `/c/`, a separate mobile-first area from the dispatcher app.
+  app.register(customerAppRoutes);
 
   // Pilot-only web surface. Served from the API itself so the pages are
   // same-origin with `/api/*` (no new port, no nginx). The root is locked to

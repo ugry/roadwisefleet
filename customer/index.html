@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>RoadwiseFleet — Customer portal</title>
+<link rel="stylesheet" href="/c/customer.css">
+</head>
+<body>
+<a class="skip-link" href="#main" data-i18n="common.skip">Skip to content</a>
+
+<!-- Sign in -->
+<main id="authView" class="auth" hidden>
+  <div class="card">
+    <p class="brand">RoadwiseFleet</p>
+    <h1 data-i18n="login.title">Sign in</h1>
+    <p class="lead" data-i18n="login.lead"></p>
+    <form id="loginForm" novalidate>
+      <label for="loginEmail" data-i18n="login.email"></label>
+      <input id="loginEmail" name="email" type="email" autocomplete="email" required>
+      <label for="loginPassword" data-i18n="login.password"></label>
+      <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+      <button id="loginSubmit" type="submit" data-i18n="login.submit"></button>
+    </form>
+    <p id="authMsg" class="alert" role="status" hidden></p>
+    <p class="muted">
+      <span data-i18n="login.noAccount"></span>
+      <button id="showSignup" type="button" class="link" data-i18n="login.createAccount"></button>
+    </p>
+    <p class="muted small" data-i18n="login.carrierNote"></p>
+  </div>
+</main>
+
+<!-- Create an account -->
+<main id="signupView" class="auth" hidden>
+  <div class="card">
+    <p class="brand">RoadwiseFleet</p>
+    <h1 data-i18n="signup.title">Create your account</h1>
+    <p class="lead" data-i18n="signup.lead"></p>
+    <form id="signupForm" novalidate>
+      <label for="suName" data-i18n="signup.name"></label>
+      <input id="suName" name="name" type="text" autocomplete="name" required>
+      <label for="suCompany" data-i18n="signup.company"></label>
+      <input id="suCompany" name="company" type="text" autocomplete="organization">
+      <label for="suEmail" data-i18n="signup.email"></label>
+      <input id="suEmail" name="email" type="email" autocomplete="email" required>
+      <label for="suPhone" data-i18n="signup.phone"></label>
+      <input id="suPhone" name="phone" type="tel" autocomplete="tel">
+      <label for="suPassword" data-i18n="signup.password"></label>
+      <input id="suPassword" name="password" type="password" autocomplete="new-password" required>
+      <button id="signupSubmit" type="submit" data-i18n="signup.submit"></button>
+    </form>
+    <p id="signupMsg" class="alert" role="status" hidden></p>
+    <p class="muted">
+      <span data-i18n="signup.haveAccount"></span>
+      <button id="showLogin" type="button" class="link" data-i18n="signup.signIn"></button>
+    </p>
+    <p class="muted small" data-i18n="signup.verificationNote"></p>
+  </div>
+</main>
+
+<!-- Signed in -->
+<div id="appView" hidden>
+  <header class="topbar">
+    <p class="brand">RoadwiseFleet</p>
+    <nav id="customerNav" aria-label="Customer">
+      <button type="button" class="nav-item" data-nav="shipments" data-i18n="nav.shipments"></button>
+      <button type="button" class="nav-item" data-nav="book" data-i18n="nav.book"></button>
+      <button type="button" class="nav-item" data-nav="account" data-i18n="nav.account"></button>
+    </nav>
+    <button id="signOut" type="button" class="link" data-i18n="nav.signOut"></button>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section id="shipmentsPanel" class="panel" hidden>
+      <h1 data-i18n="shipments.title"></h1>
+      <p class="lead" data-i18n="shipments.lead"></p>
+      <button id="newBooking" type="button" class="primary" data-i18n="shipments.new"></button>
+      <div id="shipmentsList" aria-live="polite"></div>
+    </section>
+
+    <section id="bookPanel" class="panel" hidden>
+      <h1 data-i18n="book.title"></h1>
+      <p class="lead" data-i18n="book.lead"></p>
+      <div id="bookForm"></div>
+    </section>
+
+    <section id="shipmentPanel" class="panel" hidden>
+      <button id="backToShipments" type="button" class="link" data-i18n="shipment.back"></button>
+      <div id="shipmentDetail" aria-live="polite"></div>
+    </section>
+
+    <section id="accountPanel" class="panel" hidden>
+      <h1 data-i18n="account.title"></h1>
+      <div id="accountBody" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <p id="globalMsg" class="alert" role="status" hidden></p>
+</div>
+
+<script type="module" src="/c/customer.js"></script>
+</body>
+</html>

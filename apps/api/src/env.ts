@@ -42,4 +42,9 @@ export const env = {
   // Optional absolute base for generated links (e.g. https://roadwisefleet.com).
   // Empty → origin-relative `/track/<token>`, correct for the same-origin pilot.
   PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || '',
+  // Customer portal (board task #74): the carrier org a new customer signup is
+  // attached to. The pilot has exactly one fleet, so an empty value falls back
+  // to the oldest org — explicit here so a multi-fleet deployment can pin it
+  // until the marketplace (#76) offers carrier selection inside the portal.
+  CUSTOMER_HOST_ORG_ID: process.env.CUSTOMER_HOST_ORG_ID || '',
 };

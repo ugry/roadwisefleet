@@ -58,6 +58,24 @@ model User {
   tripsAsDriver Trip[]
   tripDrivers   TripDriver[]
   statusEvents  StatusEvent[]
+  // Customer portal (board task #74, UXF-C1). The link to the customer account
+  // lives in `CustomerAccount` (the FK is on that table) on purpose: adding a
+  // scalar column here would make every existing `user.findUnique` without an
+  // explicit `select` fail until the migration is applied, login included. A
+  // relation field adds no scalar and changes no existing query.
+  customerAccount CustomerAccount?
+}
+
+// A login that may act for a customer account (board task #74).
+model CustomerAccount {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
 }
 
 model Truck {
@@ -82,9 +100,50 @@ model Customer {
   lang        String   @default("en")
   createdAt   DateTime @default(now())
 
-  orders         Order[]
+  orders          Order[]
   whatsappThreads WhatsappThread[]
-  rateCards      RateCard[]
+  rateCards       RateCard[]
+  addresses       CustomerAddress[]
+  // The logins that may act for this customer (buyer / finance / viewer in the
+  // diagram's team model; the role split inside a customer account is a later
+  // task — today every linked login sees the same account).
+  accounts        CustomerAccount[]
+  // Company profile + notification preferences written from the portal account
+  // screen. A separate table on purpose: no scalar column is added to a shared
+  // model, so the running pilot keeps working whether or not the portal
+  // migration has been applied yet.
+  profile         CustomerProfile?
+}
+
+// Portal-maintained customer profile (board task #74). `notifyPrefs` is a small
+// object ({ email, sms, whatsapp } booleans) — jsonb on purpose: presentation
+// data, not a query key.
+model CustomerProfile {
+  id          String   @id @default(cuid())
+  customerId  String   @unique
+  customer    Customer @relation(fields: [customerId], references: [id])
+  vatId       String?
+  address     String?
+  notifyPrefs Json?
+  createdAt   DateTime @default(now())
+}
+
+// Customer address book (board task #74). Addresses are saved from the account
+// screen and offered when booking; the booking form itself accepts a free-text
+// route, so this table is convenience data, never a foreign key on an order.
+model CustomerAddress {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  label      String
+  line1      String
+  city       String?
+  postalCode String?
+  country    String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
 }
 
 model Order {
@@ -101,7 +160,27 @@ model Order {
   plannedAt   DateTime?
   createdAt   DateTime @default(now())
 
-  trips Trip[]
+  trips   Trip[]
+  // The book-a-load detail (board task #74, UXF-C1): the supply choice, the
+  // requested equipment, the loading/delivery windows and the wizard extras.
+  // A separate table on purpose — adding scalar columns to `Order` would break
+  // every existing `include: { order: true }` read until the migration is
+  // applied. The marketplace engine (#76) reads lane/date/equipment from here;
+  // a column moves onto `Order` only if a query truly needs it there.
+  booking OrderBooking?
+}
+
+model OrderBooking {
+  id           String   @id @default(cuid())
+  orderId      String   @unique
+  order        Order    @relation(fields: [orderId], references: [id])
+  supplyChoice String // fleet | solo | auto | own_carrier | off_platform | recurring
+  equipment    String?
+  loadReadyAt  DateTime?
+  deliverByAt  DateTime?
+  notes        String?
+  details      Json?
+  createdAt    DateTime @default(now())
 }
 
 model Trip {
