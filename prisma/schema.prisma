@@ -152,6 +152,11 @@ model CustomerProfile {
   vatId       String?
   address     String?
   notifyPrefs Json?
+  // Auto-match rules (board task #78, UXF-C2). JSON so the customer surface can
+  // ship the rules screen before the owner's #73 q6 answer fixes the rule
+  // vocabulary; `enabled` is gated server-side (marketplace.js#autoMatchEntitlement),
+  // so a stored "enabled" can never take effect ahead of the owner's decision.
+  autoMatch   Json?
   createdAt   DateTime @default(now())
 }
 
@@ -577,6 +582,15 @@ model MarketplaceOffer {
   pickupEtaAt   DateTime?
   deliveryEtaAt DateTime?
   note          String?
+  // Compare-screen facets (board task #78, UXF-C2): the carrier's truck, its
+  // verification state and the cancellation terms the offer carries. Derived at
+  // offer time from the carrier's OWN rows — never a client-supplied value — so
+  // the side-by-side comparison cannot be spoofed. `carrierRating` is
+  // deliberately absent: there is no rating store yet, and the compare row
+  // renders null honestly instead of inventing one.
+  carrierTruck      String?
+  carrierVerified   Boolean @default(false)
+  cancellationTerms String?
   // Which side of the load made this offer: `carrier` (a fleet/solo driver
   // answering the load) or `shipper` (the load's owner answering with a
   // counter). Drives who may counter next and who may award.
