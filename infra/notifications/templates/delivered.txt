@@ -1,0 +1,9 @@
+Subject: {{trip_ref}} has been delivered
+
+Hi {{customer_name}},
+
+Shipment {{trip_ref}} has been delivered to {{delivery}}. You can view the proof of delivery and the shipment documents here:
+
+{{link}}
+
+-- RoadwiseFleet
