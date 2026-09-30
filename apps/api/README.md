@@ -25,6 +25,11 @@ pilot seed, minimal token auth and the core trip loop are wired.
   (board task #74, see "Customer portal" below) — a separate, mobile-first
   surface, not part of the dispatcher app. Its English catalogue lives in
   `customer/locales/en.json`.
+- `../../solo/` — the solo driver Connect surface served by this API under `/s/`
+  (board task #77, see "Solo driver Connect MVP" below) — a separate, mobile-first
+  surface. Its shared core (`solo/lib/solo-core.js`) is imported by the API too,
+  so the client can never be more permissive than the server; its English
+  catalogue lives in `solo/locales/en.json`.
 
 ## Run
 ```bash
@@ -82,7 +87,10 @@ static-serving rules (board task #74; the same rules the browser runs, so the
 client can never be more permissive than the API), the Connect marketplace core
 (the load and offer state machines, expiry, the posting/beacon/offer/award
 validators, lane/date/equipment matching, the award plan and the tenancy
-predicates — board task #76), locale
+predicates — board task #76), the solo driver core (signup/truck validation, the
+OTP gate, the verification state and the bidding rule `canBid`, own-customer and
+quick-job validation, the saved-search filter and the wallet-lite read model —
+board task #77) and the `/s/` static-serving rules, locale
 resolution and the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
@@ -133,6 +141,16 @@ shipper and carrier exchange structured counters → the shipper awards and the
 `403` on every object it may not own (and can still browse an open load) → an
 expired offer reads `EXPIRED` and cannot be awarded (`409`) → escrow is refused
 with the UXF-OWN1 reason → beacons publish, browse, rank and stay owner-scoped.
+It also drives the solo driver Connect MVP (board task #77) end to end in a
+dedicated `qa-solo-*` org: signup creates the one-person carrier org, the `solo`
+role and the profile → an UNVERIFIED driver browses the board but is refused a
+bid (`403 verification_required`) → phone OTP completes and a wrong code is
+refused → once VERIFIED the driver bids, the shipper awards and the `Trip` lands
+in the driver's org with the driver assigned → the driver executes the statuses,
+uploads a POD (the `pod_required` gate included) and the wallet shows the payment
+status → a quick job for the driver's OWN customer (no shipper account) creates
+an order + trip and mints a **working** public tracking link → the beacon and the
+saved searches stay scoped.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -200,8 +218,24 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/marketplace/beacons` | bearer, `trip:create` or `order:create` | active, unexpired capacity (filters `equipment`, `location`, `availableBefore`) — a shipper may browse capacity |
 | `DELETE /api/marketplace/beacons/:id` | bearer, owner only | deactivate an own beacon; a foreign id is `404`, never a leak |
 | `GET /api/marketplace/matches?loadId=` | bearer | the capacity beacons ranked for one load (lane fit · date fit · equipment fit), each with `score` + `reasons` |
+| `POST /api/solo/signup` | — (public) | create the solo driver: a one-person carrier org, a `solo` login and the profile; `201 { token, user, driver }`, `409 email_taken` |
+| `GET /api/solo/me` | bearer, `solo` | profile, truck specs, verification state and the OTP delivery state |
+| `PATCH /api/solo/me` | bearer, `solo` | name / phone / truck specs; a changed phone resets its verification |
+| `POST /api/solo/otp` | bearer, `solo` | start phone verification; `devCode` only when `SOLO_OTP_RETURN_CODE` is set (the pilot has no SMS sender) |
+| `POST /api/solo/otp/verify` | bearer, `solo` | submit the 6-digit code (HMAC-stored, 10-minute TTL, 5 attempts) |
+| `GET /api/solo/verification` | bearer, `solo` | papers + state + the `bidGate` verdict |
+| `POST /api/solo/verification` | bearer, `solo` | upload a paper (`id` \| `licence` \| `vehicle_registration` \| `insurance`), base64 JSON; all four present moves the profile to `PENDING` |
+| `GET /api/solo/searches` | bearer, `solo` | saved load-feed filters |
+| `POST /api/solo/searches` | bearer, `solo` | save one (`name` + the known filter keys only) |
+| `DELETE /api/solo/searches/:id` | bearer, `solo` | remove one; a foreign id is a flat `404` |
+| `GET /api/solo/customers` | bearer, `solo` | the driver's own customers (rows in his org, no login) |
+| `POST /api/solo/customers` | bearer, `order:create` | add one |
+| `GET /api/solo/jobs` | bearer, `solo` | wallet-lite: jobs + `{ earnedEur, paidEur, outstandingEur }` from the existing `Trip.rateEur` + `Settlement` |
+| `POST /api/solo/jobs` | bearer, `order:create` | quick job: own customer (or a new name) → `Order` + `ASSIGNED` `Trip` in the driver's org |
 | `GET /c` | — | `302` to `/c/` (the customer portal mount point) |
 | `GET /c/*` | — | customer portal from `<repo>/customer`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `x-robots-tag: noindex, nofollow` |
+| `GET /s` | — | `302` to `/s/` (the solo driver mount point) |
+| `GET /s/*` | — | solo driver surface from `<repo>/solo`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `package.json` is never served; `x-robots-tag: noindex, nofollow` |
 | `GET /api/waitlist` | `X-Admin-Token` | admin list |
 
 Tenancy comes from the signed token's `org` claim — the old `x-org-id` header
@@ -1002,6 +1036,89 @@ pnpm --filter @roadwisefleet/api handoff -- \
 
 The pure parsing/planning logic lives in `src/waitlist-handoff.js` and is
 covered by `src/waitlist-handoff.test.js`.
+
+## Solo driver Connect MVP (`/s/`, `/api/solo/*`) — board task #77 (UXF-M2)
+The solo truck driver of diagram `docs/ux-flows/04-solo-driver-flow.mmd` is a
+first-class persona: he is *found* (a capacity beacon) and *finds work* (the load
+feed), and he serves his own customers who never join the platform. This task is
+the surface and the API on top of the #76 marketplace; it does **not**
+re-implement the marketplace — the feed, load detail, offers and beacons are the
+`/api/marketplace/*` endpoints, reused unchanged.
+
+**Files.** `solo/lib/solo-core.js` is the pure domain (signup/truck validation,
+the OTP gate, the verification state and the `canBid` rule, own-customer and
+quick-job validation, saved-search filtering, the wallet-lite read model) — loaded
+twice, by the browser and by the API, so the client can never be more permissive
+than the server. `solo/solo.js` + `index.html` + `solo.css` + `locales/en.json`
+are the mobile-first surface; `apps/api/src/solo-shell.js` binds the Fleet
+Manager's `app-shell.js` static-serving rules to `<repo>/solo`;
+`apps/api/src/routes/solo.ts` and `solo-app.ts` are auth, tenancy, persistence and
+HTTP mapping only. `src/solo-core.test.js` / `src/solo-shell.test.js` cover the
+pure half on the no-install runner; `test/solo.test.ts` drives the whole flow
+through the real server and database.
+
+**Data model.** Three additive tables (migration
+`prisma/migrations/20260930120000_add_solo_driver/`) — no shared model gains a
+scalar column, so the running pilot is unaffected whether or not it is applied:
+- `SoloDriverProfile` — the login ↔ one-person org link, the phone + OTP state
+  (the code is stored as an HMAC, never plain) and the one truck's specs;
+- `SoloVerificationDoc` — the four papers (`id`, `licence`,
+  `vehicle_registration`, `insurance`). Deliberately **not** `Document`: that row
+  is bound to a Trip, and a verification paper has none;
+- `SoloSavedSearch` — a named load-feed filter.
+
+**Signup.** `POST /api/solo/signup` creates the personal carrier org, the `solo`
+login (role `solo`: `trip:*`, `order:create`, `order:read`, `pod:upload`,
+`expense:create`) and the profile in one transaction, and re-asserts the `solo`
+role row the deploy path creates — an anonymous signup can never 500 with a
+foreign-key error. A one-person org is what the #76 award needs
+(`MarketplaceOffer.carrierOrgId` is required), which is why the solo driver gets
+one.
+
+**Bidding gate (owner gate #73 q5).** `canBid()` is the single rule and
+`BID_REQUIRES_VERIFICATION` ships the strict answer (browse freely, bid only when
+`VERIFIED`) so no guardrail is loosened while the owner's question is open.
+`routes/marketplace.ts` applies it to `solo` principals only — a fleet carrier is
+unaffected, and the read feed is never gated. Approving the papers is an
+**operator/owner** action: there is deliberately no self-service verify endpoint,
+so a driver can never approve himself past the gate. The client also refuses to
+send the request while the gate is closed (defence in depth; the server's `403`
+is the authority).
+
+**Phone OTP.** 6 digits, 10-minute TTL, 5 attempts; the code is stored as an
+HMAC derived from `AUTH_SECRET` and compared in constant time. The pilot has **no
+SMS provider**, so the code cannot be delivered: `POST /api/solo/otp` echoes
+`devCode` only when `SOLO_OTP_RETURN_CODE` is set, and the response says so. A
+real deployment must leave it unset.
+
+**Own customers + wallet-lite.** An own customer is a `Customer` row in the
+driver's org with **no** `CustomerAccount` (no shipper account exists). A quick
+job creates the same `Order` + `Trip` pair as the rest of the product (the trip
+`ASSIGNED` to the driver) and the tracking link is the existing
+`POST /api/trips/:id/track-link` machinery — the public `/api/track/:token` read
+needs no account at all. Wallet-lite reads the existing `Trip.rateEur` and
+`Settlement` rows; nothing new models money (invoice-first, UXF-OWN1).
+
+**Surface.** `/s/` is a single-column mobile-first app: loads (filters + saved
+searches), load detail + bid, my offers, beacon, verification, jobs, customers and
+profile. 44px targets for coarse pointers, AA contrast on the pill tints it
+actually paints on, reduced motion honoured, and a web app manifest for install.
+
+**Apply the migration first:**
+`pnpm --filter @roadwisefleet/api exec prisma migrate deploy` — until then the
+solo endpoints fail on the missing tables and `test/solo.test.ts` prints a
+diagnostic and skips its DB-backed assertions.
+
+**Infra.** Production nginx proxies `/api/`, `/pilot/`, `/app/`, `/c/` and
+`/track/` to the API; `/s/` needs the same `location /s/` block before the solo
+surface is reachable on roadwisefleet.com (filed as an infra request, not done
+from here).
+
+**Not in this task (stated honestly).** No notifications are sent (no provider —
+#78 owns "notifies both sides"); the verification *review* has no operator UI yet
+(the papers upload and their state are complete, the approve action is a
+DB/operator step for now); the solo surface is English-only for now (the pilot
+i18n work is EN/DE/PL/TR for the driver PWA).
 
 ## Deliberately missing (until the right phase)
 - signup, email verification, password reset (email is not live) ·
