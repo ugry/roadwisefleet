@@ -10,7 +10,7 @@
   "login.submit": "Sign in",
   "login.busy": "Signing in…",
   "login.noAccount": "No account yet?",
-  "login.createAccount": "Create one in two minutes",
+  "login.createAccount": "Register",
   "login.carrierNote": "Your account is hosted by the carrier company that invited you. Booking a load sends the order straight to their dispatcher.",
 
   "signup.title": "Create your account",
@@ -20,7 +20,7 @@
   "signup.email": "Email",
   "signup.phone": "Phone (optional)",
   "signup.password": "Password (at least 8 characters)",
-  "signup.submit": "Create account",
+  "signup.submit": "Register",
   "signup.busy": "Creating your account…",
   "signup.haveAccount": "Already have an account?",
   "signup.signIn": "Sign in",

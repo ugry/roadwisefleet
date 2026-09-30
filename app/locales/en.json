@@ -40,7 +40,7 @@
   "login.passwordPlaceholder": "Your password",
   "login.submit": "Sign in",
   "login.helper": "Use the account you created for your fleet.",
-  "login.createAccount": "Create an account",
+  "login.createAccount": "Register",
 
   "signup.title": "Create your fleet account",
   "signup.lead": "Set up your fleet in a minute. You become the owner and can invite dispatchers, accountants and drivers once you are in.",
@@ -53,7 +53,7 @@
   "signup.password": "Password",
   "signup.passwordPlaceholder": "At least 8 characters",
   "signup.passwordHint": "Use at least 8 characters.",
-  "signup.submit": "Create account",
+  "signup.submit": "Register",
   "signup.haveAccount": "Already have an account? Sign in",
   "signup.error.formInvalid": "The form could not be read. Reload the page and try again.",
   "signup.error.nameRequired": "Enter your name.",

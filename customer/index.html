@@ -21,18 +21,16 @@
       <input id="loginEmail" name="email" type="email" autocomplete="email" required>
       <label for="loginPassword" data-i18n="login.password"></label>
       <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
-      <button id="loginSubmit" type="submit" data-i18n="login.submit"></button>
+      <button id="loginSubmit" type="submit" class="primary" data-i18n="login.submit"></button>
     </form>
     <p id="authMsg" class="alert" role="status" hidden></p>
-    <p class="muted">
-      <span data-i18n="login.noAccount"></span>
-      <button id="showSignup" type="button" class="link" data-i18n="login.createAccount"></button>
-    </p>
+    <p class="muted prompt" data-i18n="login.noAccount"></p>
+    <button id="showSignup" type="button" class="secondary" data-i18n="login.createAccount"></button>
     <p class="muted small" data-i18n="login.carrierNote"></p>
   </div>
 </main>
 
-<!-- Create an account -->
+<!-- Register -->
 <main id="signupView" class="auth" hidden>
   <div class="card">
     <p class="brand">RoadwiseFleet</p>
@@ -49,7 +47,7 @@
       <input id="suPhone" name="phone" type="tel" autocomplete="tel">
       <label for="suPassword" data-i18n="signup.password"></label>
       <input id="suPassword" name="password" type="password" autocomplete="new-password" required>
-      <button id="signupSubmit" type="submit" data-i18n="signup.submit"></button>
+      <button id="signupSubmit" type="submit" class="primary" data-i18n="signup.submit"></button>
     </form>
     <p id="signupMsg" class="alert" role="status" hidden></p>
     <p class="muted">
