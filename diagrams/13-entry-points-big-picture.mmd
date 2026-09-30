@@ -1,0 +1,42 @@
+flowchart TB
+    subgraph ENTRY["WHERE EACH PARTY ENTERS"]
+        CU["CUSTOMER side<br/>portal · WhatsApp · their ERP via API"]
+        FM["FLEET side<br/>web dashboard · mobile"]
+        DR["DRIVER side<br/>Android app"]
+        PT["PARTNER side<br/>web dashboard (their own org)"]
+    end
+
+    subgraph CORE["PLATFORM CORE (one trip object)"]
+        ORD["Order<br/>what the customer bought"]
+        TRP["Trip<br/>who moves it, when, how"]
+        REQ["Request<br/>any governed ask + decision"]
+        EVT["StatusEvent<br/>the immutable spine"]
+        DOC["Documents<br/>eCMR, POD, invoices"]
+        MON["Money<br/>expenses, settlement, invoice"]
+    end
+
+    subgraph OUT["WHAT LEAVES THE PLATFORM"]
+        N1["WhatsApp / email / SMS<br/>milestones + documents"]
+        N2["Webhooks to customer ERP<br/>orders, status, documents"]
+        N3["Push to driver app<br/>assignments, decisions"]
+        N4["Dashboard alerts<br/>requests, exceptions, expiries"]
+    end
+
+    CU -->|"books, changes, cancels, tracks"| ORD
+    FM -->|"creates, assigns, decides, invoices"| TRP
+    DR -->|"executes, reports, requests"| TRP
+    PT -->|"accepts loads, assigns own drivers"| TRP
+
+    ORD --> TRP
+    TRP --> REQ
+    TRP --> EVT
+    TRP --> DOC
+    TRP --> MON
+    REQ --> EVT
+    EVT --> N1
+    EVT --> N2
+    REQ --> N3
+    REQ --> N4
+    DOC --> N1
+    DOC --> N2
+    MON --> N1

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RoadwiseFleet — UX Flows: Actors, Entry Points, Requests</title>
+<style>
+  :root { --navy:#0b1f3a; --amber:#f0a500; --ink:#1a2233; --muted:#5c6b80; --line:#e3e7ee; --bg:#f6f7f9; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--navy); color:#fff; padding:30px 32px; }
+  header h1 { margin:0 0 6px; font-family:"Barlow Condensed","Arial Narrow",sans-serif; font-size:28px; letter-spacing:.02em; }
+  header p { margin:0; color:#9db0c7; font-size:14px; max-width:760px; }
+  nav { background:#122c4f; padding:10px 32px; display:flex; gap:18px; flex-wrap:wrap; }
+  nav a { color:#cfe0f5; text-decoration:none; font-size:13px; }
+  nav a:hover { color:#fff; text-decoration:underline; }
+  main { max-width:1500px; margin:0 auto; padding:28px 20px 70px; }
+  section { background:#fff; border:1px solid var(--line); border-radius:14px; padding:22px 24px 26px; margin-bottom:26px; }
+  section h2 { font-size:19px; margin:0 0 4px; }
+  section h2 span { color:var(--muted); font-weight:500; font-size:14px; }
+  section p.cap { color:var(--muted); font-size:13.5px; margin:6px 0 16px; max-width:900px; }
+  .frame { overflow:auto; border:1px solid var(--line); border-radius:10px; background:#fff; padding:10px; }
+  .frame img { display:block; width:100%; height:auto; min-width:760px; }
+  .tags { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 0; }
+  .tag { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--navy); background:#eef3fa; border:1px solid #d6e2f2; border-radius:999px; padding:3px 9px; }
+  footer { text-align:center; color:var(--muted); font-size:12px; padding:0 0 40px; }
+  a.dl { font-size:12.5px; color:#0b5fff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RoadwiseFleet — UX Flows</h1>
+  <p>Actors, company types, entry points and the request catalogue — the map to reason about permissions, cancellations and who may do what. Diagrams are SVG: zoom freely, click to open full size.</p>
+</header>
+<nav>
+  <a href="#company-types">1 · Company types &amp; actors</a>
+  <a href="#requests">2 · Request catalogue</a>
+  <a href="#entry">3 · Entry points &amp; core</a>
+  <a href="#customer">4 · Customer journey</a>
+  <a href="#fleet">5 · Fleet manager flow</a>
+  <a href="#driver">6 · Driver flow</a>
+</nav>
+<main>
+
+  <section id="company-types">
+    <h2>1 · Company types &amp; who exists inside them <span>— the missing dimension</span></h2>
+    <p class="cap">Four operator types plus the customer side. The same app serves all of them, but authority differs: a solo owner acts alone, a micro fleet needs requests between owner and drivers, a small fleet adds dispatcher and accountant, and a partner company is a <em>second org</em> touching the same trip.</p>
+    <div class="tags"><span class="tag">owner-operator</span><span class="tag">micro fleet</span><span class="tag">small fleet</span><span class="tag">partner / subcontractor</span><span class="tag">customer side</span></div>
+    <div class="frame"><a href="ux-flows/11-company-types-actors.svg" target="_blank"><img src="ux-flows/11-company-types-actors.svg" alt="Company types and actors"></a></div>
+  </section>
+
+  <section id="requests">
+    <h2>2 · Request catalogue — what each party may ask for <span>— and what the platform decides</span></h2>
+    <p class="cap">Every non-authoritative action becomes a <strong>request</strong> that the platform validates, times, escalates and records. The platform row is the shared machinery: policy check, SLA timer, notify-only-after-decision, audit and webhook fan-out.</p>
+    <div class="tags"><span class="tag">customer asks</span><span class="tag">fleet acts &amp; approves</span><span class="tag">driver executes &amp; requests</span><span class="tag">partner org</span><span class="tag">platform rules</span></div>
+    <div class="frame"><a href="ux-flows/12-actor-request-catalog.svg" target="_blank"><img src="ux-flows/12-actor-request-catalog.svg" alt="Request catalogue per actor"></a></div>
+  </section>
+
+  <section id="entry">
+    <h2>3 · Entry points — where each party gets into the system <span>— and what leaves it</span></h2>
+    <p class="cap">Customers enter via portal, WhatsApp or their own ERP (API). Fleets via the dashboard. Drivers via the Android app. Partners via their own org's dashboard. Everything lands on <strong>one trip object</strong>; what leaves is notifications, webhooks, push and alerts — never raw state changes.</p>
+    <div class="frame"><a href="ux-flows/13-entry-points-big-picture.svg" target="_blank"><img src="ux-flows/13-entry-points-big-picture.svg" alt="Entry points and platform core"></a></div>
+  </section>
+
+  <section id="customer">
+    <h2>4 · Customer journey <span>— quote or book, track, change, cancel, dispute, pay</span></h2>
+    <p class="cap">Two branches matter for policy: <strong>change request</strong> (fleet may counter-propose) and <strong>cancellation request</strong> (fee policy applies after dispatch — decided by the fleet, not the customer). The customer only ever sees the decided outcome.</p>
+    <div class="frame"><a href="ux-flows/14-customer-journey.svg" target="_blank"><img src="ux-flows/14-customer-journey.svg" alt="Customer journey"></a></div>
+  </section>
+
+  <section id="fleet">
+    <h2>5 · Fleet manager flow <span>— an inbox of requests plus own-authority actions</span></h2>
+    <p class="cap">The manager's day is <em>inbound</em>: driver requests (cancel, reassign, expense, advance, delay), customer asks, system alerts (detention, missing documents, expiring files, expiring SLAs) and partner updates — each with reason, evidence, SLA countdown and customer-impact preview. Approve or decline, and only then does anyone outside the org hear about it.</p>
+    <div class="frame"><a href="ux-flows/15-fleet-manager-flow.svg" target="_blank"><img src="ux-flows/15-fleet-manager-flow.svg" alt="Fleet manager flow"></a></div>
+  </section>
+
+  <section id="driver">
+    <h2>6 · Driver flow <span>— execute the trip, request everything else</span></h2>
+    <p class="cap">The driver acts freely on execution (start, deliver, upload POD) and <strong>requests</strong> anything that changes a commitment (cancel, reassign, expense, advance). Employed drivers request from their dispatcher; solo owner-operators accept loads directly. While a request is pending the driver remains responsible — the app must say so.</p>
+    <div class="frame"><a href="ux-flows/16-driver-flow.svg" target="_blank"><img src="ux-flows/16-driver-flow.svg" alt="Driver flow"></a></div>
+  </section>
+
+</main>
+<footer>
+  Sources: <a class="dl" href="https://github.com/ugry/roadwisefleet/blob/main/docs/information-flow-and-permissions.md">docs/information-flow-and-permissions.md</a> ·
+  <a class="dl" href="https://github.com/ugry/roadwisefleet/tree/main/diagrams/svg">all diagrams (SVG + PNG)</a>
+</footer>
+</body>
+</html>

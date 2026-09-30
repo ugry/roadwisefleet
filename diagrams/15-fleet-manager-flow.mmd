@@ -1,0 +1,30 @@
+flowchart TB
+    IN(["INBOUND: what arrives at the fleet manager"])
+
+    IN --> I1["Driver requests<br/>cancel · reassign · expense · advance · delay"]
+    IN --> I2["Customer asks<br/>change · cancel · documents · dispute"]
+    IN --> I3["System alerts<br/>detention logged · doc missing · file expiring · SLA expiring"]
+    IN --> I4["Partner updates<br/>load accepted · driver assigned"]
+
+    I1 --> BOX["REQUEST INBOX<br/>each item: reason, evidence, SLA countdown,<br/>customer impact preview"]
+    I2 --> BOX
+    I3 --> BOX
+    I4 --> BOX
+
+    BOX --> D{"Decision"}
+    D -->|"approve"| AP["Apply change<br/>state machine moves, request archived"]
+    D -->|"decline"| DC["Decline with reason<br/>driver or customer notified"]
+
+    AP --> OUT1["Customer notified<br/>only after decision"]
+    AP --> OUT2["Driver notified<br/>released or redirected"]
+    AP --> OUT3["Audit + webhook"]
+
+    subgraph OWN["FLEET MANAGER OWN ACTIONS (no approval needed)"]
+        A1["Create trip · assign driver · set rate"]
+        A2["Cancel own trip (reason required)"]
+        A3["Reassign · subcontract to partner"]
+        A4["Invoice · reminders · mark settlement paid"]
+        A5["Policies: notice windows, fees, SLA"]
+        A6["Users: invite dispatcher, accountant, drivers"]
+    end
+    OWN --> OUT3
