@@ -230,15 +230,22 @@ apply_migrations() { # additive-only against the pilot database in $SITE_ENV
   )
 }
 
-web_files() { # web_files <dir> -> newline-separated publishable file names (sorted)
-  # Top-level regular files only (web/ is flat today). Dotfiles are never
-  # published, and $WEB_EXCLUDE (default `*.md`) keeps repo documentation —
-  # web/README.md, web/brand-spec.md — off the public root. Measured 2026-09-30:
-  # both .md files WERE reachable at https://roadwisefleet.com/ (200), left there
-  # by the hand-managed deploy this task replaces; the deployer must not
-  # republish them, and the owner window removes the two copies (deploy.md §10.8).
+web_files() { # web_files <dir> -> newline-separated publishable paths, relative to <dir>
+  # Every regular file under web/, nested trees included: web/ux-flows.html
+  # references web/ux-flows/*.svg (PR #62), so a top-level-only sync would
+  # publish a page whose diagrams 404. Dotfiles (and files inside dot
+  # directories) are never published, and $WEB_EXCLUDE (default `*.md`) keeps
+  # repo documentation — web/README.md, web/brand-spec.md — off the public root.
+  # Measured 2026-09-30: both .md files WERE reachable at
+  # https://roadwisefleet.com/ (200, Last-Modified 2026-09-29 18:29/18:30Z),
+  # left there by the hand-managed deploy this task replaces; the deployer must
+  # not republish them, and the owner window removes the two copies
+  # (deploy.md §10.8).
   local dir="$1"
-  find "$dir" -maxdepth 1 -type f ! -name '.*' ! -name "$WEB_EXCLUDE" -printf '%f\n' 2>/dev/null | sort
+  (
+    cd "$dir" 2>/dev/null || exit 0
+    find . -type f ! -path '*/.*' ! -name '.*' ! -name "$WEB_EXCLUDE" -printf '%P\n' 2>/dev/null | sort
+  )
 }
 
 sync_web() { # sync_web <src_web_dir> -> 0 ok / 1 failed; sets WEB_SYNC_RESULT
@@ -265,7 +272,8 @@ sync_web() { # sync_web <src_web_dir> -> 0 ok / 1 failed; sets WEB_SYNC_RESULT
 
   while IFS= read -r name; do
     [ -n "$name" ] || continue
-    if ! install -m 0644 "$src/$name" "$WEB_ROOT/$name"; then
+    # install -D creates the parent directories of a nested file (web/ux-flows/).
+    if ! install -D -m 0644 "$src/$name" "$WEB_ROOT/$name"; then
       log "ERROR: publishing $name to $WEB_ROOT failed"
       WEB_SYNC_RESULT="failed"
       return 1
@@ -517,6 +525,10 @@ self_test() {
   printf 'landing v1\n' > "$SRC/web/index.html"
   printf 'fake-png-bytes\n' > "$SRC/web/og-image.png"
   printf '# repo documentation — must never be published\n' > "$SRC/web/README.md"
+  # A nested asset tree (like the real web/ux-flows/*.svg that web/ux-flows.html
+  # references), so "nested trees are published too" is exercised, not assumed.
+  mkdir -p "$SRC/web/ux-flows"
+  printf '<svg/>\n' > "$SRC/web/ux-flows/diagram.svg"
   printf 'v1\n' > "$SRC/app.txt"
   git -C "$SRC" add .gitignore app.txt web
   git -C "$SRC" commit -q -m v1
@@ -652,9 +664,11 @@ PY
     "$(wc -c < "$WWW/og-image.png")" "$(wc -c < "$SITE/web/og-image.png")"
   check "repo documentation is NOT published to the web root (board #87 W1)" \
     "$([ -e "$WWW/README.md" ] && echo present || echo absent)" "absent"
+  check "a nested asset tree under web/ is published too (web/ux-flows, PR #62)" \
+    "$(page ux-flows/diagram.svg)" "<svg/>"
   check "the state records web_sync=ok" "$(state web_sync)" "ok"
   check "the run reports the number of published files" \
-    "$(printf '%s\n' "$OUT" | grep -c 'published 2 static web file(s)' || true)" "1"
+    "$(printf '%s\n' "$OUT" | grep -c 'published 3 static web file(s)' || true)" "1"
 
   # --- 2. idempotent: the target already deployed and healthy is a no-op -----
   rm -f "$tmp/health.count" "$MAIL"; HEALTH_FAIL_CALLS=0

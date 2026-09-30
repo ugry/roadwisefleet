@@ -29,18 +29,19 @@ Everything terminates on nginx; the upstreams are loopback-only.
 | `/pilot` (no slash) | — | nginx `301` → `/pilot/` | |
 | `/app/`, `/app/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/app.ts`) | **Board #69** — Fleet Manager SPA shell + app assets. Live since the 2026-09-25 window. |
 | `/app` (no slash) | — | nginx `301` → `/app/` | Board #69. |
-| `/c/`, `/c/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/customer-app.ts`) | **Board #87** — customer portal SPA shell (`customer/`). Prepared in [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf) with the strict **app** header set; **not live yet** (no `/c/` location on the host → 404); lands with the owner reload. |
+| `/c/`, `/c/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/customer-app.ts`) | **Board #87** — customer portal SPA shell (`customer/`). Strict **app** header set. **Live since 2026-09-30 06:50Z** (Team Leader apply under the owner's delegation): `GET /c/` → 200 `text/html`, CSP `script-src 'self'; style-src 'self'` (no `unsafe-inline`), `X-Robots-Tag: noindex, nofollow` — re-verified by me with `curl -sI` the same day. |
 | `/c` (no slash) | — | nginx `301` → `/c/` | Board #87. |
 | `/track/<token>` | `127.0.0.1:8080` | `roadwise-api.service` | Public, unauthenticated customer tracking link (board #5), live since the 2026-09-25 window. |
-| `/s/<token>` | `127.0.0.1:8080` | `roadwise-api.service` | **Board #75** — login-free POD/eCMR + invoice share surface. Routed (inert until the app route lands, then 404). |
-| `/s` (no slash) | — | nginx `301` → `/` | A bare `/s` carries no token, so it goes to the site root, not to `/s/`. |
+| `/s/`, `/s/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/solo-shell.js`, board #77) | **Solo-driver surface.** The board #75 document/invoice share token was never implemented; the solo shell answers here instead. Strict **app** header set — the shell declares no inline `<script>`/`<style>` and loads only same-origin `/s/solo.css` + `<script type="module" src="/s/solo.js">` (verified 2026-09-30 from the live body and a grep over `solo/`). Measured live: **200** `text/html`, CSP `script-src 'self'; style-src 'self'`. |
+| `/s` (no slash) | — | nginx `301` → `/s/` | Measured live 2026-09-30 (`Location: https://roadwisefleet.com/s/`). The solo surface answers 200 at `/s/`, so this no longer redirects to the site root. |
 | `/api/*` (except `/api/waitlist`) | `127.0.0.1:8080` | `roadwise-api.service` | Pilot API: `/api/auth/*`, `/api/trips*`, `/api/customer/*`, `/api/waitlist` (not reached — see below). |
 | `/health` | — | `404` (nginx) | The API's `/health` is **not** exposed publicly, by design. |
 
 Board #87 guard: [`checks/site-routes-check.sh`](./checks/site-routes-check.sh)
 fails CI if any of these surfaces has no proxying, rate-limited, header-protected
-location, if a no-slash form loses its `301`, or if the no-inline `/c/` surface is
-given the pilot snippet's wider policy. Run it with `--live` in the owner window.
+location, if a no-slash form loses its `301`, or if a no-inline surface (`/app/`,
+`/c/`, `/s/`) is given the pilot snippet's wider policy. Run it with `--live` in
+the owner window.
 
 Routing rule that matters: nginx longest-prefix wins, so the exact
 `location = /api/waitlist` beats `location /api/`. That is what keeps the live
@@ -127,7 +128,7 @@ fix for board #41; a >25 MB body is still refused on that route.
 | Pre-change backup | `roadwisefleet.conf.bak-20260922` (the orchestrator's stopgap backup, 2026-09-22 15:05 UTC) |
 | **Applied** | **2026-09-23 22:51 UTC** (owner-authorised window). The mirror is byte-identical to the running host file: `sha256 c34193a347f2a6680cbd74af6b7b0023f0ae6aadfef0fa6b8d9a077af265271e` |
 | Window backup | `/var/backups/nginx-config/20260923T225154Z/` (`etc-nginx.tgz` + `nginx -T` before + the old site file) |
-| **Pending (board #87)** | `location /c/` + `location = /c` are **in the mirror only** — the host file predates them, so `GET /c/` is still 404. They land with the next owner reload, in the same window as the `web/` sync ([`deploy.md`](./deploy.md) §10.8). |
+| **Applied (board #87)** | **2026-09-30 06:50Z** — the Team Leader applied `location /c/` + `location = /c` **and** `location /s/` + `location = /s` to `/etc/nginx/sites-available/roadwisefleet.conf` under the owner's delegation (Matrix `@ugur`, 2026-09-30): `nginx -t` OK, reloaded, pre-change backup `roadwisefleet.conf.bak-persona-20260930065055`. Re-verified by me with `curl -sI`: `/c/` 200, `/s/` 200, `/c` 301, `/s` 301, both 200s carrying the strict app CSP. The pre-#87 `web/` sync and the removal of the hand-deployed leftovers still need the install window ([`deploy.md`](./deploy.md) §10.8). |
 
 **Provenance.** Before 2026-09-23 the sandbox could not read `/etc`, so the
 review copies in `nginx/` were reconstructed from (a) the observed live

@@ -164,12 +164,12 @@ check_site() {
   check_redirect "= /pilot" "GET /pilot" "/pilot/"
   check_redirect "= /app"   "GET /app"   "/app/"
   check_redirect "= /c"     "GET /c"     "/c/"
-  check_redirect "= /s"     "GET /s"     ""
+  check_redirect "= /s"     "GET /s"     "/s/"
   return 0
 }
 
 live_check() {
-  local url code
+  local code
   printf '\n=== live probes (%s) ===\n' "$APEX"
   if ! command -v curl >/dev/null 2>&1; then
     warn "curl not available — skipping the live probes"

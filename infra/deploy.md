@@ -320,7 +320,7 @@ Hard-coded defaults, overridable via the unit's `Environment=`:
 2. **CI-green gate** — only a commit whose `ci.yml` run concluded `success`.
 3. **Idempotent** — target already deployed and `/health` + `/pilot/` both 200 → silent `exit 0`.
 4. Deploy: record previous SHA → `git checkout --force <sha>` → `CI=true pnpm install --frozen-lockfile` → `prisma migrate deploy` (additive-only) → `systemctl restart roadwise-api.service` → health-check `/health` **and** `/pilot/`.
-5. **Publish the static tree** — `sync_web()` copies the checkout's publishable `web/*` files to `/var/www/roadwisefleet` in the same window (board #87, §10.8).
+5. **Publish the static tree** — `sync_web()` copies the checkout's publishable files under `web/` (nested trees included) to `/var/www/roadwisefleet` in the same window (board #87, §10.8).
 6. **Auto-rollback** — any failed step (including a failed static publish) reverts the checkout to the previous SHA, reinstalls, restarts, re-checks health, **re-publishes that commit's `web/`**, and alerts.
 7. **Notify** — `roadwise-notify.sh ready <sha> <url>` on success, `alert` on failure/rollback. No credential on a command line or in a log.
 
@@ -423,7 +423,7 @@ the run actually produced:
 | a deploy whose rollback is also unhealthy → `status=down`, non-zero exit, one manual-attention alert | the safety net beyond the acceptance |
 | a commit whose `ci.yml` run is not green → `status=pending`, nothing deployed, no notification | the CI gate |
 | the target already deployed and healthy → silent no-op | idempotency |
-| a good deploy publishes `web/index.html` + the static assets, and **never** `web/*.md`, with `web_sync=ok` | board #87 (the `web/` sync in the same window) |
+| a good deploy publishes `web/index.html` + the static assets (nested trees too), and **never** `web/*.md`, with `web_sync=ok` | board #87 (the `web/` sync in the same window) |
 | a rollback re-publishes the **previous commit's** `web/index.html` | board #87 (pages and API on the same revision) |
 | a `web/` publish that cannot happen → whole update rolled back, `web_sync=failed`, exactly one alert, no `ready` | board #87 (a half-published site is never recorded as ready) |
 
@@ -469,16 +469,18 @@ single biggest cause of "I don't see progress on the website".
 | Fact | Evidence |
 |---|---|
 | live `web/` is stale and hand-managed | `GET /` → `Last-Modified: Tue, 29 Sep 2026 18:30:05 GMT`, `Content-Length: 65067` — a manual `--web` run at 2026-09-29 18:30Z; the repo's `web/index.html` is a different size |
-| the live root holds files that are not in `web/` at all | `ls -la /var/www/roadwisefleet` shows `ux-flows/` (dir) + `ux-flows.html` |
+| the live root holds files that do not come from the repo's `web/` | `ls -la /var/www/roadwisefleet` shows `ux-flows/` (dir) + `ux-flows.html` — hand-deployed. Their source is **now in `web/`** (PR #62, merged 2026-09-30), so the deployer owns and republishes them; a nested sync is required for that. |
 | **W1 — repo documentation is published** | `GET /README.md` → **200** (`application/octet-stream`, 1749 B) and `GET /brand-spec.md` → **200** (1631 B). Dev notes, not site content |
 | files the site needs are missing | `GET /robots.txt` → 404, `GET /og-image.png` → 404, `GET /sitemap.xml` → 404, although `web/` ships all three and `robots.txt` advertises the sitemap |
-| the customer surfaces are unrouted | `GET /c/` → 404, `GET /s/` → 404 |
+| the customer surfaces are unrouted | `GET /c/` → 404, `GET /s/` → 404 — **fixed on the host 2026-09-30 06:50Z** (Team Leader apply under the owner's delegation; re-verified by me: `/c/` 200, `/s/` 200, both 301s, strict app CSP, see [`pilot-exposure.md`](./pilot-exposure.md) §2) |
 
 **What the deployer now does** (`sync_web()` in `roadwise-deploy-site.sh`):
 
 1. after the CI gate, the checkout, the migration, the restart and the health
-   check — i.e. in the same in-place update — publish every **top-level regular
-   file** in the checkout's `web/` to `$WEB_ROOT`;
+   check — i.e. in the same in-place update — publish every **regular file under
+   `web/`** to `$WEB_ROOT`, **nested trees included**: `web/ux-flows.html`
+   references `web/ux-flows/*.svg` (PR #62, merged 2026-09-30), so a
+   top-level-only sync would publish a page whose diagrams 404;
 2. **exclude `*.md`** (default `RWF_WEB_EXCLUDE`, W1) and dotfiles: repo
    documentation must never be published;
 3. **verify each copy by size** — `install(1)` returning 0 proves the call, not
@@ -488,10 +490,11 @@ single biggest cause of "I don't see progress on the website".
 5. on any failure, treat it like any other failed step: roll the checkout **and**
    the static tree back to the previous commit and alert once (§10.5).
 
-The sync is **additive**: it never deletes. Files that exist only in the web root
-(the `ux-flows*` leftovers, and the two `.md` files) are left where they are —
-removing them is a separate, explicit decision, not something a 5-minute timer
-should do unattended.
+The sync is **additive**: it never deletes. Files with no source in `web/` stay
+in the web root — at the time of writing the two `.md` files are the only ones
+(the `ux-flows*` copies are now overwritten by the repo versions, since PR #62
+moved their source into `web/`). Removing the `.md` files is a separate, explicit
+decision, not something a 5-minute timer should do unattended.
 
 **Owner window (this task's PR is protected — `infra/nginx/**`, `**/deploy*.sh`):**
 
@@ -512,9 +515,9 @@ sudo rm -f /var/www/roadwisefleet/README.md /var/www/roadwisefleet/brand-spec.md
 ```
 
 Keep `web/README.md` / `web/brand-spec.md` in git — they are useful in the repo;
-they must simply never be published. If the `ux-flows*` pages are wanted on the
-public root, move their source into `web/` so the deployer owns them too;
-otherwise delete them in the same window.
+they must simply never be published. The `ux-flows*` pages are already owned by
+the deployer (their source is in `web/`, PR #62), so the sync republishes them;
+the stale hand-deployed copies in the root are overwritten by the first sync.
 
 ## 11. Review follow-up (PR #29, overseer request-changes 2026-09-23)
 
