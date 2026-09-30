@@ -18,8 +18,9 @@
  *     carrier org (`GET /api/trips` with that org's owner token);
  *   - tenant isolation: another org's owner does not see it, and a second
  *     customer of the same carrier gets a flat 404 on the first one's order;
- *   - a marketplace supply choice answers 202 with the phase notice and creates
- *     nothing;
+ *   - a marketplace supply choice (board task #78) posts the load for real: the
+ *     order + booking are created AND a POSTED `LoadPosting` appears, so the
+ *     carriers can bid (the old 202 phase notice is gone);
  *   - the shareable tracking link reuses the board-#5/#39 machinery.
  *
  * The whole fixture lives in a DEDICATED org (`qa-customer-org`) and is removed
@@ -115,6 +116,16 @@ async function cleanup(): Promise<void> {
       select: { id: true },
     });
     await prisma.orderBooking.deleteMany({ where: { orderId: { in: orders.map((o) => o.id) } } });
+    // A marketplace booking (#78) also posts a load: its offers (if any) and the
+    // load row must go before the Order it references.
+    const loads = await prisma.loadPosting.findMany({
+      where: { customerId: { in: customerIds } },
+      select: { id: true },
+    });
+    if (loads.length > 0) {
+      await prisma.marketplaceOffer.deleteMany({ where: { loadId: { in: loads.map((l) => l.id) } } });
+      await prisma.loadPosting.deleteMany({ where: { id: { in: loads.map((l) => l.id) } } });
+    }
     await prisma.order.deleteMany({ where: { customerId: { in: customerIds } } });
     const accounts = await prisma.customerAccount.findMany({
       where: { customerId: { in: customerIds } },
@@ -133,10 +144,11 @@ async function cleanup(): Promise<void> {
   // The `customer` Role row belongs to the deploy path (migration
   // 20260929230000_add_customer_role), not to this fixture: restore it if a
   // failing test left it removed, so the database is never left unusable.
-  await prisma.role.upsert({
-    where: { id: CUSTOMER_ROLE },
-    update: {},
-    create: { id: CUSTOMER_ROLE, permissions: [...CUSTOMER_PERMISSIONS] },
+  // `createMany({ skipDuplicates })` is atomic ON CONFLICT DO NOTHING — an
+  // `upsert` (find-then-create) can race a concurrent test FILE into P2002.
+  await prisma.role.createMany({
+    skipDuplicates: true,
+    data: [{ id: CUSTOMER_ROLE, permissions: [...CUSTOMER_PERMISSIONS] }],
   });
 }
 
@@ -270,20 +282,34 @@ if (!ready) {
     assert.equal(res.json().detail, 'origin is required');
   });
 
-  test('a marketplace choice answers 202 with the phase notice and creates nothing', async () => {
-    const before = await prisma.order.count({ where: { customerId: firstCustomerId } });
+  test('a marketplace choice posts the load for real (board #78)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/customer/orders',
       headers: bearer(firstToken),
-      payload: { origin: 'Berlin, DE', destination: 'Hamburg, DE', supplyChoice: 'fleet' },
+      payload: {
+        origin: 'Berlin, DE',
+        destination: 'Warsaw, PL',
+        cargo: 'Machine parts',
+        equipment: 'curtainsider',
+        loadReadyAt: '2026-10-03T08:00:00.000Z',
+        deliverByAt: '2026-10-04T08:00:00.000Z',
+        pricingMode: 'budget',
+        budgetEur: 900,
+        supplyChoice: 'fleet',
+      },
     });
-    assert.equal(res.statusCode, 202, res.payload);
-    assert.equal(res.json().order, null);
-    assert.equal(res.json().marketplace.code, 'marketplace_unavailable');
-    assert.equal(res.json().marketplace.task, 'UXF-M1 (#76)');
-    assert.equal(res.json().marketplace.fallback, 'own_carrier');
-    assert.equal(await prisma.order.count({ where: { customerId: firstCustomerId } }), before);
+    assert.equal(res.statusCode, 201, res.payload);
+    assert.equal(res.json().marketplace.code, 'marketplace_posted');
+    assert.equal(res.json().load.status, 'POSTED');
+    assert.equal(res.json().load.destination, 'Warsaw, PL');
+    assert.ok(res.json().order.id, 'the order is created too');
+
+    const row = await prisma.loadPosting.findUnique({ where: { id: res.json().load.id } });
+    assert.equal(row?.customerId, firstCustomerId, 'the load is the caller’s, never a client value');
+    assert.equal(row?.orgId, null);
+    assert.equal(row?.orderId, res.json().order.id);
+    assert.equal(row?.pricingMode, 'budget');
   });
 
   test('booking with its own carrier creates the order and the draft trip', async () => {
@@ -376,10 +402,13 @@ if (!ready) {
     const res = await app.inject({ method: 'GET', url: '/api/customer/orders', headers: bearer(firstToken) });
     assert.equal(res.statusCode, 200, res.payload);
     const orders = res.json().orders as Array<Record<string, unknown>>;
-    assert.equal(orders.length, 1);
-    assert.equal(orders[0].id, firstOrderId);
-    assert.equal((orders[0].trip as Record<string, unknown>).status, 'DRAFT');
-    const raw = JSON.stringify(orders[0]);
+    // Two orders now: the direct own-carrier booking and the #78 marketplace
+    // booking (which posts a load and creates no trip until it is awarded).
+    assert.equal(orders.length, 2);
+    const own = orders.find((o) => o.id === firstOrderId);
+    assert.ok(own, 'the own-carrier order is listed');
+    assert.equal((own!.trip as Record<string, unknown>).status, 'DRAFT');
+    const raw = JSON.stringify(own);
     for (const forbidden of ['rateEur', 'driver', 'passwordHash', 'plate']) {
       assert.equal(raw.includes(forbidden), false, 'the summary must not carry ' + forbidden);
     }
@@ -451,7 +480,9 @@ if (!ready) {
     };
     assert.equal(counts.org, 1);
     assert.equal(counts.customers, 2);
-    assert.equal(counts.orders, 1);
+    // The direct booking and the #78 marketplace booking (whose order waits for
+    // an award before it has a trip).
+    assert.equal(counts.orders, 2);
     assert.equal(counts.trips, 1);
   });
 }

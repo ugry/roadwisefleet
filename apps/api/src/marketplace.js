@@ -84,6 +84,37 @@ export const AWARD_PAYMENT_METHODS = Object.freeze(['invoice']);
 /** Escrow refusal reason, surfaced to the client instead of a silent accept. */
 export const ESCROW_DEFERRED_REASON = 'escrow_deferred_uxf_own1';
 
+/**
+ * The cancellation-terms vocabulary the compare screen renders (#78). Kept to
+ * three readable codes rather than free text, so two offers are always compared
+ * on the same axis; an absent value means the default standard terms.
+ * @type {readonly string[]}
+ */
+export const CANCELLATION_TERMS = Object.freeze(['standard', 'flexible', 'strict']);
+
+/** Terms applied when an offer names none. */
+export const DEFAULT_CANCELLATION_TERMS = 'standard';
+
+/**
+ * The owner gate the auto-match toggle waits on (diagram 01: the engine may only
+ * auto-award once the owner has answered the matching limits). Exported so the
+ * UI, the route and the tests name the same gate.
+ */
+export const AUTO_MATCH_OWNER_GATE = 'UXF-OWN1 (#73 q6)';
+
+/** Auto-match rule bounds (`minRating` is the fleet app's 0–5 star scale). */
+export const AUTO_MATCH_MAX_RATING = 5;
+/** The refusal code when the rules ask to be enabled before the owner answered. */
+export const AUTO_MATCH_PENDING_OWNER = 'auto_match_pending_owner';
+
+/**
+ * The owner's answer switch (#73 q6). `false` until the owner fixes the matching
+ * limits; flipping it to `true` is the ONLY change needed to let a stored
+ * `enabled` rule take effect. It lives here (not in the route) so the gate, the
+ * UI and the tests read the same value.
+ */
+export const AUTO_MATCH_OWNER_APPROVED = false;
+
 /** Free-text cap, so a pasted document cannot reach the database. */
 export const MARKETPLACE_TEXT_MAX = 500;
 
@@ -374,6 +405,10 @@ export function normalizeOffer(body, options = {}) {
   }
   const expiresAt = optionalDate(b.expiresAt);
   if (!expiresAt.ok) return fail('expiresAt', 'market.offer.error.dateInvalid', 'expiresAt must be a valid ISO-8601 date');
+  const cancellationTerms = text(b.cancellationTerms, 20) || DEFAULT_CANCELLATION_TERMS;
+  if (!isCancellationTerm(cancellationTerms)) {
+    return fail('cancellationTerms', 'market.offer.error.termsUnknown', 'unknown cancellationTerms: ' + cancellationTerms);
+  }
   return {
     ok: true,
     value: {
@@ -381,9 +416,15 @@ export function normalizeOffer(body, options = {}) {
       pickupEtaAt: pickupEtaAt.value,
       deliveryEtaAt: deliveryEtaAt.value,
       note: text(b.note) || null,
+      cancellationTerms,
       expiresAt: expiresAt.value,
     },
   };
+}
+
+/** @param {unknown} value @returns {boolean} */
+export function isCancellationTerm(value) {
+  return typeof value === 'string' && CANCELLATION_TERMS.includes(value);
 }
 
 /**
@@ -402,6 +443,46 @@ export function normalizeAward(body) {
     return fail('paymentMethod', 'market.award.error.paymentUnknown', 'unknown paymentMethod: ' + paymentMethod);
   }
   return { ok: true, value: { paymentMethod } };
+}
+
+/**
+ * The load posting a customer's marketplace booking creates (#78): the same
+ * demand the wizard captured, as a POSTED load the carriers bid on. An
+ * "instant" pricing mode without a price is downgraded to "quotes" rather than
+ * stored inconsistently (an instant load must name a rate).
+ * @param {any} value the `customer-core.js#normalizeBooking` value
+ * @param {{ orderId: string, customerId?: string|null, orgId?: string|null, postedById?: string|null }} args
+ * @returns {any}
+ */
+export function buildLoadPostingData(value, args) {
+  const price = value.budgetEur === null || value.budgetEur === undefined ? null : value.budgetEur;
+  let pricingMode = PRICING_MODES.includes(value.pricingMode) ? value.pricingMode : 'quotes';
+  if (pricingMode === 'instant' && (price === null || price <= 0)) pricingMode = 'quotes';
+  return {
+    customerId: args.customerId || null,
+    orgId: args.orgId || null,
+    orderId: args.orderId,
+    origin: value.origin,
+    destination: value.destination,
+    cargo: value.cargo || null,
+    equipment: value.equipment || null,
+    loadReadyAt: value.loadReadyAt || null,
+    deliverByAt: value.deliverByAt || null,
+    pricingMode,
+    priceEur: price,
+    status: 'POSTED',
+    postedById: args.postedById || null,
+  };
+}
+
+/**
+ * The default expiry of a freshly posted load.
+ * @param {Date|string|number} now
+ * @returns {Date}
+ */
+export function defaultLoadExpiry(now) {
+  const at = now instanceof Date ? now : new Date(/** @type {any} */ (now));
+  return new Date(at.getTime() + DEFAULT_LOAD_TTL_SECONDS * 1000);
 }
 
 /* ------------------------------------------------------------- matching --- */
@@ -605,6 +686,143 @@ export function buildAwardTripData({ load, offer }) {
   };
 }
 
+/**
+ * The durable, in-app notice each side gets when a load is awarded (diagram 05:
+ * ③⑤). There is no mail/text provider on the pilot (the customer portal states
+ * the same), so the notification IS the award state plus the trip — the UI reads
+ * it back after a refresh, which is why it never depends on a delivery channel.
+ * The winner's trip, its status change and every declined rival are all durable
+ * rows; these records are the client-readable projection of exactly that.
+ * @param {{ load: any, offer: any, trip: any, declinedOffers?: any[] }} args
+ * @returns {Array<{audience: string, kind: string, loadId: string|null, offerId: string|null, tripId: string|null, orgId: string|null, messageKey: string}> }
+ */
+export function awardOutcomeNotifications({ load, offer, trip, declinedOffers } = /** @type {any} */ ({})) {
+  if (!load || !offer || !trip) return [];
+  const base = { loadId: load.id ?? null, offerId: offer.id ?? null, tripId: trip.id ?? null };
+  const out = [
+    { audience: 'shipper', kind: 'awarded', ...base, orgId: null, messageKey: 'market.notify.awardedShipper' },
+    { audience: 'carrier', kind: 'awarded', ...base, orgId: offer.carrierOrgId ?? null, messageKey: 'market.notify.awardedCarrier' },
+  ];
+  for (const rival of Array.isArray(declinedOffers) ? declinedOffers : []) {
+    out.push({
+      audience: 'carrier',
+      kind: 'declined',
+      loadId: load.id ?? null,
+      offerId: rival && rival.id ? rival.id : null,
+      tripId: null,
+      orgId: rival && rival.carrierOrgId ? rival.carrierOrgId : null,
+      messageKey: 'market.notify.declinedCarrier',
+    });
+  }
+  return out;
+}
+
+/**
+ * The carrier-side notices derived from its own offers: an accepted offer means
+ * "your bid won, here is the trip"; a declined one means "this load went
+ * elsewhere" (the load itself is not blocked). Durable state, no channel.
+ * @param {any[]} offers
+ * @returns {Array<{audience: string, kind: string, loadId: string|null, offerId: string, tripId: null, messageKey: string}>}
+ */
+export function carrierOutcomeNotifications(offers) {
+  const out = [];
+  for (const offer of Array.isArray(offers) ? offers : []) {
+    if (!offer || !offer.id) continue;
+    if (offer.status === 'ACCEPTED') {
+      out.push({ audience: 'carrier', kind: 'awarded', loadId: offer.loadId ?? null, offerId: offer.id, tripId: null, messageKey: 'market.notify.awardedCarrier' });
+    } else if (offer.status === 'DECLINED') {
+      out.push({ audience: 'carrier', kind: 'declined', loadId: offer.loadId ?? null, offerId: offer.id, tripId: null, messageKey: 'market.notify.declinedCarrier' });
+    }
+  }
+  return out;
+}
+
+/* ----------------------------------------------------------- auto-match --- */
+
+/**
+ * The rules a customer's auto-match screen edits (diagram 01: "set max price
+ * and min rating"). Stored on the customer profile as JSON; `enabled` is a
+ * request, never an effect — see `autoMatchEntitlement`.
+ * @returns {{ enabled: boolean, maxPriceEur: number|null, minRating: number|null }}
+ */
+export function autoMatchDefaults() {
+  return { enabled: false, maxPriceEur: null, minRating: null };
+}
+
+/**
+ * Validate the auto-match rules form. Fail-fast: one field error per submit.
+ * @param {unknown} body
+ * @returns {{ ok: true, value: { enabled: boolean, maxPriceEur: number|null, minRating: number|null } } | { ok: false, error: string, field: string, messageKey: string, detail: string }}
+ */
+export function normalizeAutoMatch(body) {
+  if (!isObject(body)) return fail('form', 'market.autoMatch.error.formInvalid', 'body must be an object');
+  const b = /** @type {Record<string, any>} */ (body);
+  const enabled = b.enabled === undefined ? false : Boolean(b.enabled);
+  const maxPrice = optionalNumber(b.maxPriceEur);
+  if (!maxPrice.ok) return fail('maxPriceEur', 'market.autoMatch.error.amountInvalid', 'maxPriceEur must be a non-negative number');
+  const minRating = optionalNumber(b.minRating);
+  if (!minRating.ok) return fail('minRating', 'market.autoMatch.error.amountInvalid', 'minRating must be a non-negative number');
+  if (minRating.value !== null && minRating.value > AUTO_MATCH_MAX_RATING) {
+    return fail('minRating', 'market.autoMatch.error.ratingRange', 'minRating must be at most ' + AUTO_MATCH_MAX_RATING);
+  }
+  return { ok: true, value: { enabled, maxPriceEur: maxPrice.value, minRating: minRating.value } };
+}
+
+/**
+ * May these rules take effect? The owner's #73 q6 answer fixes the matching
+ * limits, so an `enabled: true` is refused with a reason until the gate opens
+ * — the same honest-refusal shape as the escrow answer. A gated rule set is
+ * still stored, so the screen survives a refresh.
+ * @param {{ enabled?: boolean }|null|undefined} rules
+ * @param {{ ownerApproved?: boolean }} [options]
+ * @returns {{ allowed: boolean, active: boolean, error?: string, ownerGate?: string }}
+ */
+export function autoMatchEntitlement(rules, options = {}) {
+  const approved = options.ownerApproved === undefined ? AUTO_MATCH_OWNER_APPROVED : Boolean(options.ownerApproved);
+  if (rules && rules.enabled && !approved) {
+    return { allowed: false, active: false, error: AUTO_MATCH_PENDING_OWNER, ownerGate: AUTO_MATCH_OWNER_GATE };
+  }
+  return { allowed: true, active: Boolean(rules && rules.enabled && approved) };
+}
+
+/**
+ * Does an offer satisfy the rules? Only meaningful once enabled. A rule that
+ * cannot be checked (min rating set but the offer is unrated) is NOT satisfied
+ * — the engine never guesses.
+ * @param {{ enabled?: boolean, maxPriceEur?: number|null, minRating?: number|null }} rules
+ * @param {any} offer
+ * @returns {boolean}
+ */
+export function autoMatchAccepts(rules, offer) {
+  if (!rules || !rules.enabled || !offer) return false;
+  const price = offer.priceEur === null || offer.priceEur === undefined ? null : Number(offer.priceEur);
+  if (rules.maxPriceEur !== null && rules.maxPriceEur !== undefined) {
+    if (price === null || price > Number(rules.maxPriceEur)) return false;
+  }
+  const rating = offer.carrierRating === null || offer.carrierRating === undefined ? null : Number(offer.carrierRating);
+  if (rules.minRating !== null && rules.minRating !== undefined) {
+    if (rating === null || rating < Number(rules.minRating)) return false;
+  }
+  return true;
+}
+
+/**
+ * The offer auto-match would pick: the cheapest open offer that satisfies the
+ * rules. Null when the rules are off or nothing qualifies (the load then waits
+ * for the customer, never a silent award).
+ * @param {{ enabled?: boolean, maxPriceEur?: number|null, minRating?: number|null }} rules
+ * @param {any[]} offers
+ * @returns {any|null}
+ */
+export function autoMatchWinner(rules, offers) {
+  if (!rules || !rules.enabled) return null;
+  const accepted = (Array.isArray(offers) ? offers : []).filter(
+    (offer) => isOfferOpen(offer && offer.status) && autoMatchAccepts(rules, offer),
+  );
+  accepted.sort((a, b) => Number(a.priceEur ?? Infinity) - Number(b.priceEur ?? Infinity));
+  return accepted.length > 0 ? accepted[0] : null;
+}
+
 /* ------------------------------------------------------------ isolation --- */
 
 /** @param {unknown} permissions @returns {boolean} */
@@ -727,6 +945,12 @@ export function offerCard(offer) {
     pickupEtaAt: offer.pickupEtaAt || null,
     deliveryEtaAt: offer.deliveryEtaAt || null,
     note: offer.note || null,
+    // Compare-screen facets (#78). `carrierRating` has no writer yet — the
+    // compare row renders it as "not rated", never a fabricated number.
+    carrierTruck: offer.carrierTruck || null,
+    carrierRating: offer.carrierRating ?? null,
+    carrierVerified: Boolean(offer.carrierVerified),
+    cancellationTerms: offer.cancellationTerms || DEFAULT_CANCELLATION_TERMS,
     status: offer.status || null,
     parentOfferId: offer.parentOfferId || null,
     expiresAt: offer.expiresAt || null,
@@ -746,6 +970,57 @@ export function offerCards(offers) {
     .map(offerCard)
     .filter(Boolean)
     .sort((a, b) => Number(a.priceEur ?? 0) - Number(b.priceEur ?? 0));
+}
+
+/**
+ * The side-by-side compare rows (#78): the cheapest first (the honest order),
+ * each row carrying the flags the screen highlights and the delta against the
+ * load's named budget. Purely a read model — the award never trusts a flag.
+ *
+ * Deterministic tie-breaks (price, then earliest delivery ETA, then id) so the
+ * same offers always render in the same order after a refresh.
+ * @param {any[]} offers
+ * @param {any} [load]
+ * @returns {any[]}
+ */
+export function compareRows(offers, load) {
+  const rows = offerCards(offers);
+  if (rows.length === 0) return rows;
+
+  const budget =
+    load && load.priceEur !== null && load.priceEur !== undefined ? Number(load.priceEur) : null;
+  const prices = rows.map((row) => (row.priceEur === null ? Infinity : Number(row.priceEur)));
+  const cheapest = Math.min(...prices);
+  const deliveryTimes = rows.map((row) => {
+    const at = row.deliveryEtaAt ? new Date(/** @type {any} */ (row.deliveryEtaAt)).getTime() : Infinity;
+    return Number.isNaN(at) ? Infinity : at;
+  });
+  const fastest = Math.min(...deliveryTimes);
+
+  return rows
+    .map((row) => {
+      const price = row.priceEur === null ? Infinity : Number(row.priceEur);
+      const delivery = row.deliveryEtaAt ? new Date(/** @type {any} */ (row.deliveryEtaAt)).getTime() : Infinity;
+      return {
+        ...row,
+        flags: {
+          cheapest: price === cheapest,
+          fastest: delivery === fastest,
+          verified: row.carrierVerified === true,
+        },
+        deltaVsBudget: budget === null || !Number.isFinite(price) ? null : price - budget,
+        withinBudget: budget === null || !Number.isFinite(price) ? null : price <= budget,
+      };
+    })
+    .sort((a, b) => {
+      const pa = a.priceEur === null ? Infinity : Number(a.priceEur);
+      const pb = b.priceEur === null ? Infinity : Number(b.priceEur);
+      if (pa !== pb) return pa - pb;
+      const da = a.deliveryEtaAt ? new Date(/** @type {any} */ (a.deliveryEtaAt)).getTime() : Infinity;
+      const db2 = b.deliveryEtaAt ? new Date(/** @type {any} */ (b.deliveryEtaAt)).getTime() : Infinity;
+      if (da !== db2) return da - db2;
+      return String(a.id).localeCompare(String(b.id));
+    });
 }
 
 /**

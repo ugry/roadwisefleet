@@ -268,6 +268,23 @@ export function marketplaceNotice(id) {
   };
 }
 
+/* ------------------------------------------------------------- auto-match --- */
+
+/**
+ * The owner gate the auto-match toggle waits on (board task #78). The server
+ * (`apps/api/src/marketplace.js`) is the authority; this constant only lets the
+ * UI name the same gate without a second round trip.
+ */
+export const AUTO_MATCH_OWNER_GATE = 'UXF-OWN1 (#73 q6)';
+
+/**
+ * The empty auto-match rules the screen starts from.
+ * @returns {{ enabled: boolean, maxPriceEur: null, minRating: null }}
+ */
+export function autoMatchDefaults() {
+  return { enabled: false, maxPriceEur: null, minRating: null };
+}
+
 /* ---------------------------------------------------------------- booking --- */
 
 /**

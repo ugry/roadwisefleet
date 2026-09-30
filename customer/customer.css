@@ -226,6 +226,43 @@ dl.detail dd { margin: 0; text-align: right; font-weight: 600; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 
+/* ----------------------------------------------- offers (compare/award) --- */
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ok-tint);
+  color: var(--ok-ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+.compare {
+  width: 100%;
+  margin-top: 14px;
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 14px;
+}
+.compare caption { text-align: left; color: var(--muted); padding: 6px 0; }
+.compare th,
+.compare td {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.compare thead th { background: var(--tint); color: var(--tint-ink); font-size: 12px; }
+.compare .meta { display: block; color: var(--muted); font-size: 12px; }
+.counter-form {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  max-width: 420px;
+}
+/* The compare table scrolls on a phone instead of squeezing the columns. */
+.compare-scroll { overflow-x: auto; }
+
 /* Touch targets: 44px minimum on a coarse pointer (the phone case). */
 @media (pointer: coarse) {
   button, input, select, .nav-item, .choice { min-height: 44px; }
