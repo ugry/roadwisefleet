@@ -316,6 +316,15 @@ Hard-coded defaults, overridable via the unit's `Environment=`:
 | `RWF_SITE_STATE_FILE` | `/var/lib/roadwisefleet/deploy-site-state.json` |
 | database | `roadwisefleet` (via the app `.env`) |
 
+**Board #92 — the unit override must match the default.** `Environment=RWF_SITE_URL`
+in `roadwise-deploy-site.service` takes precedence over the default above; a stale
+pin there silently changes the recorded `url` and the READY-TO-TEST notify target
+while the script looks correct. The unit now pins the same root value, and
+`--self-test` (§10.6a) fails CI if the two ever diverge again. On a host where the
+unit is already installed, the fix is the one-line unit edit + `sudo systemctl
+daemon-reload` (a protected path → owner/Team-Leader window); the state file's
+`url` flips to the root on the next deploy.
+
 1. `flock` single instance; `git fetch` `main` in the checkout; target = newest `main` commit.
 2. **CI-green gate** — only a commit whose `ci.yml` run concluded `success`.
 3. **Idempotent** — target already deployed and `/health` + `/pilot/` both 200 → silent `exit 0`.
@@ -426,6 +435,7 @@ the run actually produced:
 | a good deploy publishes `web/index.html` + the static assets (nested trees too), and **never** `web/*.md`, with `web_sync=ok` | board #87 (the `web/` sync in the same window) |
 | a rollback re-publishes the **previous commit's** `web/index.html` | board #87 (pages and API on the same revision) |
 | a `web/` publish that cannot happen → whole update rolled back, `web_sync=failed`, exactly one alert, no `ready` | board #87 (a half-published site is never recorded as ready) |
+| the unit's `Environment=RWF_SITE_URL` equals the script's own default (and does not pin the retired `/pilot/`) | board #92 (a stale unit pin silently overrode the board #87 root default and kept recording `url=https://roadwisefleet.com/pilot/`) |
 
 Two behaviours the self-test pins, surfaced for the owner/Team Leader rather than
 changed here (deploy semantics on a reviewed artifact):

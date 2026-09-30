@@ -29,7 +29,15 @@ User=root
 Environment=RWF_SITE_DIR=/opt/roadwisefleet/api
 Environment=RWF_SITE_UNIT=roadwise-api.service
 Environment=RWF_SITE_PORT=8080
-Environment=RWF_SITE_URL=https://roadwisefleet.com/pilot/
+# Board #92: this value WINS over the deployer's own default
+# (`SITE_URL="${RWF_SITE_URL:-https://roadwisefleet.com/}"`), so a stale value
+# here silently overrode the board #87 change and kept recording
+# "url": "https://roadwisefleet.com/pilot/" and pointing the READY-TO-TEST
+# notify at /pilot/. It must match the script default — the public site is the
+# real entry point (owner directive, 2026-09-30) and the deployer publishes
+# web/ to the site root. /pilot/ stays reachable, it is just not advertised.
+# infra/deploy/roadwise-deploy-site.sh --self-test asserts this equality in CI.
+Environment=RWF_SITE_URL=https://roadwisefleet.com/
 Environment=RWF_SITE_STATE_FILE=/var/lib/roadwisefleet/deploy-site-state.json
 # pnpm is non-TTY here and refuses to install interactively without CI=true.
 Environment=CI=true
