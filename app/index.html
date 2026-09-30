@@ -41,6 +41,54 @@
       <p class="alert" id="loginError" role="alert" hidden></p>
       <button class="primary" id="loginSubmit" type="submit" data-i18n="login.submit">Sign in</button>
     </form>
+    <p class="helper"><a id="loginToSignup" href="/app/signup" data-i18n="login.createAccount"></a></p>
+  </div>
+</section>
+
+<!-- =====================================================================
+     Signup view. Public (board task #86): a visitor registers a fleet and
+     is signed in immediately. Never reachable while signed in — the guard
+     sends a signed-in person to their role home.
+     ===================================================================== -->
+<section id="signupView" class="login" hidden>
+  <div class="login-card">
+    <p class="brand-line">
+      <span class="brand" data-i18n="brand.name">RoadwiseFleet</span>
+      <span class="tag" data-i18n="brand.appTag">Fleet Manager</span>
+    </p>
+    <h1 data-i18n="signup.title">Create your fleet account</h1>
+    <p class="lead" data-i18n="signup.lead"></p>
+
+    <form id="signupForm" novalidate>
+      <div class="field">
+        <label for="signupName" data-i18n="signup.name">Your name</label>
+        <input id="signupName" name="name" type="text" required autocomplete="name"
+               data-i18n-placeholder="signup.namePlaceholder">
+      </div>
+      <div class="field">
+        <label for="signupCompany" data-i18n="signup.company">Company (optional)</label>
+        <input id="signupCompany" name="company" type="text" autocomplete="organization"
+               data-i18n-placeholder="signup.companyPlaceholder">
+      </div>
+      <div class="field">
+        <label for="signupEmail" data-i18n="signup.email">Work email</label>
+        <input id="signupEmail" name="email" type="email" required autocomplete="username"
+               inputmode="email" spellcheck="false"
+               data-i18n-placeholder="signup.emailPlaceholder"
+               aria-describedby="signupHelper">
+      </div>
+      <div class="field">
+        <label for="signupPassword" data-i18n="signup.password">Password</label>
+        <input id="signupPassword" name="password" type="password" required
+               autocomplete="new-password"
+               data-i18n-placeholder="signup.passwordPlaceholder"
+               aria-describedby="signupHelper">
+      </div>
+      <p class="helper" id="signupHelper" data-i18n="signup.passwordHint"></p>
+      <p class="alert" id="signupError" role="alert" hidden></p>
+      <button class="primary" id="signupSubmit" type="submit" data-i18n="signup.submit">Create account</button>
+    </form>
+    <p class="helper"><a id="signupToLogin" href="/app/login" data-i18n="signup.haveAccount"></a></p>
   </div>
 </section>
 
@@ -84,6 +132,9 @@
      (board task #4); the documents UI reuses it instead of restating them. -->
 <script src="/pilot/lib/driver-core.js"></script>
 <script src="/app/lib/app-core.js"></script>
+<!-- The signup rules (board task #86), shared with the API endpoint so the form
+     and the server agree by construction. -->
+<script src="/app/lib/signup.js"></script>
 <script src="/app/lib/trips.js"></script>
 <script src="/app/lib/documents.js"></script>
 <!-- The driver client view model (board task #38, F7a); it injects the shared

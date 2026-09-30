@@ -29,6 +29,28 @@ test('GET /app redirects to the mounted prefix', async () => {
   assert.equal(res.headers.location, '/app/');
 });
 
+test('the public entry points redirect into the app (board task #86)', async () => {
+  for (const [url, to] of [
+    ['/login', '/app/login'],
+    ['/signup', '/app/signup'],
+  ] as Array<[string, string]>) {
+    const res = await app.inject({ method: 'GET', url });
+    assert.equal(res.statusCode, 302, url);
+    assert.equal(res.headers.location, to, url);
+  }
+});
+
+test('the signup screen is served as the app shell, deep-link or not', async () => {
+  for (const url of ['/app/signup', '/app/signup.html']) {
+    const res = await app.inject({ method: 'GET', url });
+    assert.equal(res.statusCode, 200, url);
+    assert.match(String(res.headers['content-type']), /text\/html/, url);
+    assert.equal(res.headers['x-robots-tag'], 'noindex, nofollow', url);
+    assert.match(res.payload, /id="signupView"/, url);
+    assert.match(res.payload, /<script src="\/app\/lib\/signup\.js"><\/script>/, url);
+  }
+});
+
 test('GET /app/ serves the shell as HTML and is never indexed or cached', async () => {
   const res = await app.inject({ method: 'GET', url: '/app/' });
   assert.equal(res.statusCode, 200);
@@ -55,6 +77,7 @@ test('the app assets are served with their real content types', async () => {
     ['/app/app.css', /text\/css/],
     ['/app/app.js', /javascript/],
     ['/app/lib/app-core.js', /javascript/],
+    ['/app/lib/signup.js', /javascript/],
     ['/app/lib/documents.js', /javascript/],
     ['/app/lib/dispatch.js', /javascript/],
     ['/app/lib/dashboard.js', /javascript/],
@@ -76,6 +99,9 @@ test('the app assets are served with their real content types', async () => {
   assert.match(dashboard.payload, /RoadwiseDashboard/);
   const documents = await app.inject({ method: 'GET', url: '/app/lib/documents.js' });
   assert.match(documents.payload, /RoadwiseDocuments/);
+  const signup = await app.inject({ method: 'GET', url: '/app/lib/signup.js' });
+  assert.match(signup.payload, /RoadwiseSignup/);
+  assert.match(signup.payload, /validateRegistration/);
   // The documents UI reuses the driver core (board task #37): the shell loads it
   // from the pilot, which must stay reachable for the app.
   const driverCore = await app.inject({ method: 'GET', url: '/pilot/lib/driver-core.js' });

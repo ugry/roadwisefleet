@@ -7,9 +7,10 @@
  * header = { alg: "HS256", typ: "JWT" }
  * payload carries `sub` (userId), `org`, `role`, `name`, `iat`, `exp`.
  *
- * There is no signup / email verification / password reset in the pilot, so a
- * signed token issued by `POST /api/auth/login` is the whole session story.
- * The server keeps no session table: verification is signature + expiry only.
+ * There is no email verification / password reset in the pilot, so a signed
+ * token issued by `POST /api/auth/register` (self-service signup, board task
+ * #86) or `POST /api/auth/login` is the whole session story. The server keeps
+ * no session table: verification is signature + expiry only.
  * Tokens are therefore revocable only by rotating `AUTH_SECRET` (acceptable
  * for a pre-email pilot; a server-side session store is a later phase).
  *

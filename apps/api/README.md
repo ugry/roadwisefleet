@@ -92,7 +92,9 @@ cancellation-term vocabulary, the auto-match rules + owner gate and the
 award/decline notices — board task #78), the solo driver core (signup/truck validation, the
 OTP gate, the verification state and the bidding rule `canBid`, own-customer and
 quick-job validation, the saved-search filter and the wallet-lite read model —
-board task #77) and the `/s/` static-serving rules, locale
+board task #77) and the `/s/` static-serving rules, the self-service registration
+rules and their fixed-window rate limiter (board task #86 — the same validation
+the browser and `POST /api/auth/register` share), locale
 resolution and the pilot i18n catalogues) runs on the
 Node.js native test runner with no install:
 
@@ -179,7 +181,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | Route | Auth | Purpose |
 |---|---|---|
 | `GET /health` | — | liveness |
-| `POST /api/auth/login` | — | email + password login for pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
+| `POST /api/auth/register` | — (public) | self-service fleet-owner signup (board task #86): `name`, `email`, `password` (min 8, optional `company`); creates the `Org` + an `owner` `User` and returns `201 { token, user }` — the same session shape as login. Rate-limited per client IP (`429 rate_limited` + `retry-after`, default 10 per 15 min); `409 email_taken`; `400` with `field` + `messageKey` from the shared rules |
+| `POST /api/auth/login` | — | email + password login for registered or pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); **a caller without `trip:*` (a driver) is narrowed to their own trips — a client-supplied `driverId` cannot widen it** (board task #68); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
@@ -515,9 +518,15 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   #84: a relative server url becomes openable) and the API-error-to-catalogue
   mapping. Covered by `src/tracking-ui.test.js`.
 - `app/app.js` — the DOM/session half: `boot` → session restore → guard; login via
-  `POST /api/auth/login`; `GET /api/auth/me` on every cold load; logout; SPA
+  `POST /api/auth/login`, registration via `POST /api/auth/register` (board task
+  #86); `GET /api/auth/me` on every cold load; logout; SPA
   routing (`history.pushState`/`replaceState`) and a re-check on `popstate` /
   `pageshow`. It also renders the implemented views (dispatch, board task #35).
+- `app/lib/signup.js` — the pure registration rules (board task #86): name /
+  email / password validation (min 8 chars, fail-fast with one `field` +
+  catalogue `messageKey`) and normalisation (trimmed name/company, lower-cased
+  email). Loaded as a classic script in the browser and imported by
+  `POST /api/auth/register`, so the form and the endpoint cannot drift.
 - `app/lib/dispatch.js` — the pure create-trip form logic (board task #35): option
   labels that never leak a raw id, pre-submit validation, the exact
   `POST /api/trips` payload (including the optional `plannedAt`, board task #66),
@@ -540,7 +549,10 @@ Behaviour:
   replaced, so the back button does not bounce); a deep link is remembered and
   restored after login when the role may open it; a signed-in user on a route
   their role does not own is redirected to their role home; logout clears the
-  session and a back-button/bfcache restore is refused.
+  session and a back-button/bfcache restore is refused. `/app/signup` (board task
+  #86) is public like `/app/login`: it renders without a session, and a signed-in
+  visitor is sent to their role home. Neither public screen is ever an intent, so
+  login cannot bounce back to signup.
 - **Session.** The bearer token lives in `sessionStorage` (keys `rwf.app.token` /
   `rwf.app.user`, distinct from the pilot's) — it must not survive the tab and the
   app must not become CSRF-able. Nothing touches cookies.
@@ -1189,8 +1201,44 @@ from here).
 DB/operator step for now); the solo surface is English-only for now (the pilot
 i18n work is EN/DE/PL/TR for the driver PWA).
 
+## Self-service registration — board task #86 (owner directive 2026-09-30)
+
+Public entry point: a visitor registers a fleet and is signed in immediately.
+
+- **Endpoint.** `POST /api/auth/register` (`name`, `email`, `password`, optional
+  `company`) creates the `Org` (named after the company, else `"<owner>'s fleet"`)
+  and an `owner` `User`, then answers the login response shape
+  (`201 { token, user }`). The `owner` Role row is re-asserted idempotently in the
+  same transaction — the deploy path only runs `migrate deploy`, and a missing row
+  must not 500 a signup (the discipline the customer portal already uses).
+- **Rate-limited.** `src/rate-limit.js` is a dependency-free fixed window keyed by
+  client IP, applied **before validation**, so a refused request never reaches the
+  database: `429 { error: "rate_limited", retryAfterSeconds }` plus a `retry-after`
+  header. Defaults 10 per 15 minutes; tune with `REGISTER_RATE_LIMIT_MAX` /
+  `REGISTER_RATE_LIMIT_WINDOW_SECONDS`.
+- **Shared rules.** `app/lib/signup.js` is loaded by the browser *and* imported by
+  the route, so the form and the endpoint agree: fail-fast, exactly one `field` +
+  `messageKey`, `400 invalid_input`; a duplicate email is `409 email_taken`; no
+  password hash ever travels back.
+- **Screens.** The served app (`/app/`) now has three views — signup, login and the
+  authenticated shell. `/signup` and `/login` are the public URLs (a `302` into
+  `/app/signup` / `/app/login`), so the marketing site has stable links.
+- **Framing.** The user-facing "pilot surface — not the production site" copy is
+  gone from the served pilot landing page (`pilot/locales/*`): the tag reads as the
+  product tag and the lead/footer describe the product, not the environment.
+- **Evidence.** `pnpm --filter @roadwisefleet/api test:router` runs
+  `test/registration.test.ts` (DB-backed: register → `/api/auth/me` → dashboard →
+  trip list → login → duplicate `409`, in its own org, removed in `after`) and
+  `test/register-router.test.ts` (validation + `429` with no database). The
+  dependency-free guards are `src/signup-core.test.js`,
+  `src/registration.test.js` and `src/rate-limit.test.js`.
+- **Out of scope, stated honestly.** No email verification and no password reset:
+  the domain cannot send mail yet, so email verification stays gated on the owner's
+  task #29.
+
 ## Deliberately missing (until the right phase)
-- signup, email verification, password reset (email is not live) ·
+- email verification and password reset (email is not live — registration itself
+  is live, board task #86) ·
 - server-side session revocation ·
 - GPS ingest pipeline (Redis stream → Timescale) · document presigned uploads ·
 - WhatsApp bridge · payments (post-free-phase)
