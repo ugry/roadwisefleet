@@ -291,7 +291,7 @@ dropped for now. Owner decisions that closed blockers: **B1** install window
 
 | File | Host path after install | Role |
 |---|---|---|
-| `deploy/roadwise-deploy-site.sh` | `/usr/local/bin/roadwise-deploy-site.sh` | the single-environment deployer: `deploy` \| `status` \| `rollback [<sha>]` |
+| `deploy/roadwise-deploy-site.sh` | `/usr/local/bin/roadwise-deploy-site.sh` | the single-environment deployer: `deploy` \| `status` \| `rollback [<sha>]` — API **and** the static `web/` tree (board #87, §10.8) |
 | `systemd/roadwise-deploy-site.service` | `/etc/systemd/system/roadwise-deploy-site.service` | oneshot deploy job (root) |
 | `systemd/roadwise-deploy-site.timer` | `/etc/systemd/system/roadwise-deploy-site.timer` | the 5-minute poll |
 
@@ -308,7 +308,11 @@ Hard-coded defaults, overridable via the unit's `Environment=`:
 | `RWF_SITE_DIR` | `/opt/roadwisefleet/api` (in-place git checkout, not a symlink) |
 | `RWF_SITE_UNIT` | `roadwise-api.service` |
 | `RWF_SITE_PORT` | `8080` (`127.0.0.1`) |
-| `RWF_SITE_URL` | `https://roadwisefleet.com/pilot/` |
+| `RWF_SITE_URL` | `https://roadwisefleet.com/` (the site root; board #87 — was `/pilot/`) |
+| `RWF_WEB_DIR` | `$SITE_DIR/web` (the marketing tree in the same checkout) |
+| `RWF_WEB_ROOT` | `/var/www/roadwisefleet` (the nginx static root) |
+| `RWF_WEB_SYNC` | `1` (publish the static tree; `0` = API only) |
+| `RWF_WEB_EXCLUDE` | `*.md` (repo documentation must never be published — see §10.8 W1) |
 | `RWF_SITE_STATE_FILE` | `/var/lib/roadwisefleet/deploy-site-state.json` |
 | database | `roadwisefleet` (via the app `.env`) |
 
@@ -316,8 +320,9 @@ Hard-coded defaults, overridable via the unit's `Environment=`:
 2. **CI-green gate** — only a commit whose `ci.yml` run concluded `success`.
 3. **Idempotent** — target already deployed and `/health` + `/pilot/` both 200 → silent `exit 0`.
 4. Deploy: record previous SHA → `git checkout --force <sha>` → `CI=true pnpm install --frozen-lockfile` → `prisma migrate deploy` (additive-only) → `systemctl restart roadwise-api.service` → health-check `/health` **and** `/pilot/`.
-5. **Auto-rollback** — any failed step reverts the checkout to the previous SHA, reinstalls, restarts, re-checks health, and alerts.
-6. **Notify** — `roadwise-notify.sh ready <sha> <url>` on success, `alert` on failure/rollback. No credential on a command line or in a log.
+5. **Publish the static tree** — `sync_web()` copies the checkout's publishable `web/*` files to `/var/www/roadwisefleet` in the same window (board #87, §10.8).
+6. **Auto-rollback** — any failed step (including a failed static publish) reverts the checkout to the previous SHA, reinstalls, restarts, re-checks health, **re-publishes that commit's `web/`**, and alerts.
+7. **Notify** — `roadwise-notify.sh ready <sha> <url>` on success, `alert` on failure/rollback. No credential on a command line or in a log.
 
 ### 10.3 State contract
 
@@ -332,12 +337,16 @@ Hard-coded defaults, overridable via the unit's `Environment=`:
   "previous_sha": "<previous commit>",
   "status": "ready | rolled_back | failed | down | pending",
   "deployed_at": "<UTC ISO-8601>",
-  "url": "https://roadwisefleet.com/pilot/",
+  "url": "https://roadwisefleet.com/",
+  "web_root": "/var/www/roadwisefleet",
+  "web_sync": "ok | failed | skipped",
   "notify": "sent | not-sent-no-transport | not-sent-transport-failed | not-sent-error-<rc>"
 }
 ```
 
 `status=ready` with `notify=not-sent-*` means the pilot is fine but nobody was told.
+`web_sync` is the static-tree outcome for that revision (§10.8); `skipped` means
+`RWF_WEB_SYNC=0`.
 
 ### 10.4 Install (owner-approved window, root on elilavps2)
 
@@ -370,9 +379,17 @@ systemctl list-timers roadwise-deploy-site.timer
 
 ### 10.5 Rollback
 
-- **Automatic:** every failed step reverts the checkout to the recorded previous
-  SHA, reinstalls, restarts and re-checks `/health` + `/pilot/`, then alerts.
-  Migrations are **additive-only** and are not reverted.
+- **Automatic:** every failed step (dependency install, migration, health check,
+  or the static `web/` publish) reverts the checkout to the recorded previous
+  SHA, reinstalls, restarts, re-checks `/health` + `/pilot/`, re-publishes that
+  commit's `web/`, then alerts. Migrations are **additive-only** and are not
+  reverted.
+- **Static tree:** the rollback re-syncs `web/` **from the previous commit**, not
+  from a byte-snapshot of `/var/www/roadwisefleet`. That is deliberate: the
+  deployer owns both surfaces, so a hand-edited page must not survive a rollback.
+  The pages and the API therefore always identify the same revision. A file that
+  exists only in the web root (not in `web/`) is left alone — the sync is
+  additive and never deletes (§10.8).
 - **Manual:** `sudo /usr/local/bin/roadwise-deploy-site.sh rollback [<sha>]`
   (defaults to `previous_sha` from the state file).
 - **Roll back the installation:** `systemctl disable --now roadwise-deploy-site.timer`
@@ -406,6 +423,9 @@ the run actually produced:
 | a deploy whose rollback is also unhealthy → `status=down`, non-zero exit, one manual-attention alert | the safety net beyond the acceptance |
 | a commit whose `ci.yml` run is not green → `status=pending`, nothing deployed, no notification | the CI gate |
 | the target already deployed and healthy → silent no-op | idempotency |
+| a good deploy publishes `web/index.html` + the static assets, and **never** `web/*.md`, with `web_sync=ok` | board #87 (the `web/` sync in the same window) |
+| a rollback re-publishes the **previous commit's** `web/index.html` | board #87 (pages and API on the same revision) |
+| a `web/` publish that cannot happen → whole update rolled back, `web_sync=failed`, exactly one alert, no `ready` | board #87 (a half-published site is never recorded as ready) |
 
 Two behaviours the self-test pins, surfaced for the owner/Team Leader rather than
 changed here (deploy semantics on a reviewed artifact):
@@ -434,6 +454,67 @@ changed here (deploy semantics on a reviewed artifact):
   default umask; if that ever breaks, move the build steps to `debian` (§7.7).
 - **No staging fallback:** a bad merge reaches the live pilot; the safety net is
   the CI-green gate + auto-rollback, not a second environment (owner's choice).
+
+### 10.8 Static site sync — one deploy path for `web/` (board #87)
+
+**The problem this removes.** The public page at `https://roadwisefleet.com/` was
+served from `/var/www/roadwisefleet` and was synced **only** by a manual
+`roadwise-promote.sh --web` run, while the 5-minute deployer published merged
+`main` only into `/opt/roadwisefleet/api` (`/pilot/`, `/app/`, `/c/`, `/api/`,
+`/track/`). Merged `web/` changes therefore never reached the public page — the
+single biggest cause of "I don't see progress on the website".
+
+**Measured 2026-09-30 (read-only, before this change):**
+
+| Fact | Evidence |
+|---|---|
+| live `web/` is stale and hand-managed | `GET /` → `Last-Modified: Tue, 29 Sep 2026 18:30:05 GMT`, `Content-Length: 65067` — a manual `--web` run at 2026-09-29 18:30Z; the repo's `web/index.html` is a different size |
+| the live root holds files that are not in `web/` at all | `ls -la /var/www/roadwisefleet` shows `ux-flows/` (dir) + `ux-flows.html` |
+| **W1 — repo documentation is published** | `GET /README.md` → **200** (`application/octet-stream`, 1749 B) and `GET /brand-spec.md` → **200** (1631 B). Dev notes, not site content |
+| files the site needs are missing | `GET /robots.txt` → 404, `GET /og-image.png` → 404, `GET /sitemap.xml` → 404, although `web/` ships all three and `robots.txt` advertises the sitemap |
+| the customer surfaces are unrouted | `GET /c/` → 404, `GET /s/` → 404 |
+
+**What the deployer now does** (`sync_web()` in `roadwise-deploy-site.sh`):
+
+1. after the CI gate, the checkout, the migration, the restart and the health
+   check — i.e. in the same in-place update — publish every **top-level regular
+   file** in the checkout's `web/` to `$WEB_ROOT`;
+2. **exclude `*.md`** (default `RWF_WEB_EXCLUDE`, W1) and dotfiles: repo
+   documentation must never be published;
+3. **verify each copy by size** — `install(1)` returning 0 proves the call, not
+   that the bytes landed;
+4. **refuse an empty publish set** — an empty `web/` would ship a site with no
+   pages, which is worse than not syncing;
+5. on any failure, treat it like any other failed step: roll the checkout **and**
+   the static tree back to the previous commit and alert once (§10.5).
+
+The sync is **additive**: it never deletes. Files that exist only in the web root
+(the `ux-flows*` leftovers, and the two `.md` files) are left where they are —
+removing them is a separate, explicit decision, not something a 5-minute timer
+should do unattended.
+
+**Owner window (this task's PR is protected — `infra/nginx/**`, `**/deploy*.sh`):**
+
+```bash
+# 1. install the updated deployer (config-as-code -> host)
+sudo install -m 0755 infra/deploy/roadwise-deploy-site.sh /usr/local/bin/roadwise-deploy-site.sh
+sudo systemctl start roadwise-deploy-site.service     # or wait for the 5-minute timer
+sudo /usr/local/bin/roadwise-deploy-site.sh status    # expect status=ready, web_sync=ok
+
+# 2. install the /c/ location (pilot-exposure.md §2 has the reload order)
+sudo install -m 0644 infra/nginx/roadwisefleet.conf /etc/nginx/sites-available/roadwisefleet.conf
+sudo nginx -t && sudo systemctl reload nginx
+
+# 3. evidence, then cleanup of the pre-#87 hand-deployed leftovers (REVIEW FIRST)
+bash infra/checks/site-routes-check.sh --live
+curl -sI https://roadwisefleet.com/ | grep -i last-modified   # mtime bumps with no manual command
+sudo rm -f /var/www/roadwisefleet/README.md /var/www/roadwisefleet/brand-spec.md   # W1
+```
+
+Keep `web/README.md` / `web/brand-spec.md` in git — they are useful in the repo;
+they must simply never be published. If the `ux-flows*` pages are wanted on the
+public root, move their source into `web/` so the deployer owns them too;
+otherwise delete them in the same window.
 
 ## 11. Review follow-up (PR #29, overseer request-changes 2026-09-23)
 

@@ -22,16 +22,25 @@ Everything terminates on nginx; the upstreams are loopback-only.
 
 | Public path | Upstream | Served by | Notes |
 |---|---|---|---|
-| `/` and the four other static pages | `/var/www/roadwisefleet` | nginx (static) | Landing site. `Last-Modified: 2026-08-30`. |
+| `/` and the other static pages | `/var/www/roadwisefleet` | nginx (static) | The public site. **Board #87:** published by the pull-deployer from the checkout's `web/` (§10.8 of [`deploy.md`](./deploy.md)); before that it was synced only by a manual `--web` promote. |
 | `/dashboard`, `/diagrams` | `/var/www/roadwisefleet/*.html` | nginx (`alias`) | Pretty-URL aliases. |
 | `/api/waitlist` | `127.0.0.1:8787` | `roadwisefleet-waitlist.service` | **Legacy** waitlist microservice. Exact-match location. |
-| `/pilot/`, `/pilot/*.html` | `127.0.0.1:8080` | `roadwise-api.service` (`@fastify/static`, prefix `/pilot/`) | Non-indexable preview surface. |
+| `/pilot/`, `/pilot/*.html` | `127.0.0.1:8080` | `roadwise-api.service` (`@fastify/static`, prefix `/pilot/`) | Non-indexable preview surface, **kept working during the #87 transition** but no longer the entry framing. |
 | `/pilot` (no slash) | — | nginx `301` → `/pilot/` | |
-| `/app/`, `/app/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/app.ts`) | **Board #69** — Fleet Manager SPA shell + app assets. Prepared in [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf); **not live yet** (no `/app/` location on the host → 404); lands with the owner reload. |
+| `/app/`, `/app/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/app.ts`) | **Board #69** — Fleet Manager SPA shell + app assets. Live since the 2026-09-25 window. |
 | `/app` (no slash) | — | nginx `301` → `/app/` | Board #69. |
-| `/track/<token>` | `127.0.0.1:8080` | `roadwise-api.service` | Public, unauthenticated customer tracking link (board #5). **Not reachable off-host today** — the prod vhost proxies only `/api/` and `/pilot/`; the `location /track/` block is prepared in [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf) and lands with this change. |
-| `/api/*` (except `/api/waitlist`) | `127.0.0.1:8080` | `roadwise-api.service` | Pilot API: `/api/auth/*`, `/api/trips*`, `/api/waitlist` (not reached — see below). |
+| `/c/`, `/c/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/customer-app.ts`) | **Board #87** — customer portal SPA shell (`customer/`). Prepared in [`nginx/roadwisefleet.conf`](./nginx/roadwisefleet.conf) with the strict **app** header set; **not live yet** (no `/c/` location on the host → 404); lands with the owner reload. |
+| `/c` (no slash) | — | nginx `301` → `/c/` | Board #87. |
+| `/track/<token>` | `127.0.0.1:8080` | `roadwise-api.service` | Public, unauthenticated customer tracking link (board #5), live since the 2026-09-25 window. |
+| `/s/<token>` | `127.0.0.1:8080` | `roadwise-api.service` | **Board #75** — login-free POD/eCMR + invoice share surface. Routed (inert until the app route lands, then 404). |
+| `/s` (no slash) | — | nginx `301` → `/` | A bare `/s` carries no token, so it goes to the site root, not to `/s/`. |
+| `/api/*` (except `/api/waitlist`) | `127.0.0.1:8080` | `roadwise-api.service` | Pilot API: `/api/auth/*`, `/api/trips*`, `/api/customer/*`, `/api/waitlist` (not reached — see below). |
 | `/health` | — | `404` (nginx) | The API's `/health` is **not** exposed publicly, by design. |
+
+Board #87 guard: [`checks/site-routes-check.sh`](./checks/site-routes-check.sh)
+fails CI if any of these surfaces has no proxying, rate-limited, header-protected
+location, if a no-slash form loses its `301`, or if the no-inline `/c/` surface is
+given the pilot snippet's wider policy. Run it with `--live` in the owner window.
 
 Routing rule that matters: nginx longest-prefix wins, so the exact
 `location = /api/waitlist` beats `location /api/`. That is what keeps the live
@@ -118,6 +127,7 @@ fix for board #41; a >25 MB body is still refused on that route.
 | Pre-change backup | `roadwisefleet.conf.bak-20260922` (the orchestrator's stopgap backup, 2026-09-22 15:05 UTC) |
 | **Applied** | **2026-09-23 22:51 UTC** (owner-authorised window). The mirror is byte-identical to the running host file: `sha256 c34193a347f2a6680cbd74af6b7b0023f0ae6aadfef0fa6b8d9a077af265271e` |
 | Window backup | `/var/backups/nginx-config/20260923T225154Z/` (`etc-nginx.tgz` + `nginx -T` before + the old site file) |
+| **Pending (board #87)** | `location /c/` + `location = /c` are **in the mirror only** — the host file predates them, so `GET /c/` is still 404. They land with the next owner reload, in the same window as the `web/` sync ([`deploy.md`](./deploy.md) §10.8). |
 
 **Provenance.** Before 2026-09-23 the sandbox could not read `/etc`, so the
 review copies in `nginx/` were reconstructed from (a) the observed live

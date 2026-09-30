@@ -11,24 +11,28 @@
 #
 # Subcommands:
 #   deploy            (default) deploy the newest CI-green commit on `main` into
-#                     the pilot checkout in place, migrate, restart, health-check;
+#                     the pilot checkout in place, migrate, restart, health-check,
+#                     then publish web/* to the nginx web root (board #87);
 #                     auto-rollback on any failed step. Idempotent: a SILENT
 #                     no-op when the target is already deployed and healthy.
 #   status            print the recorded state and live health (no changes).
-#   rollback [<sha>]  revert the checkout to the recorded previous commit, or <sha>.
+#   rollback [<sha>]  revert the checkout to the recorded previous commit, or <sha>,
+#                     and re-publish that commit's web/ tree.
 #   --self-test       run the no-host/no-network assertions CI runs (board #42);
 #                     drives this same file in a fixture git repo with stubbed
 #                     curl/systemctl/python3/pnpm/notify and asserts the
 #                     acceptance-relevant decisions — a good deploy records the
-#                     deployed SHA as ready, and a deliberately broken deploy
-#                     rolls the checkout back and alerts exactly once
+#                     deployed SHA as ready and publishes web/, and a
+#                     deliberately broken deploy rolls the checkout AND the
+#                     static tree back and alerts exactly once
 #   --help, help      print this usage
 #
 # Target (hard-coded defaults; overridable via the unit's Environment=):
 #   repo checkout  /opt/roadwisefleet/api      (in place, NOT a release symlink)
 #   unit           roadwise-api.service
 #   origin         http://127.0.0.1:8080       (database: roadwisefleet)
-#   public surface https://roadwisefleet.com/pilot/
+#   static tree    web/ -> /var/www/roadwisefleet  (board #87)
+#   public surface https://roadwisefleet.com/  (was .../pilot/ before #87)
 #
 # Design notes:
 #   * Reuses the reviewed helpers (log / die / state / ci_is_green / wait_healthy /
@@ -68,7 +72,19 @@ SITE_DIR="${RWF_SITE_DIR:-/opt/roadwisefleet/api}"
 SITE_ENV="${RWF_SITE_ENV:-$SITE_DIR/.env}"
 SITE_UNIT="${RWF_SITE_UNIT:-roadwise-api.service}"
 SITE_PORT="${RWF_SITE_PORT:-8080}"
-SITE_URL="${RWF_SITE_URL:-https://roadwisefleet.com/pilot/}"
+SITE_URL="${RWF_SITE_URL:-https://roadwisefleet.com/}"
+
+# Static marketing tree (board #87). The public site at /var/www/roadwisefleet
+# used to be synced only by a manual `roadwise-promote.sh --web` run, so merged
+# `web/` changes never reached the public page (measured 2026-09-30: the live
+# index.html was from a 2026-09-29 18:30Z hand run while `main` had moved on).
+# The deployer now publishes web/* in the SAME in-place update, after the CI
+# gate and the API update, and re-syncs the previous commit's web/ on rollback.
+WEB_DIR="${RWF_WEB_DIR:-$SITE_DIR/web}"
+WEB_ROOT="${RWF_WEB_ROOT:-/var/www/roadwisefleet}"
+WEB_SYNC="${RWF_WEB_SYNC:-1}"              # 1 = publish the static tree, 0 = API only
+WEB_EXCLUDE="${RWF_WEB_EXCLUDE:-*.md}"     # repo documentation must never be published
+WEB_SYNC_RESULT="skipped"                  # set by sync_web(): ok | failed | skipped
 
 STATE_DIR="${RWF_STATE_DIR:-/var/lib/roadwisefleet}"
 STATE_FILE="${RWF_SITE_STATE_FILE:-$STATE_DIR/deploy-site-state.json}"
@@ -214,16 +230,77 @@ apply_migrations() { # additive-only against the pilot database in $SITE_ENV
   )
 }
 
+web_files() { # web_files <dir> -> newline-separated publishable file names (sorted)
+  # Top-level regular files only (web/ is flat today). Dotfiles are never
+  # published, and $WEB_EXCLUDE (default `*.md`) keeps repo documentation —
+  # web/README.md, web/brand-spec.md — off the public root. Measured 2026-09-30:
+  # both .md files WERE reachable at https://roadwisefleet.com/ (200), left there
+  # by the hand-managed deploy this task replaces; the deployer must not
+  # republish them, and the owner window removes the two copies (deploy.md §10.8).
+  local dir="$1"
+  find "$dir" -maxdepth 1 -type f ! -name '.*' ! -name "$WEB_EXCLUDE" -printf '%f\n' 2>/dev/null | sort
+}
+
+sync_web() { # sync_web <src_web_dir> -> 0 ok / 1 failed; sets WEB_SYNC_RESULT
+  local src="$1" name count=0 src_bytes dst_bytes files
+  if [ ! -d "$src" ]; then
+    log "WARN: web source directory $src not found — static tree not synced"
+    WEB_SYNC_RESULT="failed"
+    return 1
+  fi
+  if [ ! -d "$WEB_ROOT" ]; then
+    log "WARN: web root $WEB_ROOT is not a directory — static tree not synced"
+    WEB_SYNC_RESULT="failed"
+    return 1
+  fi
+
+  files="$(web_files "$src")"
+  if [ -z "$files" ]; then
+    # An empty publish set would leave a site with no pages. Refuse rather than
+    # report a "successful" sync that shipped nothing.
+    log "WARN: no publishable files under $src — refusing to sync the static tree"
+    WEB_SYNC_RESULT="failed"
+    return 1
+  fi
+
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    if ! install -m 0644 "$src/$name" "$WEB_ROOT/$name"; then
+      log "ERROR: publishing $name to $WEB_ROOT failed"
+      WEB_SYNC_RESULT="failed"
+      return 1
+    fi
+    # install(1)'s exit status proves the copy call returned, not that the bytes
+    # landed. Compare sizes — the cheap check that catches a truncated write.
+    src_bytes="$(wc -c < "$src/$name")"
+    dst_bytes="$(wc -c < "$WEB_ROOT/$name" 2>/dev/null || echo -1)"
+    if [ "$src_bytes" != "$dst_bytes" ]; then
+      log "ERROR: $name published as $dst_bytes bytes, expected $src_bytes"
+      WEB_SYNC_RESULT="failed"
+      return 1
+    fi
+    count=$(( count + 1 ))
+  done <<EOF
+$files
+EOF
+
+  log "published $count static web file(s) from $src to $WEB_ROOT"
+  WEB_SYNC_RESULT="ok"
+  return 0
+}
+
 record_ready() { # record_ready <sha> <previous_sha>
   local sha="$1" prev="$2"
   state_write "surface=site" "sha=$sha" "short_sha=${sha:0:7}" "previous_sha=$prev" \
-    "status=ready" "deployed_at=$(now_utc)" "url=$SITE_URL" "notify=$NOTIFY_RESULT"
+    "status=ready" "deployed_at=$(now_utc)" "url=$SITE_URL" "web_root=$WEB_ROOT" \
+    "web_sync=$WEB_SYNC_RESULT" "notify=$NOTIFY_RESULT"
 }
 
 record_problem() { # record_problem <status> <live_sha> <failed_sha> <detail>
   local status="$1" live="$2" failed="$3" detail="$4"
   state_write "surface=site" "status=$status" "sha=$live" "short_sha=${live:0:7}" \
-    "previous_sha=$failed" "failed_sha=$failed" "detail=$detail" \
+    "previous_sha=$failed" "failed_sha=$failed" "detail=$detail" "web_root=$WEB_ROOT" \
+    "web_sync=$WEB_SYNC_RESULT" \
     "failed_at=$(now_utc)" "url=$SITE_URL" "notify=$NOTIFY_RESULT"
 }
 
@@ -293,9 +370,21 @@ deploy_site() {
     return $?
   fi
 
+  # Static marketing tree (board #87) — same update window, after the API is up.
+  # A failure here is treated like any other failed step: the whole update rolls
+  # back (checkout + API + static tree), so the state file never claims a
+  # half-published site.
+  if [ "$WEB_SYNC" = 1 ]; then
+    if ! sync_web "$WEB_DIR"; then
+      log "static web sync FAILED for $target"
+      rollback_to "$prev_sha" "$target" "static web sync failed"
+      return $?
+    fi
+  fi
+
   notify ready "$target" "$SITE_URL"
   record_ready "$target" "$prev_sha"
-  log "pilot is READY TO TEST at $target (notify: $NOTIFY_RESULT)"
+  log "pilot is READY TO TEST at $target (notify: $NOTIFY_RESULT, web_sync: $WEB_SYNC_RESULT)"
   return 0
 }
 
@@ -324,14 +413,25 @@ rollback_to() { # rollback_to <target_sha> <failed_sha> <reason>
     log "WARN: systemctl restart $SITE_UNIT returned non-zero"
   fi
 
+  # Re-publish the static tree from the commit we just rolled back to, so the
+  # public pages and the API are the same revision. This is a re-sync from git,
+  # NOT a byte-snapshot of the pre-deploy directory: the deployer owns both
+  # surfaces and a drifted hand-edit must not survive a rollback.
+  local web_note=""
+  if [ "$WEB_SYNC" = 1 ]; then
+    if ! sync_web "$WEB_DIR"; then
+      web_note=" The static web tree could NOT be re-synced (see infra/deploy.md §10.8)."
+    fi
+  fi
+
   if wait_healthy "$SITE_PORT" "$HEALTH_TIMEOUT_S"; then
-    notify alert "SITE DEPLOY of $failed FAILED ($reason); rolled back to $target and the pilot is healthy again."
+    notify alert "SITE DEPLOY of $failed FAILED ($reason); rolled back to $target and the pilot is healthy again.${web_note}"
     record_problem "rolled_back" "$target" "$failed" "$reason"
-    log "rollback to $target OK (notify: $NOTIFY_RESULT)"
+    log "rollback to $target OK (notify: $NOTIFY_RESULT, web_sync: $WEB_SYNC_RESULT)"
     return 0
   fi
 
-  notify alert "SITE DOWN: deploy of $failed FAILED ($reason) and the rollback to $target is not healthy. Manual attention needed."
+  notify alert "SITE DOWN: deploy of $failed FAILED ($reason) and the rollback to $target is not healthy. Manual attention needed.${web_note}"
   record_problem "down" "$target" "$failed" "$reason; rollback health check failed"
   log "ERROR: rollback to $target also failed health check"
   return 1
@@ -386,6 +486,7 @@ self_test() {
   local SELF OUT RC MAIL="$tmp/notify.log" BIN="$tmp/bin"
   local HEALTH_FAIL_CALLS=0 PNPM_FAIL="" CI_FAIL=0
   local SRC="$tmp/src" ORIGIN="$tmp/origin.git" SITE="$tmp/site"
+  local WWW="$tmp/www" WEB_ROOT_VALUE="$tmp/www"
   local PREV TARGET
   SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
@@ -409,13 +510,21 @@ self_test() {
   git -C "$SRC" config user.email selftest@example.invalid
   git -C "$SRC" config user.name "deploy-site self-test"
   printf '.env\n' > "$SRC/.gitignore"
+  # A static marketing tree, so the board #87 behaviour (publish web/ -> the
+  # nginx root, keep repo docs off it, re-publish the previous tree on rollback)
+  # is exercised, not just described.
+  mkdir -p "$SRC/web"
+  printf 'landing v1\n' > "$SRC/web/index.html"
+  printf 'fake-png-bytes\n' > "$SRC/web/og-image.png"
+  printf '# repo documentation — must never be published\n' > "$SRC/web/README.md"
   printf 'v1\n' > "$SRC/app.txt"
-  git -C "$SRC" add .gitignore app.txt
+  git -C "$SRC" add .gitignore app.txt web
   git -C "$SRC" commit -q -m v1
   git clone -q --bare "$SRC" "$ORIGIN"
   git clone -q "$ORIGIN" "$SITE"
   printf 'DATABASE_URL="postgres://fixture@127.0.0.1:5432/roadwisefleet_selftest"\n' > "$SITE/.env"
   printf 'v2\n' > "$SRC/app.txt"
+  printf 'landing v2\n' > "$SRC/web/index.html"
   git -C "$SRC" commit -q -am v2
   git -C "$SRC" push -q "$ORIGIN" main
   PREV="$(git -C "$SITE" rev-parse HEAD)"
@@ -487,12 +596,18 @@ PY
     if [ -f "$MAIL" ]; then grep -c -- "$1" "$MAIL" || true; else echo 0; fi
   }
   site_sha() { git -C "$SITE" rev-parse HEAD; }
+  page() { # page <name> — the content of a published static file (empty if absent)
+    if [ -f "$WWW/$1" ]; then cat "$WWW/$1"; fi
+  }
   run_deploy() { # drive the real deployer against the fixtures
     capture env \
       RWF_SITE_DIR="$SITE" \
       RWF_SITE_UNIT="roadwise-api.service" \
       RWF_SITE_PORT="18080" \
-      RWF_SITE_URL="https://selftest.invalid/pilot/" \
+      RWF_SITE_URL="https://selftest.invalid/" \
+      RWF_WEB_DIR="$SITE/web" \
+      RWF_WEB_ROOT="$WEB_ROOT_VALUE" \
+      RWF_WEB_SYNC="1" \
       RWF_STATE_DIR="$tmp/state" \
       RWF_SITE_STATE_FILE="$tmp/state/deploy-site-state.json" \
       RWF_LOG_FILE="$tmp/deploy.log" \
@@ -512,6 +627,11 @@ PY
     git -C "$SITE" checkout -q -B main "$PREV"
     rm -rf "$tmp/state"
     rm -f "$tmp/health.count" "$MAIL"
+    # A stale, hand-managed web root — exactly the drift board #87 is about.
+    rm -rf "$WWW"
+    mkdir -p "$WWW"
+    printf 'stale hand-deployed page\n' > "$WWW/index.html"
+    WEB_ROOT_VALUE="$WWW"
   }
 
   # --- 1. a good deploy records the deployed SHA and notifies once ----------
@@ -526,6 +646,15 @@ PY
   check "no alert is sent for a good deploy" "$(notified '^alert ')" "0"
   check "the run reports READY TO TEST with the deployed SHA" \
     "$(printf '%s\n' "$OUT" | grep -c "READY TO TEST at $TARGET" || true)" "1"
+  # board #87: the same window publishes the static marketing tree.
+  check "a good deploy publishes the new web/ index.html" "$(page index.html)" "landing v2"
+  check "a good deploy publishes the static assets alongside the HTML" \
+    "$(wc -c < "$WWW/og-image.png")" "$(wc -c < "$SITE/web/og-image.png")"
+  check "repo documentation is NOT published to the web root (board #87 W1)" \
+    "$([ -e "$WWW/README.md" ] && echo present || echo absent)" "absent"
+  check "the state records web_sync=ok" "$(state web_sync)" "ok"
+  check "the run reports the number of published files" \
+    "$(printf '%s\n' "$OUT" | grep -c 'published 2 static web file(s)' || true)" "1"
 
   # --- 2. idempotent: the target already deployed and healthy is a no-op -----
   rm -f "$tmp/health.count" "$MAIL"; HEALTH_FAIL_CALLS=0
@@ -547,6 +676,9 @@ PY
   check "the alert names the failed commit" "$(notified "$TARGET")" "1"
   check "no ready notification is sent for a broken deploy" "$(notified '^ready ')" "0"
   check "a rolled-back deploy exits 0 — the pilot is healthy again, the alert is the report" "$RC" "0"
+  # board #87: the rollback must re-publish the previous commit's static tree,
+  # not leave the failed revision's pages or the old hand-managed ones live.
+  check "a rollback re-publishes the previous commit's web/ index.html" "$(page index.html)" "landing v1"
 
   # --- 4. a deploy whose rollback is also unhealthy is marked down -----------
   reset_fixture; PNPM_FAIL=""; CI_FAIL=0
@@ -567,6 +699,22 @@ PY
   check "no notification is sent for a deferral" "$(notified '^ready ')" "0"
   check "no alert is sent for a deferral" "$(notified '^alert ')" "0"
 
+  # --- 6. board #87: a failed static web sync rolls the whole update back ----
+  # A half-published site must never be recorded as `ready`: if web/ cannot be
+  # published, the API deploy is rolled back too, so the public pages and the
+  # API stay on the same revision and the state file says so.
+  reset_fixture; HEALTH_FAIL_CALLS=0; PNPM_FAIL=""; CI_FAIL=0
+  : > "$tmp/not-a-dir"                  # $WEB_ROOT exists but is a file, not a dir
+  WEB_ROOT_VALUE="$tmp/not-a-dir"
+  run_deploy
+  check "a failed web sync rolls the checkout back to the previous commit" "$(site_sha)" "$PREV"
+  check "a failed web sync records status=rolled_back" "$(state status)" "rolled_back"
+  check "a failed web sync records web_sync=failed" "$(state web_sync)" "failed"
+  check "a failed web sync sends exactly one alert" "$(notified '^alert ')" "1"
+  check "the alert names the static web sync" "$(notified 'static web sync failed')" "1"
+  check "no ready notification is sent when the web tree could not be published" "$(notified '^ready ')" "0"
+  WEB_ROOT_VALUE="$WWW"
+
   rm -rf "$tmp"
   printf 'self-test: %d passed, %d failed\n' "$tests_pass" "$tests_fail"
   [ "$tests_fail" = 0 ] || return 1
@@ -579,11 +727,13 @@ Usage: $PROG [deploy|status|rollback [<sha>]]
 
   deploy            deploy the newest CI-green commit on $BRANCH into $SITE_DIR
                     (idempotent; auto-rollback on failed install/migrate/health)
+                    and publish web/ to $WEB_ROOT (board #87)
   status            print the recorded deploy state and live health
   rollback [<sha>]  revert to the recorded previous commit, or to <sha>
   --self-test       run the no-host/no-network assertions CI runs (board #42)
 
-Target defaults: unit $SITE_UNIT, http://127.0.0.1:$SITE_PORT, surface $SITE_URL.
+Target defaults: unit $SITE_UNIT, http://127.0.0.1:$SITE_PORT, surface $SITE_URL,
+static tree $WEB_DIR -> $WEB_ROOT (excludes $WEB_EXCLUDE).
 Environment overrides are documented in infra/deploy.md §10.
 EOF
 }
