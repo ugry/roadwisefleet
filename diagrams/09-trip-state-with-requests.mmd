@@ -1,0 +1,25 @@
+stateDiagram-v2
+    [*] --> DRAFT
+    DRAFT --> ASSIGNED: dispatcher assigns
+    ASSIGNED --> ON_HOLD: employee requests / dispatcher confirms
+    ASSIGNED --> CANCELLATION_REQUESTED: driver (employed) requests
+    ASSIGNED --> CANCELLED: owner / dispatcher cancels
+    CANCELLATION_REQUESTED --> CANCELLED: approved
+    CANCELLATION_REQUESTED --> ASSIGNED: declined
+    CANCELLATION_REQUESTED --> CANCELLED: SLA expired + policy auto-approve
+    ON_HOLD --> ASSIGNED: issue resolved
+    ON_HOLD --> REASSIGNMENT_REQUESTED: dispatcher proposes new driver
+    REASSIGNMENT_REQUESTED --> ASSIGNED: approved
+    ASSIGNED --> LOADED: driver confirms load
+    LOADED --> IN_TRANSIT: departed
+    IN_TRANSIT --> DELAY_REPORTED: driver reports (ETA change)
+    DELAY_REPORTED --> IN_TRANSIT: ETA accepted
+    IN_TRANSIT --> BREAKDOWN: driver reports, evidence attached
+    BREAKDOWN --> REASSIGNMENT_REQUESTED: rescue / relay
+    BREAKDOWN --> CANCELLATION_REQUESTED: unrecoverable
+    IN_TRANSIT --> DELIVERED: arrived
+    DELIVERED --> POD_UPLOADED: documents complete
+    POD_UPLOADED --> INVOICED: invoice issued
+    INVOICED --> SETTLED: paid
+    SETTLED --> [*]
+    CANCELLED --> [*]
