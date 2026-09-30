@@ -130,6 +130,26 @@ button.secondary { border-color: var(--border); font-weight: 600; }
 button.danger { border-color: var(--border); color: var(--danger); font-weight: 600; }
 button:disabled { opacity: .6; cursor: default; }
 
+/* Auth card secondary action (board task #94): the "Register" control must read
+ * as the equal of the primary "Sign in" button, not as an underlined link. Same
+ * box metrics as `button.primary`; a quieter surface so the primary leads. The
+ * selector is scoped to `.card` (the auth card only) so the shared
+ * `button.secondary` used inside the portal panels is unchanged. */
+.card button.secondary {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 14px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 600;
+}
+.card button.secondary:hover { border-color: var(--primary); color: var(--primary); }
+.card .prompt { margin: 16px 0 0; font-size: 14px; }
+
 .alert {
   margin: 14px 0 0;
   padding: 10px 12px;
