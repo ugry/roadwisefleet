@@ -1,0 +1,7 @@
+Subject: Your driver for {{trip_ref}} is assigned
+
+Hi {{customer_name}},
+
+A driver has been assigned to {{trip_ref}}: {{driver_name}}, vehicle {{vehicle}}. Track the shipment any time from your link.
+
+-- RoadwiseFleet

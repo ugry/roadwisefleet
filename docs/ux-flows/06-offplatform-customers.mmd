@@ -1,0 +1,82 @@
+flowchart TD
+    classDef fleet fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef solo fill:#d3f9d8,stroke:#2b8a3e,color:#000
+    classDef guest fill:#fff3bf,stroke:#e8590c,color:#000
+    classDef money fill:#e5dbff,stroke:#5f3dc4,color:#000
+    classDef warn fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef ok fill:#b2f2bb,stroke:#2b8a3e,color:#000
+
+    START(["A customer who is NOT registered<br/>on RoadwiseFleet needs cargo moved"]):::guest
+
+    %% ================= FLEET LANE =================
+    subgraph FLEET["LANE 1 — Fleet handles its own customer"]
+        F1["Customer calls / WhatsApps / emails the fleet<br/>(existing business relationship)"]:::fleet
+        F2["Customers menu → Add customer (quick)<br/>name · phone · WhatsApp · language · credit terms"]:::fleet
+        F3["Create order manually:<br/>route · cargo · date · price (rate card or fixed)"]:::fleet
+        F4["Dispatch as usual — assign driver + truck"]:::fleet
+        F5["Send the customer a tracking link<br/>(WhatsApp / SMS / email) — no login"]:::guest
+        F6["Delivery: POD + eCMR arrive on the same link;<br/>customer downloads documents"]:::guest
+        F7{"How do they pay?"}:::money
+        F8["Invoice from POD → sent to link/email;<br/>bank transfer / card link; mark paid in Finance"]:::money
+        F9["Prepaid / on delivery (cash) —<br/>fleet records the payment manually"]:::money
+        F10["Repeat customer: saved lane + rate →<br/>next order in 2 clicks"]:::fleet
+        F11["Invite to portal account:<br/>keeps history, self-service tracking, invoices"]:::ok
+        F1 --> F2 --> F3 --> F4 --> F5 --> F6 --> F7
+        F7 -->|"invoice"| F8 --> F10
+        F7 -->|"cash / prepaid"| F9 --> F10
+        F10 --> F11
+    end
+
+    %% ================= SOLO LANE =================
+    subgraph SOLO["LANE 2 — Solo driver handles his own customer"]
+        S1["My regular customer calls me directly"]:::solo
+        S2["App → My customers → Add:<br/>name · phone · default lane and rate"]:::solo
+        S3{"New job or repeat?"}:::solo
+        S4["Create quick job:<br/>pickup · delivery · cargo · date · price"]:::solo
+        S5["Repeat last job in 2 taps (saved route)"]:::solo
+        S6["Send tracking link by WhatsApp / SMS"]:::guest
+        S7["Drive it — statuses update the link live"]:::solo
+        S8["POD + notes uploaded; customer downloads docs"]:::guest
+        S9{"Invoice?"}:::money
+        S10["Generate invoice PDF in the app → send"]:::money
+        S11["Paid outside (cash / own invoice) → mark paid"]:::money
+        S12["History + recurring schedule"]:::solo
+        S1 --> S2 --> S3
+        S3 -->|"new"| S4 --> S6
+        S3 -->|"repeat"| S5 --> S6
+        S6 --> S7 --> S8 --> S9
+        S9 -->|"app invoice"| S10 --> S12
+        S9 -->|"external"| S11 --> S12
+    end
+
+    %% ================= OFF-PLATFORM PARTNER DRIVER =================
+    subgraph PARTNER["LANE 3 — Fleet subcontracts to an off-platform partner driver"]
+        P1["Fleet has more loads than own trucks"]:::fleet
+        P2["Send job sheet link:<br/>route · cargo · price · documents needed"]:::guest
+        P3["Partner confirms by link / SMS / WhatsApp"]:::guest
+        P4["Status via link, WhatsApp reply, or<br/>phone call to dispatcher (fleet enters it)"]:::guest
+        P5["POD upload by link or WhatsApp photo"]:::guest
+        P6{"Settle how?"}:::money
+        P7["Platform records the settlement manually<br/>(partner off-platform)"]:::money
+        P8["Or partner joins RoadwiseFleet →<br/>gets escrow, ratings, future loads"]:::ok
+        P1 --> P2 --> P3 --> P4 --> P5 --> P6
+        P6 -->|"external"| P7
+        P6 -->|"registers"| P8
+    end
+
+    %% ================= WHAT THE GUEST SEES =================
+    subgraph GUEST["What the unregistered customer sees (no login)"]
+        G1["Opens link from WhatsApp / SMS / email"]:::guest
+        G2["Live map + ETA + milestone timeline"]:::guest
+        G3["Documents: POD · eCMR · invoice — download"]:::guest
+        G4["Chat with the carrier about this shipment"]:::guest
+        G5["CTA: Create a free account —<br/>book again, keep history, pay online"]:::ok
+        G1 --> G2 --> G3 --> G4 --> G5
+    end
+
+    START --> F1
+    START --> S1
+    START --> P1
+    F5 --> G1
+    S6 --> G1
+    P2 --> G1

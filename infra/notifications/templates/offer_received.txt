@@ -1,0 +1,7 @@
+Subject: We received your offer for {{trip_ref}}
+
+Hi {{customer_name}},
+
+Your offer for {{trip_ref}} ({{pickup}} to {{delivery}}) has been received. We will let you know as soon as there is an offer to compare.
+
+-- RoadwiseFleet

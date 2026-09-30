@@ -1,0 +1,23 @@
+# Ready-to-apply artifact — backup verification unit (task eila/tasks#10).
+#
+# NOT installed by CI. Needs root (reads /var/backups/roadwisefleet) and host
+# access; see infra/pilot-observability.md §4.
+#
+# Install to /etc/systemd/system/pilot-backup-verify.service (mode 0644).
+
+[Unit]
+Description=RoadwiseFleet pilot backup verification (freshness + artifact integrity)
+Documentation=https://github.com/ugry/roadwisefleet/blob/main/infra/pilot-observability.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/pilot-backup-verify.sh
+Environment=ALERT_MAIL=ugur@elilaltd.com
+Environment=BACKUP_DIR=/var/backups/roadwisefleet
+Environment=MAX_AGE_HOURS=26
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

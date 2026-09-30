@@ -1,0 +1,157 @@
+flowchart TD
+    classDef entry fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef menu fill:#f8f9fa,stroke:#868e96,color:#000
+    classDef dec fill:#fff3bf,stroke:#e8590c,color:#000
+    classDef act fill:#d0ebff,stroke:#1971c2,color:#000
+    classDef ok fill:#b2f2bb,stroke:#2b8a3e,color:#000
+    classDef warn fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef money fill:#e5dbff,stroke:#5f3dc4,color:#000
+
+    %% ================= STAGE 0 — SIGNUP + VERIFICATION =================
+    subgraph SIGN["STAGE 0 — Solo driver joins (owner-operator, no fleet)"]
+        J1["Entry: app / web / invite from a shipper<br/>or partner company"]:::entry
+        J2["Phone number → OTP"]:::act
+        J3["Profile: name, photo, languages spoken"]:::act
+        J4["Truck details: type · capacity · equipment<br/>(curtainsider · reefer · ADR …)"]:::act
+        J5["Verification package: ID · driving licence ·<br/>vehicle registration · insurance ·<br/>company/TIN (optional) · ADR (optional)"]:::act
+        J6{"Verification result"}:::dec
+        J7["VERIFIED badge — bid and accept freely;<br/>escrow payment enabled"]:::ok
+        J8["Pending / corrections — browse only,<br/>fix documents and resubmit"]:::warn
+        J9["Enable work preferences: home base,<br/>max distance, lanes I like, min rate €/km"]:::act
+        J5 --> J6
+        J6 -->|"verified"| J7 --> J9
+        J6 -->|"more info needed"| J8 --> J5
+        J1 --> J2 --> J3 --> J4 --> J5
+        J9 --> HOME
+    end
+
+    %% ================= MENU =================
+    subgraph HOME["Bottom navigation — 5 tabs (Connect app)"]
+        M1["① Loads — find work"]:::menu
+        M2["② My truck — beacon: sell my capacity"]:::menu
+        M3["③ Chat — negotiate"]:::menu
+        M4["④ Wallet — get paid"]:::menu
+        M5["⑤ Community — help each other"]:::menu
+    end
+
+    %% ================= LOADS =================
+    subgraph LOADS["① Loads — the job feed"]
+        L1["List + map of loads near me<br/>(route · price €/km · date · equipment)"]:::act
+        L2["Filters + saved searches →<br/>push alert when a match appears"]:::act
+        L3["Return-load suggestions:<br/>based on my position + heading"]:::act
+        L4["Load detail: route · cargo · weight · required docs ·<br/>shipper rating · distance to pickup · payment method"]:::act
+        L5{"What do I do?"}:::dec
+        L6["INSTANT ACCEPT — fixed price load:<br/>confirm → job is mine"]:::ok
+        L7["MAKE AN OFFER — my price + note<br/>(counter-offer possible)"]:::act
+        L8["Ask a question first (chat opens)"]:::act
+        L9["Skip / hide this load"]:::act
+        L10["My offers: PENDING · COUNTERED ·<br/>ACCEPTED · EXPIRED"]:::act
+        L11["Awarded → becomes my TRIP<br/>see execution below"]:::ok
+        L1 --> L2 --> L3 --> L4 --> L5
+        L5 --> L6 --> L10
+        L5 --> L7 --> L10
+        L5 --> L8 --> L5
+        L5 --> L9 --> L1
+        L10 -->|"accepted"| L11
+        L10 -->|"expired / declined"| L1
+    end
+    M1 --> L1
+
+    %% ================= EXECUTION (solo) =================
+    subgraph RUN["Execution — I am driver AND dispatcher"]
+        R1["Confirm: price · pickup window · payment method<br/>(escrow / invoice)"]:::act
+        R2["Plan route; check rest-time rules"]:::act
+        R3["En route to pickup → Arrived"]:::act
+        R4["Loaded → confirm with photo / CMR"]:::act
+        R5["In transit — tacho breaks respected"]:::act
+        R6["Arrived at delivery → Delivered"]:::warn
+        R7["Capture POD: photo + e-signature<br/>→ documents to shipper"]:::ok
+        R8["Escrow released / invoice sent"]:::money
+        R9["Rate the shipper/company"]:::act
+        R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7 --> R8 --> R9
+    end
+    L11 --> R1
+
+    %% ================= MY CUSTOMERS (off-platform) =================
+    subgraph OWN["①b My customers — my own work, not from the marketplace"]
+        O1["My customer list (no account needed<br/>on RoadwiseFleet)"]:::act
+        O2["Add customer in 30 sec:<br/>name · phone · WhatsApp · default lane/rate"]:::act
+        O3["Create a quick job:<br/>pickup · delivery · cargo · date · price"]:::act
+        O4["Send tracking link by WhatsApp / SMS<br/>— they follow the truck live, no login"]:::act
+        O5["Execute the trip (same steps as R1–R7)"]:::act
+        O6["Document: POD + notes"]:::ok
+        O7{"Invoice how?"}:::dec
+        O8["Generate invoice PDF in the app<br/>— send to customer"]:::money
+        O9["Already paid outside (cash / own invoice)<br/>— mark paid, keep the record"]:::money
+        O10["History + recurring customers:<br/>the same job next week in 2 taps"]:::act
+        O1 --> O2 --> O3 --> O4 --> O5 --> O6 --> O7
+        O7 --> O8 --> O10
+        O7 --> O9 --> O10
+    end
+    M1 --> O1
+
+    %% ================= BEACON =================
+    subgraph BEACON["② My truck — the beacon (how companies find me)"]
+        B1{"Availability toggle"}:::dec
+        B2["Empty & available — I appear in<br/>shipper searches and auto-match"]:::ok
+        B3["Not available — hidden; no offers"]:::warn
+        B4["Now in: city · country (from GPS, editable)"]:::act
+        B5["Heading to: next destination"]:::act
+        B6["Available from: date & time"]:::act
+        B7["Truck chip: type · capacity · ADR ·<br/>lift · temp range"]:::act
+        B8["Lane preferences + min rate"]:::act
+        B9["Mini-map: my route strip; beacon views count"]:::act
+        B10["Ratings I received + stats:<br/>loads done · on-time % · km"]:::act
+        B1 -->|"on"| B2
+        B1 -->|"off"| B3
+        B2 --> B4 --> B5 --> B6 --> B7 --> B8 --> B9 --> B10
+    end
+    M2 --> B1
+
+    %% ================= CHAT =================
+    subgraph CHAT["③ Chat"]
+        CH1["Negotiation with company<br/>(text · voice note · photos)"]:::act
+        CH2["Structured quote cards:<br/>price · dates · truck — accept in chat"]:::act
+        CH3["Quick replies: 'Can load tonight' ·<br/>'2h away' · 'Price is final'"]:::act
+        CH4["Auto-translation both ways"]:::act
+        CH5["After delivery: dispute thread if needed"]:::warn
+        CH1 --> CH2 --> CH3 --> CH4 --> CH5
+    end
+    M3 --> CH1
+
+    %% ================= WALLET =================
+    subgraph WALLET["④ Wallet"]
+        WA1["Accepted loads + payment status per load"]:::money
+        WA2["Guaranteed payment (escrow):<br/>money reserved on award, released on POD"]:::money
+        WA3["Expenses: fuel · toll · food · repairs<br/>+ receipt photo"]:::money
+        WA4["Payout history + statements"]:::money
+        WA5["Fees / premium: free tier vs boost options"]:::money
+        WA1 --> WA2 --> WA3 --> WA4 --> WA5
+    end
+    M4 --> WA1
+
+    %% ================= COMMUNITY =================
+    subgraph COMM["⑤ Community — the daily habit (and the install wedge)"]
+        CM1["Parking: share a free spot / find one now"]:::act
+        CM2["Fuel price board by station"]:::act
+        CM3["Border queue times (e.g. Kapıkule) + road alerts"]:::act
+        CM4["SOS help nearby — other drivers + office"]:::warn
+        CM5["Driver Q&A + rate a shipper / loading place"]:::act
+        CM6["Cargo-theft alerts + secure parking"]:::warn
+        CM1 --> CM2 --> CM3 --> CM4 --> CM5 --> CM6
+    end
+    M5 --> CM1
+
+    %% ================= EXCEPTIONS =================
+    subgraph EXC["Exceptions"]
+        X1{"Problem?"}:::dec
+        X2["Company cancels after award →<br/>compensation rules + rating"]:::warn
+        X3["Shipper no-show / closed gate →<br/>detention timer + evidence photos"]:::warn
+        X4["Payment dispute → escrow mediation<br/>with documents as evidence"]:::warn
+        X5["Breakdown / accident → SOS + report;<br/>shipper informed with new ETA"]:::warn
+        X1 --> X2
+        X1 --> X3
+        X1 --> X4
+        X1 --> X5
+    end
+    R9 -.-> EXC

@@ -1,0 +1,39 @@
+# RoadwiseFleet — STAGING pilot API (elilavps2)
+#
+# Host path: /etc/systemd/system/roadwise-staging-api.service
+# Runbook:   infra/deploy.md  (board task eila/tasks#31)
+#
+# READY-TO-APPLY ARTIFACT. Nothing in this repository installs it: installing is
+# a production change that needs owner approval and host access (see deploy.md
+# §4). It is a NEW unit and does not modify roadwise-api.service.
+#
+# Why a separate unit: staging must never share a process, a port, or a database
+# with the surface the owner is testing. Working directory is the `current`
+# symlink, which roadwise-deploy.sh repoints on every staged release.
+#
+# Values NOT in this file (they live in the 0600 EnvironmentFile, never in git):
+#   PORT=8081  HOST=127.0.0.1  DATABASE_URL=<staging database>  REDIS_URL=...
+#   AUTH_SECRET=...  ADMIN_TOKEN=...  SEED_PASSWORD=...
+#   (see infra/deploy/staging.env.example for the key names only)
+
+[Unit]
+Description=RoadwiseFleet pilot API — STAGING (elilavps2)
+Documentation=file:/opt/roadwisefleet/staging/current/infra/deploy.md
+After=network-online.target roadwise-pg.service roadwise-redis.service
+Wants=network-online.target
+Requires=roadwise-pg.service
+
+[Service]
+Type=simple
+User=debian
+Group=debian
+WorkingDirectory=/opt/roadwisefleet/staging/current
+Environment=HOME=/home/debian
+EnvironmentFile=/opt/roadwisefleet/staging/.env
+ExecStart=/usr/local/bin/pnpm --filter @roadwisefleet/api start
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

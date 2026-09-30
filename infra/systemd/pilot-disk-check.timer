@@ -1,0 +1,20 @@
+# Ready-to-apply artifact — timer for the pilot disk/uploads check (board eila/tasks#46).
+#
+# NOT installed by CI. Install to /etc/systemd/system/pilot-disk-check.timer
+# (mode 0644) and `systemctl enable --now pilot-disk-check.timer`.
+#
+# Hourly: disk fills slowly, and the script applies its own alert cooldown
+# (ALERT_COOLDOWN_MIN), so the timer frequency does not control alert volume.
+
+[Unit]
+Description=Run the RoadwiseFleet pilot disk/uploads check hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Unit=pilot-disk-check.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target

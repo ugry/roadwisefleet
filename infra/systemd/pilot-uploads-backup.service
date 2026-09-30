@@ -1,0 +1,37 @@
+# Ready-to-apply artifact — RoadwiseFleet uploads-directory backup (board eila/tasks#46).
+#
+# NOT installed by CI. Installing this on elilavps2 is a host change that needs
+# owner approval + host access; see infra/uploads.md §7.
+#
+# Install to /etc/systemd/system/pilot-uploads-backup.service (mode 0644).
+# No credential values appear here: the archive and manifest are written 0600 by
+# the script itself (umask 077).
+#
+# board #62: UPLOAD_DIR default is the POST-MOVE path (/var/lib/roadwisefleet/
+# uploads). A reinstall that pointed this backup back at the pre-move
+# /opt/roadwisefleet/api/var/uploads — abandoned since the B1 host apply — would
+# archive an empty/abandoned directory and silently stop protecting the bytes.
+
+[Unit]
+Description=RoadwiseFleet uploads-directory backup (POD/eCMR document bytes)
+Documentation=https://github.com/ugry/roadwisefleet/blob/main/infra/uploads.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pilot-uploads-backup.sh
+# The uploads path can be overridden without editing this unit —
+# /etc/roadwisefleet/uploads.env (0600, root) is optional and its settings win
+# over Environment=. See infra/uploads.md §4/§7.
+EnvironmentFile=-/etc/roadwisefleet/uploads.env
+Environment=ALERT_MAIL=ugur@elilaltd.com
+Environment=UPLOAD_DIR=/var/lib/roadwisefleet/uploads
+Environment=BACKUP_DIR=/var/backups/roadwisefleet/uploads
+Environment=KEEP_DAYS=30
+# A failed backup is an alert, not a crash loop.
+Restart=no
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

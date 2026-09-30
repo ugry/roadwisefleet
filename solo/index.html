@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#0b3d2e" />
+    <title>Solo driver — RoadwiseFleet</title>
+    <link rel="stylesheet" href="/s/solo.css" />
+    <link rel="manifest" href="/s/manifest.webmanifest" />
+  </head>
+  <body>
+    <header id="appHeader" hidden>
+      <strong class="brand">RoadwiseFleet · <span data-i18n="solo.brand">Solo</span></strong>
+      <nav id="soloNav" aria-label="Solo driver sections">
+        <button type="button" data-nav="feed" data-i18n="solo.nav.feed">Loads</button>
+        <button type="button" data-nav="offers" data-i18n="solo.nav.offers">My offers</button>
+        <button type="button" data-nav="beacon" data-i18n="solo.nav.beacon">Beacon</button>
+        <button type="button" data-nav="verify" data-i18n="solo.nav.verify">Verification</button>
+        <button type="button" data-nav="jobs" data-i18n="solo.nav.jobs">Jobs</button>
+        <button type="button" data-nav="customers" data-i18n="solo.nav.customers">Customers</button>
+        <button type="button" data-nav="profile" data-i18n="solo.nav.profile">Profile</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="authView">
+        <h1 id="authTitle" data-i18n="solo.login.title">Sign in</h1>
+
+        <form id="loginForm">
+          <label>
+            <span data-i18n="solo.login.email">Email</span>
+            <input name="email" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span data-i18n="solo.login.password">Password</span>
+            <input name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <button type="submit" data-i18n="solo.login.submit">Sign in</button>
+        </form>
+        <p id="loginMsg" class="alert error" role="alert"></p>
+
+        <form id="signupForm" hidden>
+          <label>
+            <span data-i18n="solo.signup.name">Your name</span>
+            <input name="name" autocomplete="name" required />
+          </label>
+          <label>
+            <span data-i18n="solo.signup.email">Email</span>
+            <input name="email" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span data-i18n="solo.signup.phone">Mobile phone</span>
+            <input name="phone" inputmode="tel" autocomplete="tel" required />
+          </label>
+          <label>
+            <span data-i18n="solo.signup.password">Password</span>
+            <input name="password" type="password" autocomplete="new-password" required />
+          </label>
+          <label>
+            <span data-i18n="solo.signup.plate">Truck plate (optional)</span>
+            <input name="truckPlate" autocomplete="off" />
+          </label>
+          <label>
+            <span data-i18n="solo.signup.equipment">Truck body (optional)</span>
+            <select name="truckEquipment">
+              <option value="">—</option>
+              <option value="curtainsider">Curtainsider</option>
+              <option value="reefer">Reefer</option>
+              <option value="flatbed">Flatbed</option>
+              <option value="box">Box</option>
+              <option value="tanker">Tanker</option>
+              <option value="tail_lift">Tail lift</option>
+              <option value="adr">ADR</option>
+              <option value="container">Container</option>
+            </select>
+          </label>
+          <button type="submit" data-i18n="solo.signup.submit">Create my driver account</button>
+        </form>
+
+        <button id="showSignup" type="button" data-i18n="solo.login.createAccount">New here? Create a driver account</button>
+        <button id="showLogin" type="button" hidden data-i18n="solo.signup.haveAccount">I already have an account</button>
+        <p id="signupMsg" class="alert error" role="alert"></p>
+      </section>
+
+      <section id="appView" hidden>
+        <div id="panel"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/s/solo.js"></script>
+  </body>
+</html>

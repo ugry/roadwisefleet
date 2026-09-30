@@ -1,0 +1,9 @@
+Subject: Invoice {{invoice_ref}} for {{trip_ref}}
+
+Hi {{customer_name}},
+
+Invoice {{invoice_ref}} for {{trip_ref}} has been issued: {{amount}}. View and download it here:
+
+{{link}}
+
+-- RoadwiseFleet

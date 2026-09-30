@@ -1,0 +1,7 @@
+Subject: {{trip_ref}} is in transit
+
+Hi {{customer_name}},
+
+{{trip_ref}} has left {{pickup}} and is on the way to {{delivery}}. Estimated arrival: {{eta}}.
+
+-- RoadwiseFleet

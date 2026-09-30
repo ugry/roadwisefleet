@@ -1,0 +1,25 @@
+# RoadwiseFleet — staging deploy timer (elilavps2)
+#
+# Host path: /etc/systemd/system/roadwise-deploy-staging.timer
+# Runbook:   infra/deploy.md  (board task eila/tasks#31)
+#
+# READY-TO-APPLY ARTIFACT — not installed.
+#
+# Pull model: every 5 minutes the host asks "is there a newer CI-green commit on
+# main?" and deploys it to staging if so. Merge -> staging with no human action,
+# with no host credential stored in GitHub and no public deploy endpoint.
+# 5 minutes (not 1) keeps the unauthenticated GitHub API use at ~12 requests/hour
+# and still satisfies "staging updates within one deploy window".
+
+[Unit]
+Description=Poll main every 5 minutes and deploy to staging
+Documentation=file:/opt/roadwisefleet/staging/current/infra/deploy.md
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=roadwise-deploy-staging.service
+
+[Install]
+WantedBy=timers.target

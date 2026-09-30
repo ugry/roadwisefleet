@@ -29,6 +29,16 @@ model Org {
   apiKeys   ApiKey[]
   webhooks  Webhook[]
   auditLogs AuditLog[]
+
+  // Connect marketplace (board task #76, UXF-M1). Relation fields only: no
+  // scalar column is added to `Org`, so the running pilot is unaffected.
+  loadPostings     LoadPosting[]
+  beacons          CapacityBeacon[]
+  marketplaceOffers MarketplaceOffer[]
+
+  // Solo driver Connect MVP (board task #77, UXF-M2): one personal carrier org
+  // per solo driver, holding its profile. Relation field only.
+  soloDrivers SoloDriverProfile[]
 }
 
 model Role {
@@ -56,6 +66,40 @@ model User {
   createdAt        DateTime  @default(now())
 
   tripsAsDriver Trip[]
+  tripDrivers   TripDriver[]
+  statusEvents  StatusEvent[]
+  // Customer portal (board task #74, UXF-C1). The link to the customer account
+  // lives in `CustomerAccount` (the FK is on that table) on purpose: adding a
+  // scalar column here would make every existing `user.findUnique` without an
+  // explicit `select` fail until the migration is applied, login included. A
+  // relation field adds no scalar and changes no existing query.
+  customerAccount CustomerAccount?
+
+  // Connect marketplace (board task #76): loads posted by this user, its
+  // capacity beacons, and the offers it made (or answered as a counter).
+  postedLoads       LoadPosting[]
+  beacons           CapacityBeacon[]
+  marketplaceOffers MarketplaceOffer[] @relation("OfferCarrier")
+  offersCreated     MarketplaceOffer[] @relation("OfferCreator")
+
+  // Solo driver Connect MVP (board task #77, UXF-M2). Relation fields only:
+  // no scalar column on `User`, so existing reads keep working whether or not
+  // the solo migration has been applied yet.
+  soloProfile  SoloDriverProfile?
+  soloDocs     SoloVerificationDoc[]
+  soloSearches SoloSavedSearch[]
+}
+
+// A login that may act for a customer account (board task #74).
+model CustomerAccount {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
 }
 
 model Truck {
@@ -80,8 +124,53 @@ model Customer {
   lang        String   @default("en")
   createdAt   DateTime @default(now())
 
-  orders         Order[]
+  orders          Order[]
   whatsappThreads WhatsappThread[]
+  rateCards       RateCard[]
+  addresses       CustomerAddress[]
+  // The logins that may act for this customer (buyer / finance / viewer in the
+  // diagram's team model; the role split inside a customer account is a later
+  // task — today every linked login sees the same account).
+  accounts        CustomerAccount[]
+  // Company profile + notification preferences written from the portal account
+  // screen. A separate table on purpose: no scalar column is added to a shared
+  // model, so the running pilot keeps working whether or not the portal
+  // migration has been applied yet.
+  profile         CustomerProfile?
+
+  // Connect marketplace (board task #76): the loads this customer posted.
+  loadPostings    LoadPosting[]
+}
+
+// Portal-maintained customer profile (board task #74). `notifyPrefs` is a small
+// object ({ email, sms, whatsapp } booleans) — jsonb on purpose: presentation
+// data, not a query key.
+model CustomerProfile {
+  id          String   @id @default(cuid())
+  customerId  String   @unique
+  customer    Customer @relation(fields: [customerId], references: [id])
+  vatId       String?
+  address     String?
+  notifyPrefs Json?
+  createdAt   DateTime @default(now())
+}
+
+// Customer address book (board task #74). Addresses are saved from the account
+// screen and offered when booking; the booking form itself accepts a free-text
+// route, so this table is convenience data, never a foreign key on an order.
+model CustomerAddress {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  label      String
+  line1      String
+  city       String?
+  postalCode String?
+  country    String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
 }
 
 model Order {
@@ -92,9 +181,36 @@ model Order {
   destination String
   cargo       String?
   status      String   @default("DRAFT") // DRAFT | BOOKED | DISPATCHED | COMPLETED | CANCELLED
+  // Planned delivery time, promised to the customer. The on-time KPI compares
+  // `Trip.deliveredAt` against this (board tasks #33/#40). Nullable: orders
+  // created before the column existed, and orders with no promised time.
+  plannedAt   DateTime?
   createdAt   DateTime @default(now())
 
-  trips Trip[]
+  trips   Trip[]
+  // The book-a-load detail (board task #74, UXF-C1): the supply choice, the
+  // requested equipment, the loading/delivery windows and the wizard extras.
+  // A separate table on purpose — adding scalar columns to `Order` would break
+  // every existing `include: { order: true }` read until the migration is
+  // applied. The marketplace engine (#76) reads lane/date/equipment from here;
+  // a column moves onto `Order` only if a query truly needs it there.
+  booking OrderBooking?
+
+  // Connect marketplace (board task #76): a load posted from this order.
+  loadPostings LoadPosting[]
+}
+
+model OrderBooking {
+  id           String   @id @default(cuid())
+  orderId      String   @unique
+  order        Order    @relation(fields: [orderId], references: [id])
+  supplyChoice String // fleet | solo | auto | own_carrier | off_platform | recurring
+  equipment    String?
+  loadReadyAt  DateTime?
+  deliverByAt  DateTime?
+  notes        String?
+  details      Json?
+  createdAt    DateTime @default(now())
 }
 
 model Trip {
@@ -109,7 +225,23 @@ model Trip {
   truck     Truck?   @relation(fields: [truckId], references: [id])
   status    String   @default("DRAFT") // state machine §7 of the diagrams doc
   rateEur   Decimal? @db.Decimal(12, 2)
-  createdAt DateTime @default(now())
+  // Actual delivery time, set when the trip reaches DELIVERED. The on-time KPI
+  // compares it against `Order.plannedAt` (board tasks #33/#40). Nullable:
+  // trips that never delivered, and trips delivered before the column existed.
+  deliveredAt DateTime?
+  // Customer tracking link state (board task #39, F8). The signed link itself
+  // is stateless (`track-link.js`); these columns only make it *per-trip
+  // revocable* and re-displayable from the trip detail:
+  //   - `trackLinkVersion` is monotonic: revoking increments it, so every token
+  //     minted earlier (which carries the old version) stops verifying, and a
+  //     re-mint never revives a revoked link;
+  //   - `trackLinkIssuedAt`/`trackLinkExpiresAt` are the mint parameters, kept
+  //     so the identical token can be recomputed for `GET` (an HMAC over
+  //     trip id + version + expiry is deterministic).
+  trackLinkVersion   Int       @default(0)
+  trackLinkIssuedAt  DateTime?
+  trackLinkExpiresAt DateTime?
+  createdAt          DateTime  @default(now())
 
   documents    Document[]
   statusEvents StatusEvent[]
@@ -118,6 +250,9 @@ model Trip {
   settlement   Settlement?
   stops        TripStop[]
   drivers      TripDriver[]
+
+  // Connect marketplace (board task #76): set when an award created this trip.
+  marketplaceLoad LoadPosting?
 }
 
 model Document {
@@ -129,6 +264,10 @@ model Document {
   status           String    @default("PENDING") // PENDING | UPLOADED | VERIFIED | REJECTED
   expiresAt        DateTime? // drives compliance-vault expiry alerts
   issuingAuthority String?
+  capturedAt       DateTime? // when the driver took the photo (POD capture, board #4)
+  captureLat       Decimal?  @db.Decimal(9, 6) // GPS fix at capture time (nullable: no fix)
+  captureLng       Decimal?  @db.Decimal(9, 6)
+  captureAccuracyM Int? // fix accuracy in metres
   createdAt        DateTime  @default(now())
 }
 
@@ -188,6 +327,8 @@ model StatusEvent {
   trip        Trip     @relation(fields: [tripId], references: [id])
   fromStatus  String
   toStatus    String
+  actorId     String? // who moved the trip; nullable for pre-actor history
+  actor       User?    @relation(fields: [actorId], references: [id])
   happenedAt  DateTime @default(now())
 }
 
@@ -276,4 +417,199 @@ model AuditLog {
   target   String?
   ip       String?
   at       DateTime @default(now())
+}
+
+// === Connect marketplace (board task #76, UXF-M1) ===
+//
+// Purely additive tables: no existing model gains a scalar column (only
+// relation fields, which change no query), so the running pilot keeps working
+// whether or not this migration has been applied yet — the same discipline as
+// the customer portal (#74).
+//
+// Payment is invoice-first in v1 (task #76): escrow waits for the owner's
+// merchant-of-record answer (UXF-OWN1, #73). Nothing here models money movement.
+
+// A demand object posted to the marketplace: a customer posts one of its own
+// orders, or a fleet posts a load it cannot cover (diagram 05). Exactly one of
+// `customerId` / `orgId` is set — that is the posting tenant and the only party
+// that may award or cancel it.
+model LoadPosting {
+  id          String    @id @default(cuid())
+  customerId  String?
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  orgId       String?
+  org         Org?      @relation(fields: [orgId], references: [id])
+  // The demand the load came from. Required for an award: the trip is created
+  // against it so nobody re-enters the load (diagram 05: "same trip object").
+  orderId     String?
+  order       Order?    @relation(fields: [orderId], references: [id])
+  origin      String
+  destination String
+  cargo       String?
+  equipment   String?
+  loadReadyAt DateTime?
+  deliverByAt DateTime?
+  pricingMode String    @default("quotes") // instant | quotes | budget
+  priceEur    Decimal?  @db.Decimal(12, 2) // instant rate / budget cap
+  // POSTED | OFFERS | AWARDED | EXPIRED | CANCELLED
+  status      String    @default("POSTED")
+  postedById  String?
+  postedBy    User?     @relation(fields: [postedById], references: [id])
+  expiresAt   DateTime?
+  // The winning offer and the trip it created. Plain id (no relation) on
+  // purpose: `MarketplaceOffer.load` is already the one relation between the two
+  // models, and the award is verified in code (`awardPlan`).
+  awardedOfferId String?
+  awardedAt   DateTime?
+  tripId      String?   @unique
+  trip        Trip?     @relation(fields: [tripId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  offers      MarketplaceOffer[]
+
+  @@index([status, loadReadyAt])
+  @@index([origin, destination])
+  @@index([customerId])
+  @@index([orgId])
+}
+
+// Declared capacity (diagram 05, "beacons before browsing"): a fleet's empty
+// truck or a solo driver's next free slot. Belongs to an org (fleet) or a user
+// (solo driver) — exactly one — and is scoped to that owner.
+model CapacityBeacon {
+  id            String    @id @default(cuid())
+  orgId         String?
+  org           Org?      @relation(fields: [orgId], references: [id])
+  driverId      String?
+  driver        User?     @relation(fields: [driverId], references: [id])
+  location      String
+  heading       String?
+  availableFrom DateTime?
+  equipment     String?
+  minRateEur    Decimal?  @db.Decimal(12, 2)
+  active        Boolean   @default(true)
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([active, availableFrom])
+  @@index([orgId])
+  @@index([driverId])
+}
+
+// A structured offer against a load (diagram 05): price, pickup/delivery ETA and
+// a note — never a verbal-only deal. A counter-offer is a NEW row that points at
+// the offer it answers (`parentOfferId`); the chain is the audit trail. The
+// carrier is a fleet org; `carrierUserId` names the solo driver when the carrier
+// is a one-person org (#77). One offer state machine lives in
+// `apps/api/src/marketplace.js` — the single source of truth.
+model MarketplaceOffer {
+  id            String      @id @default(cuid())
+  loadId        String
+  load          LoadPosting @relation(fields: [loadId], references: [id])
+  carrierOrgId  String
+  carrierOrg    Org         @relation(fields: [carrierOrgId], references: [id])
+  carrierUserId String?
+  carrierUser   User?       @relation("OfferCarrier", fields: [carrierUserId], references: [id])
+  carrierName   String
+  priceEur      Decimal     @db.Decimal(12, 2)
+  pickupEtaAt   DateTime?
+  deliveryEtaAt DateTime?
+  note          String?
+  // Which side of the load made this offer: `carrier` (a fleet/solo driver
+  // answering the load) or `shipper` (the load's owner answering with a
+  // counter). Drives who may counter next and who may award.
+  side          String      @default("carrier")
+  // SENT | VIEWED | COUNTERED | ACCEPTED | DECLINED | EXPIRED | WITHDRAWN
+  status        String      @default("SENT")
+  parentOfferId String?
+  parentOffer   MarketplaceOffer?  @relation("OfferCounter", fields: [parentOfferId], references: [id])
+  counters      MarketplaceOffer[] @relation("OfferCounter")
+  createdById   String?
+  createdBy     User?       @relation("OfferCreator", fields: [createdById], references: [id])
+  decidedAt     DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([loadId, status])
+  @@index([carrierOrgId, status])
+}
+
+// === Solo driver Connect MVP (board task #77, UXF-M2) ===
+//
+// The solo truck driver is a first-class persona (diagram 04): he is found via
+// a beacon and finds work via the load feed, and he serves his own customers
+// who never join the platform. Signup creates a one-person carrier org (the
+// marketplace needs `carrierOrgId` on every offer) plus the `solo` role; these
+// tables carry the profile, the verification papers and the saved searches.
+//
+// Purely additive: no existing model gains a scalar column (only relation
+// fields, which change no query), so the running pilot keeps working whether or
+// not this migration has been applied yet — the same discipline as #74/#76.
+//
+// Wallet-lite reads the EXISTING `Trip.rateEur` + `Settlement` rows: money
+// movement is not modelled here either (invoice-first, UXF-OWN1).
+
+// The solo driver's profile: phone verification (OTP), the verification-paper
+// status, and the one truck's specs. `userId` is the login; `orgId` is the
+// personal carrier org.
+model SoloDriverProfile {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+  orgId           String
+  org             Org       @relation(fields: [orgId], references: [id])
+  phone           String?
+  phoneVerifiedAt DateTime?
+  // Phone OTP state. The code is stored as an HMAC (never plain text); the
+  // attempt counter makes brute force bounded.
+  otpHash     String?
+  otpExpiresAt DateTime?
+  otpAttempts Int      @default(0)
+  // NONE | PENDING | VERIFIED | REJECTED — the bidding gate (owner gate #73 q5).
+  verificationStatus String  @default("NONE")
+  verificationNote   String?
+  truckPlate      String?
+  truckEquipment  String?
+  truckCapacityKg Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([verificationStatus])
+}
+
+// One verification paper (ID, driving licence, vehicle registration,
+// insurance). Kept out of `Document` on purpose: a `Document` is bound to a
+// Trip, and a verification paper has no trip.
+model SoloVerificationDoc {
+  id         String    @id @default(cuid())
+  driverId   String
+  driver     User      @relation(fields: [driverId], references: [id])
+  orgId      String
+  docType    String // id | licence | vehicle_registration | insurance
+  storageKey String
+  filename   String?
+  mimeType   String?
+  sizeBytes  Int?
+  status     String    @default("PENDING") // PENDING | VERIFIED | REJECTED
+  expiresAt  DateTime?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([driverId, docType])
+}
+
+// A saved load-feed filter (diagram 04: saved searches).
+model SoloSavedSearch {
+  id        String   @id @default(cuid())
+  driverId  String
+  driver    User     @relation(fields: [driverId], references: [id])
+  orgId     String
+  name      String
+  filter    Json?
+  createdAt DateTime @default(now())
+
+  @@index([driverId])
 }

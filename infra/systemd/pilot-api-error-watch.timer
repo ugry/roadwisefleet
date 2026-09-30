@@ -1,0 +1,23 @@
+# Ready-to-apply artifact — timer for the pilot API error visibility check
+# (task eila/tasks#44, FAv1-F9d).
+#
+# NOT installed by CI. Install to /etc/systemd/system/pilot-api-error-watch.timer
+# (mode 0644) and `systemctl enable --now pilot-api-error-watch.timer`.
+#
+# Runs every 2 minutes: that is what makes "a stopped API raises an alert within
+# 5 minutes" true (CONSEC_FAILS=2 consecutive bad checks x 2 min = ~4 min). Alert
+# volume is controlled by the script's own cooldown (ALERT_COOLDOWN_MIN), not by
+# this interval, so a shorter interval never means more mail.
+
+[Unit]
+Description=Run the RoadwiseFleet pilot API error visibility check every 2 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=pilot-api-error-watch.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target
