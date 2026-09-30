@@ -36,6 +36,7 @@
   /** Where the app is mounted. Absolute, so deep links and assets resolve. */
   var APP_BASE = '/app';
   var LOGIN_PATH = '/app/login';
+  var SIGNUP_PATH = '/app/signup';
   var HOME_PATH = '/app/';
 
   /** Session storage keys. Distinct from the pilot's so the two never share a token. */
@@ -199,6 +200,13 @@
   /** The login screen is a route too, but it is never in the navigation. */
   var LOGIN_ROUTE = { id: 'login', path: LOGIN_PATH, i18n: 'login.title', roles: [] };
 
+  /**
+   * Self-service registration (board task #86, owner directive 2026-09-30): the
+   * public signup screen. Like login it is never in the navigation and is open
+   * to an unauthenticated visitor; a signed-in person is sent to their home.
+   */
+  var SIGNUP_ROUTE = { id: 'signup', path: SIGNUP_PATH, i18n: 'signup.title', roles: [] };
+
   /** Rendered for an unknown `/app/*` path inside the shell (never a blank page). */
   var NOT_FOUND_ROUTE = { id: 'not-found', path: null, i18n: 'error.notFoundTitle', roles: [] };
 
@@ -244,6 +252,21 @@
     return normalizePath(pathname) === LOGIN_PATH || normalizePath(pathname) === '/app/login.html';
   }
 
+  /** @param {unknown} pathname @returns {boolean} */
+  function isSignupPath(pathname) {
+    return normalizePath(pathname) === SIGNUP_PATH || normalizePath(pathname) === '/app/signup.html';
+  }
+
+  /**
+   * Is this one of the public auth screens (login or signup)? Neither is a
+   * destination to return to after signing in.
+   * @param {unknown} pathname
+   * @returns {boolean}
+   */
+  function isAuthPath(pathname) {
+    return isLoginPath(pathname) || isSignupPath(pathname);
+  }
+
   /** @param {unknown} role @returns {boolean} */
   function isKnownRole(role) {
     return typeof role === 'string' && ROLES.indexOf(role) !== -1;
@@ -263,6 +286,7 @@
   function routeForPath(pathname) {
     if (!isAppPath(pathname)) return null;
     if (isLoginPath(pathname)) return LOGIN_ROUTE;
+    if (isSignupPath(pathname)) return SIGNUP_ROUTE;
     var path = normalizePath(pathname);
     if (path === APP_BASE) return ROUTES[0];
     for (var i = 0; i < ROUTES.length; i++) {
@@ -351,6 +375,10 @@
     if (isLoginPath(b.path)) {
       if (signedIn) return { action: 'home', to: ROLE_HOME[role] || HOME_PATH };
       return { action: 'render', route: LOGIN_ROUTE };
+    }
+    if (isSignupPath(b.path)) {
+      if (signedIn) return { action: 'home', to: ROLE_HOME[role] || HOME_PATH };
+      return { action: 'render', route: SIGNUP_ROUTE };
     }
     if (!signedIn) return { action: 'login', to: LOGIN_PATH };
 
@@ -451,7 +479,10 @@
       unauthorized: 'error.sessionExpired',
       forbidden: 'error.forbidden',
       no_org: 'error.noOrg',
-      not_found: 'error.notFoundBody'
+      not_found: 'error.notFoundBody',
+      // Self-service registration (board task #86): the one conflict the signup
+      // form must explain (the 400 field errors carry their own messageKey).
+      email_taken: 'error.emailTaken'
     };
     if (typeof error === 'string' && Object.prototype.hasOwnProperty.call(known, error)) {
       return known[error];
@@ -485,6 +516,7 @@
   return {
     APP_BASE: APP_BASE,
     LOGIN_PATH: LOGIN_PATH,
+    SIGNUP_PATH: SIGNUP_PATH,
     HOME_PATH: HOME_PATH,
     TOKEN_KEY: TOKEN_KEY,
     USER_KEY: USER_KEY,
@@ -495,12 +527,15 @@
     ROLE_HOME: ROLE_HOME,
     ROUTES: ROUTES,
     LOGIN_ROUTE: LOGIN_ROUTE,
+    SIGNUP_ROUTE: SIGNUP_ROUTE,
     NOT_FOUND_ROUTE: NOT_FOUND_ROUTE,
     appBase: appBase,
     escapeHtml: escapeHtml,
     normalizePath: normalizePath,
     isAppPath: isAppPath,
     isLoginPath: isLoginPath,
+    isSignupPath: isSignupPath,
+    isAuthPath: isAuthPath,
     isKnownRole: isKnownRole,
     routeForPath: routeForPath,
     navFor: navFor,

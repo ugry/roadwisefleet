@@ -34,6 +34,9 @@
   var DASH = win && win.RoadwiseDashboard ? win.RoadwiseDashboard : {};
   // The pure assign/reassign shaping (board task #36, F5), loaded before this one.
   var ASSIGN = win && win.RoadwiseAssign ? win.RoadwiseAssign : {};
+  // The shared signup validation (board task #86), loaded before this one and
+  // also imported by `POST /api/auth/register`, so the form and the server agree.
+  var SIGNUP = win && win.RoadwiseSignup ? win.RoadwiseSignup : {};
   // The pure documents view model (board task #37, F6), loaded before this one.
   var DOC = win && win.RoadwiseDocuments ? win.RoadwiseDocuments : {};
   // The pure tracking-link view model (board task #39, F8), loaded before this one.
@@ -2405,8 +2408,10 @@
 
   function showLogin(messageKey) {
     setHidden('appView', true);
+    setHidden('signupView', true);
     setHidden('loginView', false);
     hide('globalError');
+    hide('signupError');
     var submit = el('loginSubmit');
     if (submit) submit.disabled = false;
     if (messageKey) show('loginError', T(messageKey));
@@ -2415,8 +2420,29 @@
     if (email && email.focus) email.focus();
   }
 
+  /**
+   * The public signup screen (board task #86). Mirrors `showLogin`: exactly one
+   * of the three views is visible, and the form is left usable (a previous
+   * failed submit re-enables its button).
+   */
+  function showSignup(messageKey) {
+    setHidden('appView', true);
+    setHidden('loginView', true);
+    setHidden('signupView', false);
+    hide('globalError');
+    hide('loginError');
+    var submit = el('signupSubmit');
+    if (submit) submit.disabled = false;
+    if (messageKey) show('signupError', T(messageKey));
+    else hide('signupError');
+    if (typeof document !== 'undefined') document.title = T('signup.title') + ' — ' + T('brand.name');
+    var name = el('signupName');
+    if (name && name.focus) name.focus();
+  }
+
   function showApp() {
     setHidden('loginView', true);
+    setHidden('signupView', true);
     setHidden('appView', false);
     hide('loginError');
     var user = session.user || {};
@@ -2428,10 +2454,12 @@
 
   /**
    * Remember the route the person was trying to reach, so a successful login
-   * returns them there when their role may open it.
+   * returns them there when their role may open it. The auth screens themselves
+   * are never an intent (board #86 added signup to that set).
    */
   function rememberIntent(path) {
-    if (APP.isAppPath(path) && !APP.isLoginPath(path)) pendingPath = path;
+    var isAuth = typeof APP.isAuthPath === 'function' ? APP.isAuthPath(path) : APP.isLoginPath(path);
+    if (APP.isAppPath(path) && !isAuth) pendingPath = path;
   }
 
   /* -------------------------------------------------------------- guard --- */
@@ -2448,7 +2476,9 @@
     var decision = APP.guardDecision({ path: path, hasToken: sys.hasToken, role: sys.role });
 
     if (decision.action === 'login') {
-      if (APP.isAppPath(path) && !APP.isLoginPath(path)) rememberIntent(path);
+      if (APP.isAppPath(path) && !(typeof APP.isAuthPath === 'function' ? APP.isAuthPath(path) : APP.isLoginPath(path))) {
+        rememberIntent(path);
+      }
       setPath(APP.LOGIN_PATH, true);
       showLogin(null);
       return decision;
@@ -2468,6 +2498,14 @@
       return decision;
     }
     // render
+    // The public signup screen (board task #86) renders without a session, so it
+    // is handled before the "no token" branch below; a signed-in visitor never
+    // reaches here (the guard already sent them home).
+    if (decision.route && decision.route.id === 'signup') {
+      setPath(APP.SIGNUP_PATH, true);
+      showSignup(null);
+      return decision;
+    }
     if (!sys.hasToken) {
       setPath(APP.LOGIN_PATH, true);
       showLogin(null);
@@ -2520,6 +2558,82 @@
       });
   }
 
+  /* ------------------------------------------------------------- signup --- */
+
+  /** The signup input id for a validation field, so an error can focus it. */
+  var SIGNUP_FIELD_IDS = {
+    name: 'signupName',
+    company: 'signupCompany',
+    email: 'signupEmail',
+    password: 'signupPassword',
+  };
+
+  function focusSignupField(field) {
+    var id = SIGNUP_FIELD_IDS[field];
+    if (!id) return;
+    var node = el(id);
+    if (node && node.focus) node.focus();
+  }
+
+  /**
+   * The catalogue key for a rejected registration: a field error carries its own
+   * `messageKey` (from the shared `signup.js`), everything else goes through the
+   * same mapper the login screen uses.
+   */
+  function registrationErrorKey(res) {
+    var data = res && res.data ? res.data : null;
+    if (data && typeof data.messageKey === 'string' && data.messageKey.indexOf('signup.') === 0) {
+      return data.messageKey;
+    }
+    return APP.errorKey(data && data.error, res ? res.status : 0);
+  }
+
+  /**
+   * Self-service registration (board task #86): POST /api/auth/register, then
+   * the same session path as login (the response shape is identical). The form
+   * is validated first with the SAME rules the server imports, so an invalid
+   * submit makes no request at all.
+   */
+  function register(name, company, email, password) {
+    var body = {
+      name: String(name || '').trim(),
+      company: String(company || '').trim(),
+      email: String(email || '').trim(),
+      password: String(password || ''),
+    };
+    if (typeof SIGNUP.validateRegistration === 'function') {
+      var checked = SIGNUP.validateRegistration(body);
+      if (!checked.ok) {
+        focusSignupField(checked.field);
+        show('signupError', T(checked.messageKey));
+        return Promise.resolve({ ok: false, field: checked.field });
+      }
+      body = checked.value;
+    }
+    var submit = el('signupSubmit');
+    if (submit) submit.disabled = true;
+    hide('signupError');
+    return request('/api/auth/register', { method: 'POST', body: body }).then(function (res) {
+      if (submit) submit.disabled = false;
+      if (!res.ok || !res.data || !res.data.token) {
+        focusSignupField(res.data && res.data.field);
+        show('signupError', T(registrationErrorKey(res)));
+        return { ok: false, status: res.status };
+      }
+      session = { token: res.data.token, user: res.data.user || null };
+      writeSession(session.token, session.user);
+      if (i18n && typeof i18n.setUser === 'function') i18n.setUser(res.data.user || {});
+      var role = session.user && session.user.roleId;
+      var target = APP.ROLE_HOME[role] || APP.HOME_PATH;
+      pendingPath = null;
+      setPath(target, true);
+      showApp();
+      renderNav(role, { path: target });
+      renderPanel(APP.routeForPath(target));
+      return { ok: true, status: res.status, user: session.user };
+    });
+  }
+
   function logout() {
     session = { token: '', user: null };
     pendingPath = null;
@@ -2541,6 +2655,19 @@
         var email = (el('email') || {}).value || '';
         var password = (el('password') || {}).value || '';
         login(String(email).trim(), String(password));
+      });
+    }
+    var signupForm = el('signupForm');
+    if (signupForm) {
+      signupForm.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        hide('signupError');
+        register(
+          (el('signupName') || {}).value || '',
+          (el('signupCompany') || {}).value || '',
+          (el('signupEmail') || {}).value || '',
+          (el('signupPassword') || {}).value || ''
+        );
       });
     }
     var logoutBtn = el('logout');
@@ -2616,6 +2743,13 @@
     rememberIntent(currentPath());
     return restoreSession().then(function (state) {
       if (state.action === 'login') {
+        // A cold load on the public signup screen must show signup, not login
+        // (board task #86).
+        if (typeof APP.isSignupPath === 'function' && APP.isSignupPath(currentPath())) {
+          setPath(APP.SIGNUP_PATH, true);
+          showSignup(null);
+          return { action: 'signup' };
+        }
         setPath(APP.LOGIN_PATH, true);
         showLogin(null);
         return { action: 'login' };
@@ -2639,10 +2773,12 @@
     boot: boot,
     route: route,
     login: login,
+    register: register,
     logout: logout,
     renderNav: renderNav,
     renderPanel: renderPanel,
     showLogin: showLogin,
+    showSignup: showSignup,
     showApp: showApp,
     readSession: readSession,
     clearSession: clearSession,

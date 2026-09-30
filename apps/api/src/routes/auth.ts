@@ -2,21 +2,138 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
 import { env } from '../env.js';
 import { requireAuth } from '../auth/guard.js';
-import { verifyPassword } from '../auth/password.js';
+import { hashPassword, verifyPassword } from '../auth/password.js';
 import { signToken } from '../auth/tokens.js';
 import { localePayload } from '../i18n.js';
+import { createRateLimiter } from '../rate-limit.js';
+import { OWNER_PERMISSIONS, OWNER_ROLE, REGISTER_AUDIT_ACTION, defaultOrgName } from '../registration.js';
+// The signup validation is shared with the browser. The file is UMD (a classic
+// script for the page), so it is imported as a CommonJS default export.
+import signupRules from '../../../../app/lib/signup.js';
 
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
 /*
- * Minimal auth for pre-created pilot accounts only: email + password login
- * against the seeded `User` rows. There is deliberately no signup, no email
- * verification and no password reset — email at the domain is not live, so
- * the core loop must not depend on it. Sessions are stateless HMAC tokens
- * (see auth/tokens.js).
+ * Auth for the pilot.
+ *
+ *   POST /api/auth/register  public — self-service fleet-owner signup (board
+ *                            task #86, owner directive 2026-09-30): creates the
+ *                            Org + an `owner` User and issues the same session
+ *                            token as login. Rate-limited per client IP.
+ *   POST /api/auth/login     email + password against the `User` rows.
+ *   GET  /api/auth/me        the signed-in principal.
+ *
+ * `register` is the public entry point the marketing site links to (the
+ * waitlist gate is gone); email verification and password reset are NOT live
+ * (the domain cannot send mail yet — email verification stays gated on the
+ * owner's task #29). Sessions are stateless HMAC tokens (see auth/tokens.js).
+ *
+ * The validation rules are shared with the browser (`app/lib/signup.js`), so
+ * the form and the endpoint agree by construction; the rate limiter keeps the
+ * public endpoint from being used to mass-create rows.
  */
+const registrationLimiter = createRateLimiter({
+  windowMs: env.REGISTER_RATE_LIMIT_WINDOW_SECONDS * 1000,
+  max: env.REGISTER_RATE_LIMIT_MAX,
+});
+
 export async function authRoutes(app: FastifyInstance) {
+  /**
+   * Self-service registration (board task #86): the public entry point. A new
+   * person registers a fleet — an `Org` plus an `owner` `User` — and is signed
+   * in immediately (the login response shape, so the app has one session path).
+   *
+   * Bounded per client IP before anything else happens: a refused request never
+   * reaches validation or the database.
+   */
+  app.post('/auth/register', async (req, reply) => {
+    const gate = registrationLimiter.check(req.ip || 'unknown');
+    if (!gate.allowed) {
+      reply.header('retry-after', String(gate.retryAfterSeconds));
+      return reply.code(429).send({ error: 'rate_limited', retryAfterSeconds: gate.retryAfterSeconds });
+    }
+
+    const normalized = signupRules.validateRegistration(req.body ?? {});
+    if (!normalized.ok) {
+      return reply.code(400).send({
+        error: normalized.error,
+        field: normalized.field,
+        messageKey: normalized.messageKey,
+        detail: normalized.detail,
+      });
+    }
+    const { name, company, email, password } = normalized.value;
+    const passwordHash = hashPassword(password);
+
+    let created: { userId: string; orgId: string; orgName: string };
+    try {
+      created = await prisma.$transaction(async (tx) => {
+        // The `owner` Role row belongs to the seeded data, but the deploy path
+        // only ever runs `migrate deploy` (no seed), and a missing row would
+        // make the `User` insert fail on its `roleId` foreign key (Prisma
+        // P2003). Re-assert it idempotently with fixed values, exactly like the
+        // customer portal does for its role: an anonymous caller never
+        // influences the permission set.
+        await tx.role.upsert({
+          where: { id: OWNER_ROLE },
+          update: { permissions: [...OWNER_PERMISSIONS] },
+          create: { id: OWNER_ROLE, permissions: [...OWNER_PERMISSIONS] },
+        });
+        const org = await tx.org.create({
+          data: {
+            name: defaultOrgName({ name, company }),
+            locale: 'en',
+            dataRegion: 'eu',
+            plan: 'free',
+          },
+        });
+        const user = await tx.user.create({
+          data: {
+            roleId: OWNER_ROLE,
+            name,
+            email,
+            orgId: org.id,
+            passwordHash,
+            lang: 'en',
+          },
+        });
+        return { userId: user.id, orgId: org.id, orgName: org.name };
+      });
+    } catch (err) {
+      // `User.email` is unique: the same address cannot register twice.
+      if ((err as { code?: string }).code === 'P2002') {
+        return reply.code(409).send({ error: 'email_taken', field: 'email' });
+      }
+      throw err;
+    }
+
+    // Same audit trail as a login; a failure to record it never fails the signup.
+    await prisma.auditLog
+      .create({ data: { orgId: created.orgId, actorId: created.userId, action: REGISTER_AUDIT_ACTION } })
+      .catch(() => undefined);
+
+    const token = signToken(
+      { sub: created.userId, org: created.orgId, role: OWNER_ROLE, name },
+      env.AUTH_SECRET,
+      { ttlSeconds: env.TOKEN_TTL_SECONDS },
+    );
+    const locale = localePayload({ orgLocale: 'en', userLang: null });
+    return reply.code(201).send({
+      token,
+      user: {
+        id: created.userId,
+        name,
+        roleId: OWNER_ROLE,
+        orgId: created.orgId,
+        orgName: created.orgName,
+        locale: locale.locale,
+        lang: locale.lang,
+        locales: locale.supported,
+      },
+    });
+  });
+
   app.post('/auth/login', async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const email = String(body.email ?? '').trim().toLowerCase();

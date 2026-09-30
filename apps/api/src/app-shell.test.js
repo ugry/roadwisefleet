@@ -32,6 +32,7 @@ const readApp = (name) => readFileSync(join(appDir, name), 'utf8');
 const PAGE = readApp('index.html');
 const APP_JS = readApp('app.js');
 const CORE_JS = readApp('lib/app-core.js');
+const SIGNUP_JS = readApp('lib/signup.js');
 const CSS = readApp('app.css');
 const CATALOGUE = JSON.parse(readApp('locales/en.json'));
 
@@ -44,6 +45,7 @@ test('the app root, prefix and file layout are what the docs claim', () => {
   assert.ok(existsSync(join(appDir, 'app.css')));
   assert.ok(existsSync(join(appDir, 'app.js')));
   assert.ok(existsSync(join(appDir, 'lib/app-core.js')));
+  assert.ok(existsSync(join(appDir, 'lib/signup.js')));
   assert.ok(existsSync(join(appDir, 'locales/en.json')));
 });
 
@@ -64,22 +66,30 @@ test('the shell loads the shared i18n core, its own core and app.js with absolut
   // Board task #37 (F6): the documents UI reuses the driver core's checklist.
   assert.match(PAGE, /<script src="\/pilot\/lib\/driver-core\.js"><\/script>/);
   assert.match(PAGE, /<script src="\/app\/lib\/app-core\.js"><\/script>/);
+  // Board task #86: the signup rules are shared with the API endpoint.
+  assert.match(PAGE, /<script src="\/app\/lib\/signup\.js"><\/script>/);
   assert.match(PAGE, /<script src="\/app\/lib\/documents\.js"><\/script>/);
   assert.match(PAGE, /<script src="\/app\/app\.js"><\/script>/);
   assert.match(PAGE, /<link rel="stylesheet" href="\/app\/app\.css">/);
 });
 
-test('the shell is a two-view app: login and the authenticated shell', () => {
+test('the shell is a three-view app: signup, login and the authenticated shell', () => {
   assert.match(PAGE, /id="loginView"/);
   assert.match(PAGE, /id="loginForm"/);
+  // Board task #86: the public signup view, hidden until the guard renders it.
+  assert.match(PAGE, /id="signupView"/);
+  assert.match(PAGE, /id="signupForm"/);
+  assert.match(PAGE, /id="loginToSignup"/);
   assert.match(PAGE, /id="appView"[\s\S]*hidden/);
   assert.match(PAGE, /id="navSlot"/);
   assert.match(PAGE, /id="outlet"/);
   assert.match(PAGE, /id="logout"/);
   assert.match(PAGE, /id="globalError" role="alert"/);
   assert.match(PAGE, /id="loginError" role="alert"/);
+  assert.match(PAGE, /id="signupError" role="alert"/);
   // Both views start hidden: neither is rendered before the guard has decided.
   assert.match(PAGE, /id="loginView"[^>]*hidden/);
+  assert.match(PAGE, /id="signupView"[^>]*hidden/);
 });
 
 test('the login form is keyboard-navigable and labelled', () => {
@@ -96,6 +106,25 @@ test('the login form is keyboard-navigable and labelled', () => {
   assert.match(CSS, /:focus-visible/);
   assert.match(CSS, /\.skip-link/);
   assert.doesNotMatch(PAGE, /tabindex="-1"[^>]*id="email"|id="email"[^>]*tabindex="-1"/);
+});
+
+test('the signup form is keyboard-navigable and labelled (board task #86)', () => {
+  assert.match(PAGE, /<form id="signupForm"/);
+  for (const id of ['signupName', 'signupEmail', 'signupPassword']) {
+    assert.match(PAGE, new RegExp(`<label for="${id}"`), `#${id} needs a label`);
+    assert.match(PAGE, new RegExp(`<input id="${id}"[^>]*required`), `#${id} must be required`);
+  }
+  // The company is optional on purpose: a solo owner has no company name yet.
+  assert.match(PAGE, /<label for="signupCompany"/);
+  assert.doesNotMatch(PAGE, /<input id="signupCompany"[^>]*required/);
+  assert.match(PAGE, /id="signupEmail"[^>]*autocomplete="username"/);
+  assert.match(PAGE, /id="signupPassword"[^>]*autocomplete="new-password"/);
+  // A link between the two public screens, so neither is a dead end.
+  assert.match(PAGE, /id="signupToLogin" href="\/app\/login"/);
+  assert.match(PAGE, /id="loginToSignup" href="\/app\/signup"/);
+  assert.match(PAGE, /<button class="primary" id="signupSubmit" type="submit"/);
+  // The password hint is announced, not only shown.
+  assert.match(PAGE, /id="signupPassword"[^>]*aria-describedby="signupHelper"/);
 });
 
 test('the layout covers both acceptance widths and no fixed pixel width breaks 375px', () => {
@@ -137,8 +166,10 @@ test('app.js consumes the pure core rather than reimplementing the rules', () =>
 // --- the catalogue ----------------------------------------------------------
 
 test('the English catalogue covers every key the app can ask for', () => {
-  const sources = APP_JS + '\n' + CORE_JS;
-  const namespaces = ['app.', 'brand.', 'common.', 'login.', 'nav.', 'overview.', 'role.', 'error.'];
+  const sources = APP_JS + '\n' + CORE_JS + '\n' + SIGNUP_JS;
+  const namespaces = [
+    'app.', 'brand.', 'common.', 'login.', 'signup.', 'nav.', 'overview.', 'role.', 'error.',
+  ];
   const keys = new Set();
   for (const m of sources.matchAll(/'([a-zA-Z]+\.[a-zA-Z0-9_.]+)'/g)) {
     if (namespaces.some((ns) => m[1].startsWith(ns))) keys.add(m[1]);
@@ -173,7 +204,7 @@ test('no catalogue value is empty, and the language hook is wired EN-first', () 
 // --- static serving ---------------------------------------------------------
 
 test('servable files resolve inside the app root', () => {
-  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'lib/documents.js', 'lib/driver.js', 'locales/en.json']) {
+  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'lib/signup.js', 'lib/documents.js', 'lib/driver.js', 'locales/en.json']) {
     const file = resolveAppFile(rel);
     assert.ok(file, `${rel} should resolve`);
     assert.ok(String(file).startsWith(appDir));
@@ -226,6 +257,7 @@ test('a deep link gets the shell, a missing asset gets a 404', () => {
 test('shellHtml is the shell the tests above describe', () => {
   const html = shellHtml();
   assert.match(html, /id="loginView"/);
+  assert.match(html, /id="signupView"/);
   assert.match(html, /id="appView"/);
   // It is cached: the same string comes back, and the read never goes outside app/.
   assert.equal(shellHtml(), html);
