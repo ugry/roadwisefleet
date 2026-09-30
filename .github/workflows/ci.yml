@@ -154,7 +154,13 @@ jobs:
       # once; a deploy whose rollback is also unhealthy is marked `down` and
       # exits non-zero; a non-CI-green commit is deferred; the idempotent no-op
       # stays silent. No host, no network, no root.
-      - name: Self-test roadwise-deploy-site.sh (board #42)
+      #
+      # Board #87 adds the static marketing tree to the same window and the same
+      # fixture proves it: a good deploy publishes web/ (and never the repo's
+      # .md files), a rollback re-publishes the previous commit's web/, and a
+      # web/ sync that cannot be published rolls the whole update back instead
+      # of recording a half-published site as `ready`.
+      - name: Self-test roadwise-deploy-site.sh (board #42/#87)
         run: bash infra/deploy/roadwise-deploy-site.sh --self-test
 
   pilot-csp-check:
@@ -192,6 +198,34 @@ jobs:
       - name: Check the repo policy against the app assets
         run: bash infra/checks/app-csp-check.sh
 
+      # Board #87: the customer portal (/c/) is the same kind of surface as
+      # /app/ — API-served, same-origin module script + stylesheet + fetch, no
+      # inline code — so it reuses the app header set. Point the same checker
+      # (and therefore the same two-way inline assertion) at customer/ so a
+      # future inline <script>/<style> there fails CI instead of shipping a
+      # silently broken page, and so a switch to the pilot snippet is caught.
+      - name: Check the repo policy against the customer portal assets (board #87)
+        run: APP_DIR=customer bash infra/checks/app-csp-check.sh
+
+  site-routes-check:
+    name: Public route wiring (#87)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #87: /c/ (like /app/ before it, board #69) was served by the API
+      # but not routed by nginx, so it answered 404 on the public URL while the
+      # API was healthy on loopback. This job asserts every public API-served
+      # surface (/pilot/, /app/, /c/, /s/, /track/, /api/) has a proxying,
+      # rate-limited location with a header snippet, that the no-slash forms
+      # 301, and that the no-inline /c/ surface uses the strict app snippet
+      # rather than the pilot one. The self-test proves each rejection.
+      - name: Self-test the checker (fixtures, no host, no network)
+        run: bash infra/checks/site-routes-check.sh --self-test
+
+      - name: Check the repo route wiring
+        run: bash infra/checks/site-routes-check.sh
+
   uploads-perms-check:
     name: Uploads storage guard (#46)
     runs-on: ubuntu-latest
@@ -211,6 +245,48 @@ jobs:
 
       - name: Check the repo storage declarations agree
         run: bash infra/checks/uploads-perms-check.sh
+
+  notification-delivery:
+    name: Notification delivery (#79)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #79 (UXF-O2). The notification transport is provider-agnostic and
+      # inert until an owner-approved transport is configured; what CI can and
+      # must prove is the delivery CONTRACT: every catalogued event has a
+      # template and no template invents a sender, a failed send is retried
+      # exactly once then logged, a switched-off channel is suppressed and
+      # nothing is sent, and the log never carries the recipient in clear, the
+      # message body or the capability link. The self-test drives the real
+      # script with stubbed transports (no host, no network, no root).
+      - name: Self-test the transport (fixtures, no host, no network)
+        run: bash infra/scripts/pilot-notify-deliver.sh --self-test
+
+      - name: Check the repo notification catalogue
+        run: bash infra/scripts/pilot-notify-deliver.sh --check-repo
+
+  share-link-check:
+    name: Share-link guard (#75)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #75 (UXF-O1). A guest share link carries its capability in the URL
+      # path, so two deployment properties are acceptance-relevant and easy to
+      # lose in a later edit:
+      #   1. /track/ and /s/ must be limited by the dedicated rwf_share zone
+      #      (an enumerable token is not a capability), and
+      #   2. the access log must not record the token — the default `combined`
+      #      format logs $request/$http_referer, and the share page's own
+      #      same-origin fetch returns the token in the Referer.
+      # The self-test proves the guard FAILS on a leaky log format and on a
+      # share location that still uses the pilot zone.
+      - name: Self-test the guard (fixtures, no host, no network)
+        run: bash infra/checks/share-link-check.sh --self-test
+
+      - name: Check the repo nginx share wiring
+        run: bash infra/checks/share-link-check.sh
 
   deploy-pages:
     name: Deploy GitHub Pages (web/)

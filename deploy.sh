@@ -8,19 +8,17 @@ KEY="${RWF_DEPLOY_KEY:-/home/semyaza/roadsidefleet/vps-c196d9d6_51.222.139.227/k
 VPS="${RWF_VPS:-debian@51.222.139.227}"
 REMOTE_WEB=/tmp/rwf-web
 
+# Fresh staging dir owned by the deploy user (earlier runs leave it root-owned)
 ssh -i "$KEY" -o BatchMode=yes "$VPS" "sudo rm -rf $REMOTE_WEB && sudo mkdir -p $REMOTE_WEB && sudo chown debian:debian $REMOTE_WEB"
-scp -q -i "$KEY" -o BatchMode=yes web/*.html "$VPS:$REMOTE_WEB/"
+
+# Copy the whole web tree (pages + asset folders such as ux-flows/)
+scp -q -r -i "$KEY" -o BatchMode=yes web/. "$VPS:$REMOTE_WEB/"
 scp -q -i "$KEY" -o BatchMode=yes services/waitlist/server.js "$VPS:/tmp/rwf-waitlist-server.js"
+scp -q -i "$KEY" -o BatchMode=yes services/waitlist/backup.sh "$VPS:/tmp/rwf-waitlist-backup.sh"
 
-ssh -i "$KEY" -o BatchMode=yes "$VPS" bash -s <<'REMOTE'
-set -euo pipefail
-sudo chown -R root:root /tmp/rwf-web
-sudo chmod 644 /tmp/rwf-web/*
-sudo mv /tmp/rwf-web/* /var/www/roadwisefleet/
-sudo mv /tmp/rwf-waitlist-server.js /opt/roadwisefleet/waitlist/server.js
-sudo systemctl reload nginx
-sudo systemctl restart roadwisefleet-waitlist
-echo "deployed: web/ -> /var/www/roadwisefleet, waitlist service restarted"
-REMOTE
+# Run the remote step as a FILE (sudo drains piped stdin, which silently
+# truncates heredoc scripts — see infra/deploy-remote.sh).
+scp -q -i "$KEY" -o BatchMode=yes infra/deploy-remote.sh "$VPS:/tmp/rwf-deploy-remote.sh"
+ssh -i "$KEY" -o BatchMode=yes "$VPS" 'sudo bash /tmp/rwf-deploy-remote.sh'
 
-echo "OK — https://roadwisefleet.com (once DNS points to the VPS)"
+echo "OK — https://roadwisefleet.com"
