@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
-# RoadwiseFleet — off-platform share-link guard (board eila/tasks#75, UXF-O1).
+# RoadwiseFleet — share-token surface guard (board eila/tasks#75, UXF-O1).
 #
-# The guest surfaces in UXF-O1 put a capability token in the URL path
-# (/track/<token> for the tracking page, /s/<token> for the POD/eCMR download
-# and the invoice view). Two things must hold for every deployment:
+# The board #75 guest surfaces are specified to carry a capability token in the
+# URL path: /track/<token> for the tracking page, and /s/<token> for the
+# POD/eCMR download and the invoice view (the latter two were never
+# implemented). Two things must hold for every location that can carry a token:
 #
-#   1. the surfaces are rate-limited by the dedicated `rwf_share` zone (a token
+#   1. the surface is rate-limited by the dedicated `rwf_share` zone (a token
 #      that can be enumerated is not a capability), and
 #   2. the access log must NOT contain the token — the default `combined`
 #      format logs $request / $http_referer verbatim, and the page's own
 #      same-origin fetch sends the token back in the Referer. A token in a log
 #      outlives the link's expiry and its revocation.
 #
+# Board #91 semantics note: /s/ is now the solo-driver shell (board #77/#87) and
+# NOT the #75 document/invoice route (that API route was never implemented).
+# It is deliberately KEPT on `rwf_share` + the token-free log: the board #75
+# review decided not to relax a merged guard, and /s/ is still the prefix the
+# token route was specified under. Read SHARE_LOCATIONS as "locations that can
+# carry a share token", not "the three #75 surfaces".
+#
 # Two independent jobs:
 #
 #   repo mode (default; runs in CI, needs no host): the repo nginx files must
-#   wire both share locations to the `rwf_share` zone and to a log format that
+#   wire every share location to the `rwf_share` zone and to a log format that
 #   cannot carry the token.
 #
 #   --live (run on elilavps2 / any host with curl): probe a random token and
@@ -49,6 +57,11 @@ RATE_LOOP="${RWF_RATE_LOOP:-60}"
 # Variables a share-surface log format must never contain: they carry the
 # request line / URI (and therefore the token) or visitor identifiers.
 FORBIDDEN_LOG_VARS='(\$request([^a-zA-Z0-9_]|$)|\$request_uri|\$uri([^a-zA-Z0-9_]|$)|\$document_uri|\$args([^a-zA-Z0-9_]|$)|\$query_string|\$http_referer|\$http_user_agent)'
+# Locations that can carry a share token (see the board #91 semantics note in
+# the header): /track/ = the board #75 tracking page; /s/ = the solo-driver
+# shell today, kept on rwf_share + the token-free log because the #75
+# document/invoice route was specified under this prefix and the merged guard
+# must not be relaxed.
 SHARE_LOCATIONS=("/track/" "/s/")
 
 fails=0
@@ -222,18 +235,20 @@ run_live() {
     fail "GET /api/track/<random> set a cookie"
   fi
 
-  # 3. the document/invoice surface: not 200 until the app half lands.
+  # 3. /s/: the solo-driver shell (board #87) is what answers here now; the #75
+  #    document/invoice token route was never implemented. The invariant that
+  #    still matters is that an unknown path never returns data with a 200.
   s_h="$(headers_for "$BASE_URL/s/$tok")"
   s_status="$(printf '%s\n' "$s_h" | grep -m1 -oE 'HTTP/[0-9.]+ [0-9]+' | awk '{print $2}')"
   if [ "$s_status" = "404" ] || [ "$s_status" = "410" ]; then
-    ok "GET /s/<random> -> $s_status (no document/invoice is exposed for an unknown token)"
+    ok "GET /s/<random> -> $s_status (unknown path; no share token is exposed)"
     if [ "$s_status" = "404" ]; then
-      warn "/s/<random> is a 404 — the app-side share route (#75, Max) is not deployed yet; this is the expected state until then"
+      warn "/s/<random> is a 404 — that path is not a solo asset, and the #75 document/invoice route was never implemented (expected state)"
     fi
   elif [ -z "$s_status" ]; then
     warn "GET /s/<random> produced no response (surface not routed yet)"
   else
-    fail "GET /s/<random> -> $s_status (want 404/410 while unimplemented, never 200 with data)"
+    fail "GET /s/<random> -> $s_status (want 404/410 for an unknown path, never 200 with data)"
   fi
 
   # 4. the rate limit trips under a simple loop.
@@ -427,7 +442,7 @@ EOF
   contains "the no-cookie result is recognised" "$out" "sets no cookie"
   contains "the unknown token 404 is recognised" "$out" "unknown/expired/revoked = clear not-found"
   contains "the rate limit result is recognised" "$out" "rate limit holds"
-  contains "the unimplemented /s/ surface warns" "$out" "is not deployed yet"
+  contains "the unimplemented /s/ token route warns" "$out" "document/invoice route was never implemented"
 
   # 5. a cookie-setting shell with a 200 API must FAIL (the two worst outcomes).
   cat > "$st/curl-bad" <<'EOF'

@@ -385,13 +385,21 @@ it is derived from the actual resource inventory:
 deliberately **not** the pilot one: the app pages load only same-origin
 scripts/styles and declare **no** inline `<script>`/`<style>`, so
 `script-src 'self'` and `style-src 'self'` are enough (no `'unsafe-inline'`).
-`infra/checks/app-csp-check.sh` asserts this in CI (job `app-csp-check`): it
-fails if the policy omits `'self'` **or** if `'unsafe-inline'` is present while
-the app still declares no inline code (the "reused the pilot snippet" mistake),
-and it also catches a future inline script added under a strict policy. Same
-lockdown tokens as the pilot (`default-src 'none'`, `base-uri 'none'`,
-`form-action 'self'`, `frame-ancestors 'none'`, `connect-src 'self'`,
-`X-Robots-Tag: noindex, nofollow`). Inert until the owner reload (O10).
+Board #87 added `/c/` and `/s/` to the same snippet (same no-inline shape).
+`infra/checks/app-csp-check.sh` asserts this in CI (job `app-csp-check`, now run
+once per surface: `app/`, `customer/`, `solo/`): it fails if the policy omits
+`'self'` **or** if `'unsafe-inline'` is present while a surface still declares no
+inline code (the "reused the pilot snippet" mistake), and it also catches a
+future inline script added under a strict policy. **Board #91:** `/s/` declares
+`<link rel="manifest" href="/s/manifest.webmanifest">` and registers no service
+worker, so the snippet now carries `manifest-src 'self'` (without it the fetch
+falls back to `default-src 'none'` and the PWA manifest is blocked); the checker
+fails if a declared manifest is not allowed, and `worker-src` is deliberately
+absent (nothing registers one). Same lockdown tokens as the pilot
+(`default-src 'none'`, `base-uri 'none'`, `form-action 'self'`,
+`frame-ancestors 'none'`, `connect-src 'self'`,
+`X-Robots-Tag: noindex, nofollow`). The host re-apply of the snippet
+(`nginx -t` + reload) is the owner window (O10).
 
 **Removing `'unsafe-inline'`** (the real XSS win) needs per-page nonces or
 hashes, which means touching the page generation/serving path — the developer's

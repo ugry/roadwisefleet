@@ -207,6 +207,16 @@ jobs:
       - name: Check the repo policy against the customer portal assets (board #87)
         run: APP_DIR=customer bash infra/checks/app-csp-check.sh
 
+      # Board #91: /s/ (solo driver) is the third surface on the same strict
+      # snippet and the only one that declares a PWA manifest
+      # (`<link rel="manifest" href="/s/manifest.webmanifest">` in
+      # solo/index.html). Without `manifest-src 'self'` the fetch falls back to
+      # `default-src 'none'` and the browser blocks the manifest. Point the
+      # checker at solo/ so removing that directive — or adding inline code
+      # there — fails CI instead of shipping a blocked manifest.
+      - name: Check the repo policy against the solo surface assets (board #91)
+        run: APP_DIR=solo bash infra/checks/app-csp-check.sh
+
   site-routes-check:
     name: Public route wiring (#87)
     runs-on: ubuntu-latest
