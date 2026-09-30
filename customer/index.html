@@ -66,7 +66,9 @@
     <p class="brand">RoadwiseFleet</p>
     <nav id="customerNav" aria-label="Customer">
       <button type="button" class="nav-item" data-nav="shipments" data-i18n="nav.shipments"></button>
+      <button type="button" class="nav-item" data-nav="offers" data-i18n="nav.offers"></button>
       <button type="button" class="nav-item" data-nav="book" data-i18n="nav.book"></button>
+      <button type="button" class="nav-item" data-nav="autoMatch" data-i18n="nav.autoMatch"></button>
       <button type="button" class="nav-item" data-nav="account" data-i18n="nav.account"></button>
     </nav>
     <button id="signOut" type="button" class="link" data-i18n="nav.signOut"></button>
@@ -89,6 +91,16 @@
     <section id="shipmentPanel" class="panel" hidden>
       <button id="backToShipments" type="button" class="link" data-i18n="shipment.back"></button>
       <div id="shipmentDetail" aria-live="polite"></div>
+    </section>
+
+    <section id="offersPanel" class="panel" hidden>
+      <h1 data-i18n="offers.title"></h1>
+      <p class="lead" data-i18n="offers.lead"></p>
+      <div id="offersBody" aria-live="polite"></div>
+    </section>
+
+    <section id="autoMatchPanel" class="panel" hidden>
+      <div id="autoMatchBody" aria-live="polite"></div>
     </section>
 
     <section id="accountPanel" class="panel" hidden>

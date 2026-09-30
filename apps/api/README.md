@@ -87,7 +87,9 @@ static-serving rules (board task #74; the same rules the browser runs, so the
 client can never be more permissive than the API), the Connect marketplace core
 (the load and offer state machines, expiry, the posting/beacon/offer/award
 validators, lane/date/equipment matching, the award plan and the tenancy
-predicates — board task #76), the solo driver core (signup/truck validation, the
+predicates — board task #76; and the customer compare/award read model, the
+cancellation-term vocabulary, the auto-match rules + owner gate and the
+award/decline notices — board task #78), the solo driver core (signup/truck validation, the
 OTP gate, the verification state and the bidding rule `canBid`, own-customer and
 quick-job validation, the saved-search filter and the wallet-lite read model —
 board task #77) and the `/s/` static-serving rules, locale
@@ -151,6 +153,16 @@ uploads a POD (the `pod_required` gate included) and the wallet shows the paymen
 status → a quick job for the driver's OWN customer (no shipper account) creates
 an order + trip and mints a **working** public tracking link → the beacon and the
 saved searches stay scoped.
+It also drives the customer offer compare/award screen (board task #78) end to end
+in dedicated `qa-offer-*` orgs: a customer's marketplace booking posts a load →
+three carriers offer (each offer's truck derived server-side) → the compare read
+returns all three cheapest-first with the cheapest/fastest/verified flags and the
+budget delta → another customer gets a flat `404` → the auto-match toggle is
+refused with the owner gate (`403 auto_match_pending_owner`) while the limits save
+→ a declined offer leaves the load open → a structured counter supersedes its
+parent → the award creates the `Trip` in the winning carrier's org, declines the
+open rival and returns the notices for both sides → the awarded state is
+recoverable by a re-read and a second award is `409`.
 That database-backed block prints a diagnostic and skips its assertions when no
 database is reachable, so the command still runs on a bare checkout:
 
@@ -864,15 +876,17 @@ traversal/dotfile/extension rules.
 the book-a-load wizard (see the endpoint table). A bookable supply choice creates
 the `Order` **and** a `DRAFT` `Trip` in the carrier org, so the order lands in the
 fleet manager's trips list for dispatching — the customer never picks a driver and
-the rate is the carrier's to set. The marketplace choices answer `202` with
-`{ order: null, marketplace: { code: "marketplace_unavailable", task: "UXF-M1 (#76)", fallback: "own_carrier" } }`:
-reachable and explained, never a dead end.
+the rate is the carrier's to set. From board task #78 a **marketplace** choice
+posts the load for real (`201 { order, load, marketplace: { code:
+"marketplace_posted" } }`) and the portal opens its **Offers** compare screen; the
+load then collects structured offers the customer counters, declines or awards
+(see "Customer offer compare/award" below).
 
 **Supply choice (the owner's requirement).** `fleet`, `solo`, `auto`, `recurring`
-are the marketplace paths (opening with UXF-M1/#76); `own_carrier` (a carrier on
-RoadwiseFleet) and `off_platform` (a carrier that is not — order + job link) are
-bookable today. Every path is rendered from the catalogue with a description and
-an honest state; the wizard offers the bookable fallback next to the phase notice.
+are the marketplace paths (shipped with UXF-M1/#76 and wired to the portal in
+#78); `own_carrier` (a carrier on RoadwiseFleet) and `off_platform` (a carrier
+that is not — order + job link) are direct bookings. Every path is rendered from
+the catalogue with a description and an honest state.
 
 **Security model.** A customer login holds the `customer` role
 (`order:create`, `order:read`, `customer:manage`) and **no** `org:*`/`trip:*`; its
@@ -1036,6 +1050,61 @@ pnpm --filter @roadwisefleet/api handoff -- \
 
 The pure parsing/planning logic lives in `src/waitlist-handoff.js` and is
 covered by `src/waitlist-handoff.test.js`.
+
+## Customer offer compare/award — board task #78 (UXF-C2)
+Once a load is posted (board task #76), the customer must compare the structured
+offers honestly and award one (diagram `docs/ux-flows/01-customer-flow.mmd`
+paths ③⑤). This task wires the customer portal's marketplace supply choices to
+the real marketplace: a marketplace booking **posts the load** (the old `202
+"opens with UXF-M1"` notice is gone), and the portal grows an **Offers** screen
+and an **Auto-match** screen.
+
+**Endpoints** (customer tenancy; "not mine" is a flat `404`, never a `403`):
+
+| Endpoint | Auth | What it does |
+| --- | --- | --- |
+| `GET /api/customer/loads` | bearer, `customer:manage` | the caller's own load postings with offer counts (board task #78) |
+| `GET /api/customer/loads/:id` | bearer | the compare screen: the load, every offer cheapest-first with the cheapest/fastest/verified flags and the budget delta, plus the auto-match rules state |
+| `POST /api/customer/loads/:id/award` | bearer | `{ offerId, paymentMethod }` → creates the `Trip` in the winning carrier's org against the load's order, declines the open rivals, returns notices for both sides (`201`) |
+| `POST /api/customer/offers/:id/counter` | bearer | a structured counter-offer; the parent becomes `COUNTERED` |
+| `POST /api/customer/offers/:id/decline` | bearer | decline an offer; the load stays open |
+| `GET`/`PUT /api/customer/auto-match` | bearer | the auto-match rules (max price, min rating); enabling is refused with `403 auto_match_pending_owner` until the owner answers #73 q6 |
+
+**Files.** `customer/customer.js` + `index.html` + `customer.css` +
+`locales/en.json` are the surface; the domain rules stay in the shared
+`apps/api/src/marketplace.js` (the SAME state machines, `awardPlan`,
+`buildAwardTripData`, `compareRows`, the cancellation-term vocabulary and the
+auto-match predicates the fleet/solo side uses), so the two surfaces cannot
+drift. `apps/api/src/marketplace-sweep.js` is the one lazy-expiry sweep both
+routes call. `apps/api/src/routes/customer.ts` adds the routes (auth, tenancy,
+persistence, HTTP mapping only); `src/marketplace.test.js` + `src/customer-core.test.js`
+cover the pure half on the no-install runner, and `test/offer-compare.test.ts`
+drives the whole flow through the real server and database.
+
+**Data model.** Additive only (migration
+`prisma/migrations/20260930140000_add_offer_compare/`): three nullable/defaulted
+columns on `MarketplaceOffer` (`carrierTruck`, `carrierVerified`,
+`cancellationTerms` — derived at offer time from the carrier's own rows, never a
+client value) and `CustomerProfile.autoMatch` (the rules JSON). No column on a
+shared model, so the running pilot is unaffected whether or not it is applied.
+
+**Owner gate.** The auto-match screen ships behind the owner's #73 q6 answer:
+`marketplace.js#AUTO_MATCH_OWNER_APPROVED` is `false`, so an `enabled: true` rule
+is refused with the gate named; the limits still save. Flipping that one constant
+(and its UI copy) is the only change needed to let a stored `enabled` rule take
+effect — the matching predicate (`autoMatchAccepts` / `autoMatchWinner`) is
+already unit-tested.
+
+**Notifications.** There is no mail/text provider on the pilot (the customer
+portal states the same), so "notify both sides" is the durable award state: the
+award response carries the shipper/carrier/declined notices, and a carrier reads
+its own back from `GET /api/marketplace/offers/mine` (`notifications`) and from
+its `GET /api/trips` list.
+
+**Known limit.** `carrierRating` has no writer yet (there is no rating store), so
+the compare row renders "not rated" rather than inventing a number. A fleet also
+has no verification badge concept yet (`carrierVerified` is the solo driver's
+`VERIFIED` state); both are honest nulls/false, not bugs.
 
 ## Solo driver Connect MVP (`/s/`, `/api/solo/*`) — board task #77 (UXF-M2)
 The solo truck driver of diagram `docs/ux-flows/04-solo-driver-flow.mmd` is a

@@ -5,6 +5,7 @@ import { requireAuth } from '../auth/guard.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
 import { stripCredentialFields } from '../user-payload.js';
+import { sweepExpired } from '../marketplace-sweep.js';
 import * as market from '../marketplace.js';
 import { canBid, SOLO_ROLE } from '../../../../solo/lib/solo-core.js';
 
@@ -109,6 +110,9 @@ const OFFER_SELECT = {
   pickupEtaAt: true,
   deliveryEtaAt: true,
   note: true,
+  carrierTruck: true,
+  carrierVerified: true,
+  cancellationTerms: true,
   side: true,
   status: true,
   parentOfferId: true,
@@ -118,28 +122,6 @@ const OFFER_SELECT = {
 
 const OPEN_LOADS = ['POSTED', 'OFFERS'];
 const OPEN_OFFERS = ['SENT', 'VIEWED'];
-
-/**
- * Lazy expiry sweep (diagram 05: offers expire). Called on the reads that show
- * open rows, so an expired offer/load becomes EXPIRED state instead of a
- * render-time illusion. Bounded to the ids being read when given.
- */
-async function sweepExpired(loadIds?: string[]): Promise<void> {
-  const now = new Date();
-  const loadWhere: Record<string, unknown> = {
-    status: { in: OPEN_LOADS },
-    expiresAt: { lte: now },
-  };
-  if (loadIds) loadWhere.id = { in: loadIds };
-  await prisma.loadPosting.updateMany({ where: loadWhere, data: { status: 'EXPIRED' } });
-
-  const offerWhere: Record<string, unknown> = {
-    status: { in: OPEN_OFFERS },
-    expiresAt: { lte: now },
-  };
-  if (loadIds) offerWhere.loadId = { in: loadIds };
-  await prisma.marketplaceOffer.updateMany({ where: offerWhere, data: { status: 'EXPIRED', decidedAt: now } });
-}
 
 /** The tenant filter for "loads this principal posted". */
 function ownLoadWhere(principal: Principal): Record<string, unknown> {
@@ -243,7 +225,7 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     if (!market.canPostLoad(principal.permissions)) return refuse(reply, 'forbidden');
     const where = ownLoadWhere(principal);
     const ids = await prisma.loadPosting.findMany({ where, select: { id: true } });
-    await sweepExpired(ids.map((row) => row.id));
+    await sweepExpired(prisma, ids.map((row) => row.id));
     const loads = await prisma.loadPosting.findMany({
       where,
       select: { ...LOAD_SELECT, _count: { select: { offers: true } } },
@@ -319,7 +301,7 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const load = await prisma.loadPosting.findUnique({ where: { id }, select: LOAD_SELECT });
     if (!load) return refuse(reply, 'load_not_found');
-    await sweepExpired([load.id]);
+    await sweepExpired(prisma, [load.id]);
     const fresh = await prisma.loadPosting.findUnique({ where: { id }, select: LOAD_SELECT });
     if (!market.canReadLoad({ load: fresh, principal, permissions: principal.permissions })) {
       return refuse(reply, 'forbidden');
@@ -346,12 +328,13 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     // the board (GET /marketplace/loads is untouched) but may not bid. Applied
     // only to solo principals, so fleet carriers are unaffected. Denies by
     // default: a `solo` token without a profile row cannot bid.
+    let soloProfile: { verificationStatus: string; truckPlate: string | null } | null = null;
     if (principal.roleId === SOLO_ROLE) {
-      const profile = await prisma.soloDriverProfile.findUnique({
+      soloProfile = await prisma.soloDriverProfile.findUnique({
         where: { userId: principal.userId },
-        select: { verificationStatus: true },
+        select: { verificationStatus: true, truckPlate: true },
       });
-      const gate = canBid(profile);
+      const gate = canBid(soloProfile);
       if (!gate.allowed) {
         return reply.code(403).send({ error: gate.error, messageKey: gate.messageKey });
       }
@@ -380,6 +363,23 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     const org = await prisma.org.findUnique({ where: { id: principal.orgId }, select: { name: true } });
     const expiresAt = value.expiresAt ?? new Date(now.getTime() + market.DEFAULT_OFFER_TTL_SECONDS * 1000);
 
+    // The compare-screen facets (#78) are derived from the carrier's OWN rows
+    // here — the fleet's first truck, the solo driver's truck and verification
+    // state — so a client body can never spoof them.
+    let carrierTruck: string | null = null;
+    let carrierVerified = false;
+    if (principal.roleId === SOLO_ROLE) {
+      carrierTruck = soloProfile?.truckPlate ?? null;
+      carrierVerified = soloProfile?.verificationStatus === 'VERIFIED';
+    } else {
+      const truck = await prisma.truck.findFirst({
+        where: { orgId: principal.orgId },
+        orderBy: { createdAt: 'asc' },
+        select: { plate: true },
+      });
+      carrierTruck = truck?.plate ?? null;
+    }
+
     const offer = await prisma.$transaction(async (tx) => {
       const created = await tx.marketplaceOffer.create({
         data: {
@@ -391,6 +391,9 @@ export async function marketplaceRoutes(app: FastifyInstance) {
           pickupEtaAt: value.pickupEtaAt,
           deliveryEtaAt: value.deliveryEtaAt,
           note: value.note,
+          carrierTruck,
+          carrierVerified,
+          cancellationTerms: value.cancellationTerms,
           side: 'carrier',
           status: 'SENT',
           createdById: principal.userId,
@@ -449,6 +452,11 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     });
 
     const fresh = await prisma.loadPosting.findUnique({ where: { id }, select: LOAD_SELECT });
+    // Both sides are notified (#78): the shipper that the load is awarded, the
+    // winning carrier that the trip exists, and each declined rival. The notice
+    // is the durable award state above — this is its client-readable projection.
+    const declinedOffers = offers.filter((offer) => plan.declinedIds.includes(offer.id));
+    const notifications = market.awardOutcomeNotifications({ load: fresh, offer: winner, trip, declinedOffers });
     return reply.code(201).send(
       stripCredentialFields({
         load: market.loadCard(fresh),
@@ -462,6 +470,7 @@ export async function marketplaceRoutes(app: FastifyInstance) {
         },
         offer: market.offerCard({ ...winner, status: 'ACCEPTED' }),
         declined: plan.declinedIds,
+        notifications,
         paymentMethod: award.value.paymentMethod,
       }),
     );
@@ -499,12 +508,15 @@ export async function marketplaceRoutes(app: FastifyInstance) {
       take: 100,
     });
     const loadIds = [...new Set(offers.map((offer) => offer.loadId))];
-    await sweepExpired(loadIds);
+    await sweepExpired(prisma, loadIds);
     const loads = await prisma.loadPosting.findMany({ where: { id: { in: loadIds } }, select: LOAD_SELECT });
     const byId = new Map(loads.map((load) => [load.id, market.loadCard(load)]));
     return reply.send(
       stripCredentialFields({
         offers: market.offerCards(offers).map((card) => ({ ...card, load: byId.get(card.loadId) ?? null })),
+        // The carrier is notified of an award on its own offers (#78): the win
+        // (with the trip) or the decline. Read-only projection of durable state.
+        notifications: market.carrierOutcomeNotifications(offers),
       }),
     );
   });
@@ -539,6 +551,12 @@ export async function marketplaceRoutes(app: FastifyInstance) {
           pickupEtaAt: value.pickupEtaAt ?? parent.pickupEtaAt,
           deliveryEtaAt: value.deliveryEtaAt ?? parent.deliveryEtaAt,
           note: value.note,
+          // A counter inherits the offer's compare facets: the truck and the
+          // verification badge belong to the CARRIER, and the terms carry over
+          // from the card being answered (the shipper may still name new terms).
+          carrierTruck: parent.carrierTruck ?? null,
+          carrierVerified: parent.carrierVerified ?? false,
+          cancellationTerms: typeof (req.body as any)?.cancellationTerms === 'string' ? value.cancellationTerms : parent.cancellationTerms,
           side: parent.side === 'carrier' ? 'shipper' : 'carrier',
           status: 'SENT',
           parentOfferId: parent.id,

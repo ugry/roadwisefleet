@@ -463,3 +463,204 @@ test('the marketplace migration is additive: three new tables, no column on a sh
     'no existing table may gain a scalar column (the pilot reads it without a select)',
   );
 });
+
+/* ------------------------------------- customer compare/award (#78, UXF-C2) --- */
+
+test('normalizeOffer carries the cancellation terms and refuses an unknown code', () => {
+  const ok = market.normalizeOffer({ priceEur: 1000, cancellationTerms: 'flexible' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.value.cancellationTerms, 'flexible');
+  const dflt = market.normalizeOffer({ priceEur: 1000 });
+  assert.equal(dflt.value.cancellationTerms, 'standard', 'terms default, never empty');
+  const bad = market.normalizeOffer({ priceEur: 1000, cancellationTerms: 'whatever' });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.field, 'cancellationTerms');
+});
+
+test('offerCard exposes the compare facets and a null rating, never a fabricated one', () => {
+  const card = market.offerCard({
+    id: 'o1',
+    priceEur: 900,
+    carrierName: 'Fleet A',
+    carrierTruck: 'B-RW 123',
+    carrierVerified: true,
+    cancellationTerms: 'strict',
+    passwordHash: 'nope',
+  });
+  assert.equal(card.carrierTruck, 'B-RW 123');
+  assert.equal(card.carrierVerified, true);
+  assert.equal(card.cancellationTerms, 'strict');
+  assert.equal(card.carrierRating, null);
+  assert.equal('passwordHash' in card, false);
+  const bare = market.offerCard({ id: 'o2', priceEur: 900, carrierName: 'Fleet B' });
+  assert.equal(bare.carrierVerified, false, 'an absent flag is false, not truthy');
+  assert.equal(bare.cancellationTerms, 'standard');
+});
+
+test('compareRows orders cheapest first, flags the extremes and the budget delta', () => {
+  const load = { id: 'l1', priceEur: 1000 };
+  const rows = market.compareRows(
+    [
+      { id: 'o1', priceEur: 1200, deliveryEtaAt: future(30), carrierName: 'A', cancellationTerms: 'standard' },
+      { id: 'o2', priceEur: 900, deliveryEtaAt: future(20), carrierName: 'B', carrierVerified: true },
+      { id: 'o3', priceEur: 1100, deliveryEtaAt: future(10), carrierName: 'C' },
+    ],
+    load,
+  );
+  assert.deepEqual(rows.map((r) => r.id), ['o2', 'o3', 'o1'], 'cheapest first');
+  assert.equal(rows[0].flags.cheapest, true);
+  assert.equal(rows[0].flags.fastest, false);
+  assert.equal(rows[1].flags.fastest, true, 'o3 delivers first');
+  assert.equal(rows[0].flags.verified, true);
+  assert.equal(rows[0].deltaVsBudget, -100);
+  assert.equal(rows[0].withinBudget, true);
+  assert.equal(rows[2].deltaVsBudget, 200);
+  assert.equal(rows[2].withinBudget, false);
+});
+
+test('compareRows is deterministic and tolerates an absent load price', () => {
+  const first = market.compareRows(
+    [
+      { id: 'b', priceEur: 100, deliveryEtaAt: future(2), carrierName: 'B' },
+      { id: 'a', priceEur: 100, deliveryEtaAt: future(2), carrierName: 'A' },
+    ],
+    {},
+  );
+  const second = market.compareRows(
+    [
+      { id: 'a', priceEur: 100, deliveryEtaAt: future(2), carrierName: 'A' },
+      { id: 'b', priceEur: 100, deliveryEtaAt: future(2), carrierName: 'B' },
+    ],
+    {},
+  );
+  assert.deepEqual(first.map((r) => r.id), ['a', 'b'], 'id is the final tie-break');
+  assert.deepEqual(first.map((r) => r.id), second.map((r) => r.id));
+  assert.equal(first[0].deltaVsBudget, null, 'no budget named means no delta');
+  assert.equal(market.compareRows(null, {}).length, 0);
+});
+
+test('auto-match rules validate, and enabling is gated on the owner answer', () => {
+  const rules = market.normalizeAutoMatch({ enabled: true, maxPriceEur: 1200, minRating: 4 });
+  assert.equal(rules.ok, true);
+  assert.equal(rules.value.minRating, 4);
+  assert.equal(market.normalizeAutoMatch({ minRating: 9 }).field, 'minRating');
+  assert.equal(market.normalizeAutoMatch({ maxPriceEur: -1 }).field, 'maxPriceEur');
+
+  const gated = market.autoMatchEntitlement({ enabled: true, maxPriceEur: 1200, minRating: null });
+  assert.equal(gated.allowed, false);
+  assert.equal(gated.error, market.AUTO_MATCH_PENDING_OWNER);
+  assert.equal(gated.ownerGate, market.AUTO_MATCH_OWNER_GATE);
+  assert.equal(market.AUTO_MATCH_OWNER_APPROVED, false, 'the owner gate is closed until #73 q6');
+
+  const off = market.autoMatchEntitlement({ enabled: false, maxPriceEur: 1200, minRating: null });
+  assert.equal(off.allowed, true);
+  assert.equal(off.active, false);
+
+  const approved = market.autoMatchEntitlement(
+    { enabled: true, maxPriceEur: 1200, minRating: 4 },
+    { ownerApproved: true },
+  );
+  assert.equal(approved.allowed, true);
+  assert.equal(approved.active, true, 'once the owner answers, an enabled rule is live');
+});
+
+test('autoMatchAccepts and autoMatchWinner respect price and rating — and never guess', () => {
+  const rules = { enabled: true, maxPriceEur: 1000, minRating: 4 };
+  assert.equal(market.autoMatchAccepts(rules, { priceEur: 900, carrierRating: 4.5, status: 'SENT' }), true);
+  assert.equal(market.autoMatchAccepts(rules, { priceEur: 1001, carrierRating: 5, status: 'SENT' }), false);
+  assert.equal(market.autoMatchAccepts(rules, { priceEur: 900, carrierRating: 3.9, status: 'SENT' }), false);
+  assert.equal(
+    market.autoMatchAccepts(rules, { priceEur: 900, carrierRating: null, status: 'SENT' }),
+    false,
+    'an unrated carrier cannot satisfy a min-rating rule',
+  );
+  assert.equal(market.autoMatchAccepts({ ...rules, enabled: false }, { priceEur: 1 }), false, 'off means off');
+
+  const offers = [
+    { id: 'o1', priceEur: 1200, carrierRating: 5, status: 'SENT' },
+    { id: 'o2', priceEur: 800, carrierRating: 3, status: 'SENT' },
+    { id: 'o3', priceEur: 950, carrierRating: 4.2, status: 'SENT' },
+    { id: 'o4', priceEur: 500, carrierRating: 4.9, status: 'DECLINED' },
+  ];
+  assert.equal(market.autoMatchWinner(rules, offers).id, 'o3', 'cheapest that satisfies both rules and is open');
+  assert.equal(
+    market.autoMatchWinner({ ...rules, minRating: null }, offers).id,
+    'o2',
+    'without a rating rule the cheapest open offer wins — the DECLINED o4 is never picked',
+  );
+  assert.equal(market.autoMatchWinner({ enabled: false }, offers), null, 'a gated engine picks nothing');
+  assert.equal(market.autoMatchWinner({ ...rules, maxPriceEur: 10 }, offers), null);
+});
+
+test('awardOutcomeNotifications notifies both sides and each declined rival', () => {
+  const load = { id: 'l1' };
+  const offer = { id: 'o-winner', carrierOrgId: 'org-a' };
+  const trip = { id: 't1' };
+  const notes = market.awardOutcomeNotifications({
+    load,
+    offer,
+    trip,
+    declinedOffers: [{ id: 'o-rival', carrierOrgId: 'org-b' }],
+  });
+  assert.deepEqual(notes.map((n) => n.audience), ['shipper', 'carrier', 'carrier']);
+  assert.equal(notes[0].messageKey, 'market.notify.awardedShipper');
+  assert.equal(notes[1].orgId, 'org-a', 'the winning carrier is named');
+  assert.equal(notes[2].kind, 'declined');
+  assert.equal(notes[2].offerId, 'o-rival');
+  assert.deepEqual(market.awardOutcomeNotifications({}), []);
+});
+
+test('carrierOutcomeNotifications reads the win/decline off the offer status', () => {
+  const notes = market.carrierOutcomeNotifications([
+    { id: 'o1', loadId: 'l1', status: 'ACCEPTED' },
+    { id: 'o2', loadId: 'l2', status: 'DECLINED' },
+    { id: 'o3', loadId: 'l3', status: 'SENT' },
+  ]);
+  assert.deepEqual(notes.map((n) => n.kind), ['awarded', 'declined']);
+  assert.deepEqual(market.carrierOutcomeNotifications(null), []);
+});
+
+test('buildLoadPostingData downgrades an instant load with no price to quotes', () => {
+  const build = market.buildLoadPostingData(
+    { origin: 'A', destination: 'B', cargo: 'x', equipment: 'reefer', loadReadyAt: null, deliverByAt: null, pricingMode: 'instant', budgetEur: null },
+    { orderId: 'ord1', customerId: 'cust1', postedById: 'u1' },
+  );
+  assert.equal(build.pricingMode, 'quotes', 'an instant load must name a rate, so this becomes quotes');
+  assert.equal(build.status, 'POSTED');
+  assert.equal(build.customerId, 'cust1');
+  assert.equal(build.orgId, null);
+  const priced = market.buildLoadPostingData(
+    { origin: 'A', destination: 'B', pricingMode: 'instant', budgetEur: 500 },
+    { orderId: 'ord2', customerId: 'cust1' },
+  );
+  assert.equal(priced.pricingMode, 'instant');
+  assert.equal(priced.priceEur, 500);
+  assert.ok(market.defaultLoadExpiry(NOW) > NOW);
+});
+
+test('the customer compare/award route reuses the pure plan and the shared sweep', () => {
+  const route = readFileSync(resolve(repoRoot, 'apps/api/src/routes/customer.ts'), 'utf8');
+  assert.match(route, /market\.awardPlan\(/, 'the customer award must use the shared awardPlan()');
+  assert.match(route, /market\.buildAwardTripData\(/, 'the trip data must come from buildAwardTripData()');
+  assert.match(route, /market\.compareRows\(/, 'the compare screen must use the shared compareRows()');
+  assert.match(route, /sweepExpired\(prisma/, 'the customer read must use the shared expiry sweep');
+  // The old dead-end notice for a marketplace booking is gone.
+  assert.equal(/marketplace_unavailable/.test(route), false, 'a marketplace booking must post the load');
+});
+
+test('the #78 migration is additive: columns on the portal/marketplace tables only', () => {
+  const dir = resolve(repoRoot, 'prisma/migrations');
+  const name = readdirSync(dir).find((entry) => entry.endsWith('_add_offer_compare'));
+  assert.ok(name, 'a *_add_offer_compare migration must exist');
+  const sql = readFileSync(resolve(dir, name, 'migration.sql'), 'utf8');
+  const alters = sql.match(/ALTER TABLE "[A-Za-z]+"/g) ?? [];
+  assert.ok(alters.length > 0);
+  for (const alter of alters) {
+    assert.match(
+      alter,
+      /ALTER TABLE "(MarketplaceOffer|CustomerProfile)"/,
+      `additive on the #76/#74 tables only, got ${alter}`,
+    );
+  }
+  assert.equal(/\bDROP\b/.test(sql.replace(/--.*$/gm, '')), false, 'no DROP in the migration body');
+});

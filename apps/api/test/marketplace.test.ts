@@ -124,10 +124,11 @@ async function cleanup(): Promise<void> {
   await prisma.org.deleteMany({ where: { id: { in: orgs } } });
   // The `customer` Role row belongs to the deploy path (migration
   // 20260929230000_add_customer_role); restore it if a failing test left it gone.
-  await prisma.role.upsert({
-    where: { id: CUSTOMER_ROLE },
-    update: {},
-    create: { id: CUSTOMER_ROLE, permissions: [...CUSTOMER_PERMISSIONS] },
+  // `createMany({ skipDuplicates })` is atomic ON CONFLICT DO NOTHING — an
+  // `upsert` (find-then-create) can race a concurrent test FILE into P2002.
+  await prisma.role.createMany({
+    skipDuplicates: true,
+    data: [{ id: CUSTOMER_ROLE, permissions: [...CUSTOMER_PERMISSIONS] }],
   });
 }
 
