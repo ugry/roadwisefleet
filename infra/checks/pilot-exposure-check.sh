@@ -73,6 +73,13 @@ soft_header   "$APEX/" "content-security-policy" "GET /"
 soft_header   "$APEX/" "x-frame-options" "GET /"
 soft_header   "$APEX/" "x-content-type-options" "GET /"
 soft_header   "$APEX/" "referrer-policy" "GET /"
+# Board #87: these are in web/ and are published by the deployer with the rest
+# of the static tree. Before the owner window the manual sync only copied
+# web/*.html, so robots.txt and the social card 404 — WARN, not FAIL, until the
+# window; the mtime of / is the "no manual promote" evidence for the task.
+soft_header   "$APEX/" "last-modified" "GET / (mtime = deploy-time evidence)"
+soft_header   "$APEX/robots.txt" "content-type" "GET /robots.txt"
+soft_header   "$APEX/og-image.png" "content-type" "GET /og-image.png"
 
 hdr "2. Canonical host (F2)"
 expect_status "$APEX/dashboard" 200 "GET /dashboard"
@@ -111,6 +118,18 @@ if [ "$(status "$APEX/app")" = "301" ]; then
   printf '  ok    %-55s HTTP 301 -> %s\n' "GET /app (no slash)" "$(location "$APEX/app")"
 else
   printf '  WARN  %-55s HTTP %s (want 301 -> /app/)\n' "GET /app (no slash)" "$(status "$APEX/app")"
+  warns=$((warns + 1))
+fi
+
+hdr "3c. Customer portal surface (board #87) — fails until the owner window"
+expect_status "$APEX/c/" 200 "GET /c/"
+expect_status "$APEX/c/customer.js" 200 "GET /c/customer.js"
+expect_header "$APEX/c/" "x-robots-tag" "GET /c/"
+soft_header   "$APEX/c/" "content-security-policy" "GET /c/"
+if [ "$(status "$APEX/c")" = "301" ]; then
+  printf '  ok    %-55s HTTP 301 -> %s\n' "GET /c (no slash)" "$(location "$APEX/c")"
+else
+  printf '  WARN  %-55s HTTP %s (want 301 -> /c/)\n' "GET /c (no slash)" "$(status "$APEX/c")"
   warns=$((warns + 1))
 fi
 
