@@ -141,6 +141,26 @@ button.ghost {
   padding: 7px 12px;
   font-size: 14px;
 }
+/* The login card's secondary action (board task #94): "Register" has to read as
+ * the equal of the primary "Sign in" button, not as a 12px helper link. Same
+ * box metrics as `button.primary` (padding, border, weight, radius) on a
+ * quieter surface, so the primary stays the lead action and the two still look
+ * like the same-sized pair of choices. */
+.login-card a.secondary {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 16px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-decoration: none;
+}
+.login-card a.secondary:hover { border-color: var(--accent-deep); color: var(--accent-deep); }
 .helper { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
 .alert {
   background: oklch(0.96 0.03 27);
