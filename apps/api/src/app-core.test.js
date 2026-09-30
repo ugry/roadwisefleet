@@ -231,3 +231,56 @@ test('the session keys are app-scoped, not shared with the pilot', () => {
   assert.equal(appCore.USER_KEY, 'rwf.app.user');
   assert.notEqual(appCore.TOKEN_KEY, 'rwf_token');
 });
+
+// --- self-service registration (board task #86) ----------------------------
+
+test('the signup screen is a public route alongside login', () => {
+  assert.equal(appCore.SIGNUP_PATH, '/app/signup');
+  assert.equal(appCore.routeForPath('/app/signup').id, 'signup');
+  assert.equal(appCore.routeForPath('/app/signup.html').id, 'signup');
+  assert.equal(appCore.isSignupPath('/app/signup'), true);
+  assert.equal(appCore.isSignupPath('/app/signup/'), true);
+  assert.equal(appCore.isSignupPath('/signup'), false, 'the app lives under /app');
+  assert.equal(appCore.isLoginPath('/app/signup'), false);
+});
+
+test('isAuthPath covers both public screens, so neither is an intent', () => {
+  assert.equal(appCore.isAuthPath('/app/login'), true);
+  assert.equal(appCore.isAuthPath('/app/signup'), true);
+  assert.equal(appCore.isAuthPath('/app/trips'), false);
+  assert.equal(appCore.isAuthPath('/app'), false);
+});
+
+test('an unauthenticated visitor gets the signup screen, a signed-in one goes home', () => {
+  assert.equal(
+    appCore.guardDecision({ path: '/app/signup', hasToken: false, role: null }).action,
+    'render',
+  );
+  assert.equal(
+    appCore.guardDecision({ path: '/app/signup', hasToken: false, role: null }).route.id,
+    'signup',
+  );
+  assert.deepEqual(appCore.guardDecision({ path: '/app/signup', hasToken: true, role: 'owner' }), {
+    action: 'home',
+    to: '/app/',
+  });
+  assert.deepEqual(appCore.guardDecision({ path: '/app/signup', hasToken: true, role: 'driver' }), {
+    action: 'home',
+    to: '/app/my-trips',
+  });
+});
+
+test('the auth screens never appear in navigation, for any role', () => {
+  for (const role of appCore.ROLES) {
+    const ids = appCore.navFor(role).map((route) => route.id);
+    assert.ok(!ids.includes('signup'), `${role} must not see signup in the nav`);
+    assert.ok(!ids.includes('login'), `${role} must not see login in the nav`);
+  }
+  assert.equal(appCore.canOpen('owner', '/app/login'), false);
+  assert.equal(appCore.canOpen('owner', '/app/signup'), false);
+});
+
+test('errorKey explains the one signup conflict the form can hit', () => {
+  assert.equal(appCore.errorKey('email_taken', 409), 'error.emailTaken');
+});
+

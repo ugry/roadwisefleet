@@ -52,4 +52,10 @@ export const env = {
   // `/api/solo/otp` response echoes `devCode` for the pilot flow; unset (the
   // default) it NEVER travels in a response. A real deployment must leave it off.
   SOLO_OTP_RETURN_CODE: process.env.SOLO_OTP_RETURN_CODE || '',
+  // Self-service registration (board task #86): `POST /api/auth/register` is
+  // public and creates an Org + User, so it is bounded per client IP with an
+  // in-process fixed window (see `rate-limit.js`). Defaults: 10 registrations
+  // per 15 minutes. Raise the window/max only with a real shared limiter.
+  REGISTER_RATE_LIMIT_MAX: Number(process.env.REGISTER_RATE_LIMIT_MAX || 10),
+  REGISTER_RATE_LIMIT_WINDOW_SECONDS: Number(process.env.REGISTER_RATE_LIMIT_WINDOW_SECONDS || 15 * 60),
 };

@@ -13,6 +13,8 @@ import {
  * the pages are same-origin with `/api/*` (no new port, no CORS, no CDN).
  *
  *   GET /app           -> 301 /app/
+ *   GET /login         -> 302 /app/login   (public entry point, board #86)
+ *   GET /signup        -> 302 /app/signup  (public entry point, board #86)
  *   GET /app/*         -> the file under <repo>/app when it exists, otherwise
  *                         the shell (SPA fallback) so deep links work and the
  *                         client-side guard decides where the person goes.
@@ -33,6 +35,12 @@ import {
  */
 export async function appRoutes(app: FastifyInstance) {
   app.get('/app', async (_req, reply) => reply.redirect(APP_PREFIX, 302));
+
+  // Public entry points (board task #86): the marketing site links to /signup and
+  // /login, so a visitor never has to know the /app/ mount. Both are plain
+  // redirects into the app, which serves the shell and runs the client guard.
+  app.get('/login', async (_req, reply) => reply.redirect('/app/login', 302));
+  app.get('/signup', async (_req, reply) => reply.redirect('/app/signup', 302));
 
   app.get('/app/*', async (req, reply) => {
     const relPath = (req.params as Record<string, string>)['*'] ?? '';
