@@ -182,7 +182,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
 .section-head .lead{margin-top:14px}
 
 /* ============================================================
-   Buttons — one primary action: waitlist
+   Buttons — one conversion action: sign in
    ============================================================ */
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:9px;
@@ -443,29 +443,14 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
 .pricing-note{font-size:12.5px;color:var(--muted);margin-top:16px}
 
 /* ============================================================
-   Waitlist / final CTA
+   Get started / final CTA
    ============================================================ */
-.waitlist{background:var(--navy-950);color:var(--on-dark-2);position:relative;overflow:hidden}
-.waitlist::before{content:"";position:absolute;inset:0;background:radial-gradient(560px 320px at 78% 18%, oklch(0.80 0.165 82 / 0.12), transparent 65%)}
-.waitlist .container{position:relative;max-width:760px;text-align:center}
-.waitlist .h2{color:var(--on-dark)}
-.waitlist .lead{color:var(--on-dark-3);margin:14px auto 0}
-.waitlist-form{display:flex;gap:10px;max-width:520px;margin:30px auto 0}
-.waitlist-form[hidden]{display:none}
-.waitlist-form input{
-  flex:1;min-width:0;min-height:52px;padding:12px 16px;border-radius:10px;
-  border:1px solid var(--border-dark);background:oklch(1 0 0 / 0.05);color:var(--on-dark);
-  font-family:inherit;font-size:15px;
-}
-.waitlist-form input::placeholder{color:var(--on-dark-3)}
-.waitlist-form input:focus{outline:none;border-color:var(--on-dark);box-shadow:var(--ring-dark)}
-.waitlist-form input[aria-invalid="true"]{border-color:oklch(0.68 0.17 26)}
-.waitlist-note{font-size:12.5px;color:var(--on-dark-3);margin-top:14px}
-.waitlist-note a{color:var(--on-dark);text-decoration:underline;text-underline-offset:2px}
-.waitlist-error{font-size:13px;color:oklch(0.75 0.15 26);margin-top:14px;text-align:center}
-.waitlist-success{display:none;max-width:520px;margin:30px auto 0;background:oklch(1 0 0 / 0.05);border:1px solid var(--border-dark);border-radius:12px;padding:22px;color:var(--on-dark)}
-.waitlist-success .icon{width:26px;height:26px;color:var(--success);margin:0 auto 10px}
-.waitlist-success b{color:var(--on-dark)}
+.cta-final{background:var(--navy-950);color:var(--on-dark-2);position:relative;overflow:hidden}
+.cta-final::before{content:"";position:absolute;inset:0;background:radial-gradient(560px 320px at 78% 18%, oklch(0.80 0.165 82 / 0.12), transparent 65%)}
+.cta-final .container{position:relative;max-width:760px;text-align:center}
+.cta-final .h2{color:var(--on-dark)}
+.cta-final .lead{color:var(--on-dark-3);margin:14px auto 0}
+.cta-final-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:30px}
 
 /* ============================================================
    Footer
@@ -520,8 +505,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
   .dash-row{grid-template-columns:1.1fr 1.2fr .8fr}
   .dash-row .col-eta,.dash-row .col-payout{display:none}
   .phone-mock{width:46%}
-  .waitlist-form{flex-direction:column}
-  .waitlist-form .btn{width:100%}
+  .cta-final-actions{flex-direction:column;max-width:360px;margin-inline:auto}
 }
 @media (max-width: 430px){
   .stats-grid{grid-template-columns:1fr}
@@ -578,9 +562,10 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
         <li><a href="#fleets">Fleets</a></li>
         <li><a href="#how-it-works">How it works</a></li>
         <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#connect">Connect</a></li>
       </ul>
     </nav>
-    <a class="btn btn-ghost-dark nav-cta" href="#waitlist" data-od-id="nav-cta">Early access</a>
+    <a class="btn btn-ghost-dark nav-cta" href="/app/" data-od-id="nav-cta">Sign in</a>
     <button class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="mobile-menu" aria-label="Open menu" data-od-id="menu-toggle">
       <svg class="icon" id="menu-icon"><use href="#i-menu"/></svg>
     </button>
@@ -591,7 +576,8 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
   <a href="#fleets">Fleets</a>
   <a href="#how-it-works">How it works</a>
   <a href="#pricing">Pricing</a>
-  <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
+  <a href="#connect">Connect</a>
+  <a href="/app/">Sign in</a>
 </div>
 
 <main id="top">
@@ -624,7 +610,7 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
       <h1 class="h-display">The operating system for <span class="accent">small trucking fleets</span>.</h1>
       <p class="lead">One Android app for your drivers. One dashboard for dispatch, compliance, and cash flow. Built for the 1–20-truck fleets the big TMS vendors ignore.</p>
       <div class="hero-ctas">
-        <a class="btn btn-primary" href="#waitlist" data-od-id="hero-cta-primary">Get early access<svg class="icon"><use href="#i-arrow"/></svg></a>
+        <a class="btn btn-primary" href="/app/" data-od-id="hero-cta-primary">Sign in<svg class="icon"><use href="#i-arrow"/></svg></a>
         <a class="btn btn-ghost-dark" href="#how-it-works" data-od-id="hero-cta-secondary">See how it works</a>
       </div>
       <div class="hero-trust">
@@ -991,15 +977,134 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
   </div>
 </section>
 
+<!-- ===================== CONNECT ===================== -->
+<section class="problem section" id="connect" data-od-id="connect">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <span class="kicker">Connect</span>
+      <h2 class="h2">One load. A fleet or a solo driver — you choose.</h2>
+      <p class="lead">Post it once and let carriers come to you: a fleet company, a solo owner-operator, or an auto-match of both. Whoever wins it, you watch the same trip the same way.</p>
+    </div>
+
+    <div class="steps-grid">
+      <div class="step" data-reveal data-od-id="connect-step-post">
+        <div class="step-num">1</div>
+        <h3>Post the load</h3>
+        <p>Describe it once: route, cargo, truck needed, dates. Set a budget or ask carriers to quote.</p>
+      </div>
+      <div class="step" data-reveal data-od-id="connect-step-compare">
+        <div class="step-num">2</div>
+        <h3>Compare the offers</h3>
+        <p>Fleet and solo offers land side by side — price, pickup ETA, delivery ETA, rating, truck and verification. Nothing agreed in a phone call.</p>
+      </div>
+      <div class="step" data-reveal data-od-id="connect-step-track">
+        <div class="step-num">3</div>
+        <h3>Track the trip</h3>
+        <p>Award it and both sides work the same trip. Send a read-only tracking link — your customer follows route and status with no account and no app.</p>
+      </div>
+    </div>
+
+    <div class="pricing-cta" style="margin-top:28px">
+      <a class="btn btn-primary" href="/app/" data-od-id="connect-cta-signin">Sign in<svg class="icon"><use href="#i-arrow"/></svg></a>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CONNECT — OFFER MODES ===================== -->
+<section class="product section-tight" id="connect-modes" style="background:var(--surface-2)" data-od-id="connect-modes">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <span class="kicker">Connect</span>
+      <h2 class="h2">Four ways to move one load.</h2>
+      <p class="lead">How a load is priced and awarded is your call — from a one-tap rate on a lane you run every week to a bidding round, an invite to a carrier you trust, or rules you set once.</p>
+    </div>
+    <div class="cards-3">
+      <article class="card" data-reveal data-od-id="mode-instant">
+        <div class="card-icon"><svg class="icon"><use href="#i-check"/></svg></div>
+        <h3>Instant price</h3>
+        <p>A rate-card price on lanes you run again and again. Check it, book it, done.</p>
+      </article>
+      <article class="card" data-reveal data-od-id="mode-bidding">
+        <div class="card-icon"><svg class="icon"><use href="#i-award"/></svg></div>
+        <h3>Open bidding</h3>
+        <p>Post the load and verified fleets and solo drivers send structured offers. You compare them side by side.</p>
+      </article>
+      <article class="card" data-reveal data-od-id="mode-invite">
+        <div class="card-icon"><svg class="icon"><use href="#i-mail"/></svg></div>
+        <h3>Direct invite</h3>
+        <p>Invite a carrier you already trust and give them first refusal before the load goes wider.</p>
+      </article>
+      <article class="card" data-reveal data-od-id="mode-automatch">
+        <div class="card-icon"><svg class="icon"><use href="#i-route"/></svg></div>
+        <h3>Auto-match</h3>
+        <p>Set your rules — a maximum price and a minimum rating — and let the best matching offer win.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CONNECT — TRUST ===================== -->
+<section class="product section-tight" id="connect-trust" data-od-id="connect-trust">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <span class="kicker">Trust</span>
+      <h2 class="h2">You know who is carrying your load.</h2>
+      <p class="lead">Before a carrier can bid, we check their documents. After every trip, both sides rate each other.</p>
+    </div>
+    <div class="cards-3">
+      <article class="card" data-reveal data-od-id="trust-verification">
+        <div class="card-icon"><svg class="icon"><use href="#i-shield"/></svg></div>
+        <h3>Verified before they bid</h3>
+        <p>Fleets and solo drivers upload ID, driving licence, vehicle registration and insurance. Unverified accounts can look, but cannot bid.</p>
+      </article>
+      <article class="card" data-reveal data-od-id="trust-ratings">
+        <div class="card-icon"><svg class="icon"><use href="#i-award"/></svg></div>
+        <h3>Two-way ratings</h3>
+        <p>After every trip the customer rates the carrier and the carrier rates the customer — so both sides arrive with a track record.</p>
+      </article>
+      <article class="card" data-reveal data-od-id="trust-open">
+        <div class="card-icon"><svg class="icon"><use href="#i-doc"/></svg></div>
+        <h3>One trip, one record</h3>
+        <p>Status, documents and proof of delivery live on the same trip both sides see — no retyping, no separate spreadsheets.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CONNECT — OFF-PLATFORM ===================== -->
+<section class="regional section" id="connect-offplatform" data-od-id="connect-offplatform">
+  <div class="container">
+    <div class="section-head" data-reveal>
+      <span class="kicker">For fleets &amp; solo drivers</span>
+      <h2 class="h2">Keep your own customers — send them a tracking link.</h2>
+      <p class="lead">Your regulars do not need an account on RoadwiseFleet. Add them once, create the job, and send a link by WhatsApp or SMS. They follow route and status — no login, no app, no paperwork chase.</p>
+    </div>
+    <div class="cards-3">
+      <div class="card" data-reveal data-od-id="offplatform-add">
+        <h3>Add a customer once</h3>
+        <p>Name, phone, default lane and rate — about 30 seconds, and no account for them to create.</p>
+      </div>
+      <div class="card" data-reveal data-od-id="offplatform-send">
+        <h3>Send the link</h3>
+        <p>One link by WhatsApp or SMS. Your customer opens it and sees route and status — nothing to install.</p>
+      </div>
+      <div class="card" data-reveal data-od-id="offplatform-close">
+        <h3>Close the loop</h3>
+        <p>Proof of delivery and the invoice ride the same link, and next week's job is two taps away.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ===================== PRICING ===================== -->
 <section class="pricing section" id="pricing" data-od-id="pricing">
   <div class="container">
     <div class="pricing-card" data-reveal>
       <span class="kicker kicker--center">Pricing</span>
       <h2 class="pricing-line">Per truck, per month.<br><span class="accent">No hardware. No lock-in.</span></h2>
-      <p class="lead">One simple price per active truck. Early-access pricing goes to the first fleets on the waitlist — before we open publicly.</p>
+      <p class="lead">One simple price per active truck. No hardware. No lock-in.</p>
       <div class="pricing-cta">
-        <a class="btn btn-ghost-light" href="#waitlist" data-od-id="pricing-cta">Join the waitlist<svg class="icon"><use href="#i-arrow"/></svg></a>
+        <a class="btn btn-ghost-light" href="/app/" data-od-id="pricing-cta">Sign in<svg class="icon"><use href="#i-arrow"/></svg></a>
         <a class="btn-link" href="mailto:hello@roadwisefleet.com">Talk to us first<svg class="icon"><use href="#i-arrow"/></svg></a>
       </div>
       <p class="pricing-note">Full pricing published at general availability.</p>
@@ -1007,25 +1112,15 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
   </div>
 </section>
 
-<!-- ===================== WAITLIST ===================== -->
-<section class="waitlist section section-dark" id="waitlist" data-od-id="waitlist">
+<!-- ===================== GET STARTED ===================== -->
+<section class="cta-final section section-dark" id="get-started" data-od-id="cta-final">
   <div class="container">
     <div data-reveal>
-      <span class="kicker kicker--center">Early access</span>
-      <h2 class="h2">Join the early-access list</h2>
-      <p class="lead">We’re onboarding a small group of 1–20-truck fleets first. Tell us where to reach you — we’ll reply personally.</p>
-      <form class="waitlist-form" id="waitlist-form" novalidate data-od-id="waitlist-form">
-        <label for="waitlist-email" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Work email</label>
-        <input type="email" id="waitlist-email" name="email" placeholder="you@yourfleet.com" autocomplete="email" required aria-describedby="waitlist-error" data-od-id="waitlist-email">
-        <input type="text" name="company_website" style="position:absolute;left:-9999px;width:1px;height:1px" tabindex="-1" autocomplete="off" aria-hidden="true">
-        <button class="btn btn-primary" type="submit" data-od-id="waitlist-submit">Join the early-access list</button>
-      </form>
-      <p class="waitlist-note" id="waitlist-preview" hidden><b>Preview build.</b> This GitHub Pages copy is read-only, so the waitlist form is disabled here. Join the list at <a href="https://roadwisefleet.com/#waitlist">roadwisefleet.com</a>.</p>
-      <p class="waitlist-error" id="waitlist-error" role="alert" hidden></p>
-      <p class="waitlist-note">No spam. Early-access updates and pricing only.</p>
-      <div class="waitlist-success" id="waitlist-success" role="status" aria-live="polite">
-        <svg class="icon"><use href="#i-check"/></svg>
-        <p><b>You’re on the list.</b><br>We’ll be in touch soon with early-access details.</p>
+      <span class="kicker kicker--center">Get started</span>
+      <h2 class="h2">Sign in to RoadwiseFleet</h2>
+      <p class="lead">Sign in to set up your fleet and run your trips from one place.</p>
+      <div class="cta-final-actions">
+        <a class="btn btn-primary" href="/app/" data-od-id="cta-signin">Sign in<svg class="icon"><use href="#i-arrow"/></svg></a>
       </div>
     </div>
   </div>
@@ -1054,6 +1149,8 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
           <li><a href="#drivers">Drivers</a></li>
           <li><a href="#fleets">Fleets</a></li>
           <li><a href="#pricing">Pricing</a></li>
+          <li><a href="/app/">Sign in</a></li>
+          <li><a href="#connect">Connect</a></li>
         </ul>
       </div>
       <div>
@@ -1126,87 +1223,6 @@ section{scroll-margin-top:calc(var(--nav-h) + 8px)}
     revealEls.forEach(function (el) { el.classList.add("is-in"); });
   }
 
-  /* Waitlist form — QA F4: every failure, client- or server-side, is announced */
-  var form = document.getElementById("waitlist-form");
-  var emailInput = document.getElementById("waitlist-email");
-  var success = document.getElementById("waitlist-success");
-  var errorBox = document.getElementById("waitlist-error");
-  var previewNote = document.getElementById("waitlist-preview");
-  var submitBtn = form.querySelector('button[type="submit"]');
-  var API_URL = "https://roadwisefleet.com/api/waitlist";
-
-  function showError(message) {
-    errorBox.textContent = message;
-    errorBox.hidden = false;
-    emailInput.setAttribute("aria-invalid", "true");
-  }
-  function clearError() {
-    errorBox.textContent = "";
-    errorBox.hidden = true;
-    emailInput.removeAttribute("aria-invalid");
-  }
-
-  if (window.RWF_PREVIEW === true) {
-    /* QA F3: the Pages preview must never write into the production waitlist. */
-    form.hidden = true;
-    emailInput.disabled = true;
-    submitBtn.disabled = true;
-    if (previewNote) previewNote.hidden = false;
-  } else {
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var value = emailInput.value.trim();
-      if (!value) {
-        showError("Enter your work email so we can reach you.");
-        emailInput.focus();
-        return;
-      }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
-        showError("That doesn’t look like an email address — use the form you@yourfleet.com.");
-        emailInput.focus();
-        return;
-      }
-      clearError();
-      submitBtn.disabled = true;
-      var payload = {
-        email: value,
-        company_website: form.querySelector('[name="company_website"]').value,
-        lang: (navigator.language || "").slice(0, 10),
-        source: location.hostname
-      };
-      fetch(API_URL, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
-      })
-      .then(function (res) {
-        return res.json().catch(function () { return {}; }).then(function (d) {
-          return { status: res.status, body: d };
-        });
-      })
-      .then(function (r) {
-        if (r.status === 201 || r.body.ok) {
-          try { localStorage.setItem("rwf-waitlist", value); } catch (err) {}
-          form.hidden = true;
-          success.style.display = "block";
-        } else if (r.status === 400) {
-          showError(r.body.error === "invalid_email"
-            ? "That email address was rejected — please check it and try again."
-            : "We couldn’t accept that entry — please check your details and try again.");
-        } else if (r.status === 429) {
-          showError("Too many attempts — please try again later.");
-        } else {
-          throw new Error("bad_status");
-        }
-      })
-      .catch(function () {
-        showError("Something went wrong — email hello@roadwisefleet.com and we’ll add you manually.");
-      })
-      .finally(function () {
-        submitBtn.disabled = false;
-      });
-    });
-  }
 })();
 </script>
 </body>
