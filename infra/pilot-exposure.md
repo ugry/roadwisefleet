@@ -35,13 +35,16 @@ Everything terminates on nginx; the upstreams are loopback-only.
 | `/s/`, `/s/*` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/solo-shell.js`, board #77) | **Solo-driver surface.** The board #75 document/invoice share token was never implemented; the solo shell answers here instead. Strict **app** header set — the shell declares no inline `<script>`/`<style>` and loads only same-origin `/s/solo.css` + `<script type="module" src="/s/solo.js">` (verified 2026-09-30 from the live body and a grep over `solo/`). Measured live: **200** `text/html`, CSP `script-src 'self'; style-src 'self'`. |
 | `/s` (no slash) | — | nginx `301` → `/s/` | Measured live 2026-09-30 (`Location: https://roadwisefleet.com/s/`). The solo surface answers 200 at `/s/`, so this no longer redirects to the site root. |
 | `/api/*` (except `/api/waitlist`) | `127.0.0.1:8080` | `roadwise-api.service` | Pilot API: `/api/auth/*`, `/api/trips*`, `/api/customer/*`, `/api/waitlist` (not reached — see below). |
+| `/signup`, `/login` | `127.0.0.1:8080` | `roadwise-api.service` (`apps/api/src/routes/app.ts`) | **Board #93** — the public entry points the landing CTAs use. The API answers `GET /signup` → `302 /app/signup` and `GET /login` → `302 /app/login` (#86, live on the pilot). Without the two exact locations both fell through to `location /` (`try_files … =404`) and answered **404** on the apex while the API was healthy on loopback (measured 2026-09-30). API header set + `rwf_api` zone. **Config in the repo; not applied to the host yet** (owner/TL window). |
 | `/health` | — | `404` (nginx) | The API's `/health` is **not** exposed publicly, by design. |
 
-Board #87 guard: [`checks/site-routes-check.sh`](./checks/site-routes-check.sh)
+Board #87/#93 guard: [`checks/site-routes-check.sh`](./checks/site-routes-check.sh)
 fails CI if any of these surfaces has no proxying, rate-limited, header-protected
-location, if a no-slash form loses its `301`, or if a no-inline surface (`/app/`,
-`/c/`, `/s/`) is given the pilot snippet's wider policy. Run it with `--live` in
-the owner window.
+location — including the exact `/signup` + `/login` entry points (board #93),
+which must carry the API snippet and the `rwf_api` zone — if a no-slash form
+loses its `301`, or if a no-inline surface (`/app/`, `/c/`, `/s/`) is given the
+pilot snippet's wider policy. Run it with `--live` in the owner window; `--live`
+also asserts the `/signup` and `/login` `302` targets.
 
 Routing rule that matters: nginx longest-prefix wins, so the exact
 `location = /api/waitlist` beats `location /api/`. That is what keeps the live
@@ -419,4 +422,5 @@ hard-to-reverse, policy-level decision and needs a subdomain audit first.
 | O7 | `deploy.sh` has no rollback and references a hardcoded SSH key path under another user's home; the key itself is correctly outside the repo. | ops (rollback documented §4) |
 | O8 | Rootful podman for pg/redis — revisit before production (see `pilot-db.md` §7). | ops + owner |
 | O9 | `AUTH_SECRET` / `ADMIN_TOKEN` are pilot values; rotate before real use (see `pilot-api.md` §7). | owner |
-| O10 | **Board #69 / GitHub #48:** `/app/` (Fleet Manager) is not exposed — no `/app/` location in the live nginx, so it 404s. Config + app-specific CSP snippet are in the repo (PR pending); needs the owner nginx window. Proof after: `curl -sI https://roadwisefleet.com/app/` → 200, `/app/app.js` → 200, `/pilot/` unchanged, no CSP errors in the browser console. | ops (config) / owner (reload) |
+| O10 | **Board #69 / GitHub #48 — DONE (config live-verified 2026-09-30 10:32Z):** `/app/` **is** exposed — `GET /app/` → 200 `text/html` (6968 B) and `GET /app/app.js` → 200 `text/javascript`, both with the strict app CSP + `X-Robots-Tag: noindex, nofollow`. This row previously read "not exposed — 404s"; that was stale (the location went live in the 2026-09-25 window). | done |
+| O11 | **Board #93:** the apex has no `location = /signup` / `location = /login`, so the API's `302 → /app/signup` / `302 → /app/login` entry points answer **404** publicly (measured 2026-09-30 10:30Z; the API answers 302 on loopback). Config is in the repo with the `site-routes-check.sh` guard; needs the owner/TL nginx window. Post-window proof: `bash infra/checks/site-routes-check.sh --live` (expects 302 + the `/app/*` targets). | ops (config) / owner (reload) |
