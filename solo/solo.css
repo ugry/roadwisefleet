@@ -1,0 +1,304 @@
+/*
+ * RoadwiseFleet solo driver surface (board task #77, UXF-M2).
+ *
+ * Mobile-first: the layout is a single column written for a 375px viewport and
+ * UPGRADED with min-width queries. No build step, no framework — the pilot
+ * targets cheap Android WebViews.
+ *
+ * Accessibility: AA contrast on the surfaces the text is actually painted on
+ * (checked against the pill tints, not the page background), 44px touch targets
+ * for coarse pointers, visible focus, and reduced motion honoured.
+ */
+
+:root {
+  --ink: #10231c;
+  --ink-soft: #4a5c55;
+  --bg: #f4f7f5;
+  --surface: #ffffff;
+  --line: #d5e0da;
+  --brand: #0b6b4f;
+  --brand-ink: #ffffff;
+  --brand-tint: #e2f1ea;
+  --danger: #8a2020;
+  --danger-tint: #fbe7e7;
+  --ok: #1c5c3f;
+  --ok-tint: #e4f3ea;
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+main {
+  display: block;
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+#appHeader {
+  background: var(--brand);
+  color: var(--brand-ink);
+  padding: 12px 16px;
+}
+
+#appHeader .brand {
+  display: block;
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+
+#soloNav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+#soloNav button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--brand-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+#soloNav button[aria-current="page"] {
+  background: var(--brand-ink);
+  color: var(--brand);
+  border-color: var(--brand-ink);
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  margin: 0 0 12px;
+}
+
+h1 {
+  font-size: 1.5rem;
+}
+
+h2 {
+  font-size: 1.25rem;
+}
+
+h3 {
+  font-size: 1.05rem;
+  margin-top: 20px;
+}
+
+form {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--brand);
+  color: var(--brand-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.secondary,
+.chip button {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  margin: 6px 0;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--brand-tint);
+  color: var(--brand);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.alert {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+}
+
+.alert.error {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.alert.success {
+  background: var(--ok-tint);
+  color: var(--ok);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.chip button {
+  min-height: 40px;
+  border-radius: 0;
+}
+
+.chip .x {
+  padding: 0 12px;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.wallet {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.wallet > div {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.wallet strong {
+  font-size: 1.15rem;
+}
+
+/* Coarse pointers get a roomier target: thumbs, gloves, moving trucks. */
+@media (pointer: coarse) {
+  button,
+  input,
+  select,
+  #soloNav button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (min-width: 600px) {
+  main {
+    padding: 24px;
+  }
+
+  .wallet {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

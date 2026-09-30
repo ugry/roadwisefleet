@@ -35,6 +35,10 @@ model Org {
   loadPostings     LoadPosting[]
   beacons          CapacityBeacon[]
   marketplaceOffers MarketplaceOffer[]
+
+  // Solo driver Connect MVP (board task #77, UXF-M2): one personal carrier org
+  // per solo driver, holding its profile. Relation field only.
+  soloDrivers SoloDriverProfile[]
 }
 
 model Role {
@@ -77,6 +81,13 @@ model User {
   beacons           CapacityBeacon[]
   marketplaceOffers MarketplaceOffer[] @relation("OfferCarrier")
   offersCreated     MarketplaceOffer[] @relation("OfferCreator")
+
+  // Solo driver Connect MVP (board task #77, UXF-M2). Relation fields only:
+  // no scalar column on `User`, so existing reads keep working whether or not
+  // the solo migration has been applied yet.
+  soloProfile  SoloDriverProfile?
+  soloDocs     SoloVerificationDoc[]
+  soloSearches SoloSavedSearch[]
 }
 
 // A login that may act for a customer account (board task #74).
@@ -524,4 +535,81 @@ model MarketplaceOffer {
 
   @@index([loadId, status])
   @@index([carrierOrgId, status])
+}
+
+// === Solo driver Connect MVP (board task #77, UXF-M2) ===
+//
+// The solo truck driver is a first-class persona (diagram 04): he is found via
+// a beacon and finds work via the load feed, and he serves his own customers
+// who never join the platform. Signup creates a one-person carrier org (the
+// marketplace needs `carrierOrgId` on every offer) plus the `solo` role; these
+// tables carry the profile, the verification papers and the saved searches.
+//
+// Purely additive: no existing model gains a scalar column (only relation
+// fields, which change no query), so the running pilot keeps working whether or
+// not this migration has been applied yet — the same discipline as #74/#76.
+//
+// Wallet-lite reads the EXISTING `Trip.rateEur` + `Settlement` rows: money
+// movement is not modelled here either (invoice-first, UXF-OWN1).
+
+// The solo driver's profile: phone verification (OTP), the verification-paper
+// status, and the one truck's specs. `userId` is the login; `orgId` is the
+// personal carrier org.
+model SoloDriverProfile {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+  orgId           String
+  org             Org       @relation(fields: [orgId], references: [id])
+  phone           String?
+  phoneVerifiedAt DateTime?
+  // Phone OTP state. The code is stored as an HMAC (never plain text); the
+  // attempt counter makes brute force bounded.
+  otpHash     String?
+  otpExpiresAt DateTime?
+  otpAttempts Int      @default(0)
+  // NONE | PENDING | VERIFIED | REJECTED — the bidding gate (owner gate #73 q5).
+  verificationStatus String  @default("NONE")
+  verificationNote   String?
+  truckPlate      String?
+  truckEquipment  String?
+  truckCapacityKg Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([verificationStatus])
+}
+
+// One verification paper (ID, driving licence, vehicle registration,
+// insurance). Kept out of `Document` on purpose: a `Document` is bound to a
+// Trip, and a verification paper has no trip.
+model SoloVerificationDoc {
+  id         String    @id @default(cuid())
+  driverId   String
+  driver     User      @relation(fields: [driverId], references: [id])
+  orgId      String
+  docType    String // id | licence | vehicle_registration | insurance
+  storageKey String
+  filename   String?
+  mimeType   String?
+  sizeBytes  Int?
+  status     String    @default("PENDING") // PENDING | VERIFIED | REJECTED
+  expiresAt  DateTime?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([driverId, docType])
+}
+
+// A saved load-feed filter (diagram 04: saved searches).
+model SoloSavedSearch {
+  id        String   @id @default(cuid())
+  driverId  String
+  driver    User     @relation(fields: [driverId], references: [id])
+  orgId     String
+  name      String
+  filter    Json?
+  createdAt DateTime @default(now())
+
+  @@index([driverId])
 }

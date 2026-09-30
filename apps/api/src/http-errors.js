@@ -37,6 +37,10 @@ export function statusForError(error) {
     case 'forbidden':
     case 'own_load':
     case 'no_org':
+    // Solo driver Connect MVP (board task #77): a token without a driver profile
+    // is not a solo driver, and an unverified solo driver may not bid.
+    case 'not_a_solo_driver':
+    case 'verification_required':
       return 403;
     case 'not_found':
     case 'order_not_found':
