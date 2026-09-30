@@ -1,0 +1,7 @@
+{
+  "name": "@roadwisefleet/solo-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Solo driver Connect MVP surface (served at /s/ by the API; the shared core is imported by the API too)."
+}

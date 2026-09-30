@@ -47,4 +47,9 @@ export const env = {
   // to the oldest org — explicit here so a multi-fleet deployment can pin it
   // until the marketplace (#76) offers carrier selection inside the portal.
   CUSTOMER_HOST_ORG_ID: process.env.CUSTOMER_HOST_ORG_ID || '',
+  // Solo driver Connect MVP (board task #77): the pilot has no SMS sender, so a
+  // phone-OTP code cannot be delivered. When `SOLO_OTP_RETURN_CODE` is truthy the
+  // `/api/solo/otp` response echoes `devCode` for the pilot flow; unset (the
+  // default) it NEVER travels in a response. A real deployment must leave it off.
+  SOLO_OTP_RETURN_CODE: process.env.SOLO_OTP_RETURN_CODE || '',
 };

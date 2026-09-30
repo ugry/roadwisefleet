@@ -14,6 +14,8 @@ import { appRoutes } from './routes/app.js';
 import { customerAppRoutes } from './routes/customer-app.js';
 import { customerRoutes } from './routes/customer.js';
 import { marketplaceRoutes } from './routes/marketplace.js';
+import { soloAppRoutes } from './routes/solo-app.js';
+import { soloRoutes } from './routes/solo.js';
 import { serverOptions } from './server-options.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
@@ -45,6 +47,11 @@ export function buildServer() {
   // beacons, structured offers and the award that creates the carrier's Trip.
   app.register(marketplaceRoutes, { prefix: '/api' });
 
+  // Solo driver Connect MVP API (board task #77, UXF-M2): signup, phone OTP,
+  // verification papers, own customers, quick jobs and wallet-lite. The load
+  // feed/beacon/offer paths stay the marketplace's; only the bid gate is added.
+  app.register(soloRoutes, { prefix: '/api' });
+
   // Public customer tracking page: root path `/track/:token` (no auth, not
   // under /pilot/), so a shared link reads like a customer-facing URL.
   app.register(trackPageRoutes);
@@ -57,6 +64,10 @@ export function buildServer() {
   // Customer portal (board task #74, UXF-C1): the customer-facing account
   // surface at `/c/`, a separate mobile-first area from the dispatcher app.
   app.register(customerAppRoutes);
+
+  // Solo driver surface (board task #77, UXF-M2): the mobile-first solo area at
+  // `/s/`, same-origin with `/api/solo/*` and the marketplace routes.
+  app.register(soloAppRoutes);
 
   // Pilot-only web surface. Served from the API itself so the pages are
   // same-origin with `/api/*` (no new port, no nginx). The root is locked to

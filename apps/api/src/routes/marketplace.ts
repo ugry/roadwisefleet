@@ -6,6 +6,7 @@ import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
 import { stripCredentialFields } from '../user-payload.js';
 import * as market from '../marketplace.js';
+import { canBid, SOLO_ROLE } from '../../../../solo/lib/solo-core.js';
 
 /*
  * Connect marketplace API (board task #76, UXF-M1).
@@ -341,6 +342,20 @@ export async function marketplaceRoutes(app: FastifyInstance) {
   app.post('/marketplace/loads/:id/offers', { preHandler: auth }, async (req, reply) => {
     const principal = await resolvePrincipal(req);
     if (!market.canSupply(principal.permissions)) return refuse(reply, 'forbidden');
+    // Solo driver gate (board task #77): an unverified solo driver may browse
+    // the board (GET /marketplace/loads is untouched) but may not bid. Applied
+    // only to solo principals, so fleet carriers are unaffected. Denies by
+    // default: a `solo` token without a profile row cannot bid.
+    if (principal.roleId === SOLO_ROLE) {
+      const profile = await prisma.soloDriverProfile.findUnique({
+        where: { userId: principal.userId },
+        select: { verificationStatus: true },
+      });
+      const gate = canBid(profile);
+      if (!gate.allowed) {
+        return reply.code(403).send({ error: gate.error, messageKey: gate.messageKey });
+      }
+    }
     if (!principal.orgId) {
       return reply.code(400).send({ error: 'org_required', detail: 'a carrier org is required to make an offer' });
     }
@@ -370,7 +385,7 @@ export async function marketplaceRoutes(app: FastifyInstance) {
         data: {
           loadId: id,
           carrierOrgId: principal.orgId!,
-          carrierUserId: principal.roleId === 'driver' ? principal.userId : null,
+          carrierUserId: principal.roleId === 'driver' || principal.roleId === SOLO_ROLE ? principal.userId : null,
           carrierName: org?.name ?? principal.name,
           priceEur: value.priceEur,
           pickupEtaAt: value.pickupEtaAt,

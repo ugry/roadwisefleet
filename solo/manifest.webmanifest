@@ -1,0 +1,15 @@
+{
+  "name": "RoadwiseFleet — Solo driver",
+  "short_name": "RF Solo",
+  "description": "Find loads, publish capacity and run your own customers as a solo driver.",
+  "start_url": "/s/",
+  "scope": "/s/",
+  "display": "standalone",
+  "background_color": "#0b3d2e",
+  "theme_color": "#0b3d2e",
+  "icons": [
+    { "src": "/pilot/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/pilot/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/pilot/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
