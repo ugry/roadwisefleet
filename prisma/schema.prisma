@@ -223,8 +223,12 @@ model Trip {
   driver    User?    @relation(fields: [driverId], references: [id])
   truckId   String?
   truck     Truck?   @relation(fields: [truckId], references: [id])
-  status    String   @default("DRAFT") // state machine §7 of the diagrams doc
+  status    String   @default("DRAFT") // state machine incl. request sub-states (docs/information-flow-and-permissions.md §5)
   rateEur   Decimal? @db.Decimal(12, 2)
+  // Cancellation governance (never set by a non-authoritative actor)
+  cancelledById           String?
+  cancellationReasonCode  String? // breakdown | illness | dock_refusal | hours_exhausted | customer_request | other
+  cancellationFeeEur      Decimal? @db.Decimal(12, 2)
   // Actual delivery time, set when the trip reaches DELIVERED. The on-time KPI
   // compares it against `Order.plannedAt` (board tasks #33/#40). Nullable:
   // trips that never delivered, and trips delivered before the column existed.
@@ -250,6 +254,9 @@ model Trip {
   settlement   Settlement?
   stops        TripStop[]
   drivers      TripDriver[]
+  requests     Request[]
+  actors       TripActor[]
+
 
   // Connect marketplace (board task #76): set when an award created this trip.
   marketplaceLoad LoadPosting?
@@ -417,6 +424,59 @@ model AuditLog {
   target   String?
   ip       String?
   at       DateTime @default(now())
+}
+
+// === Request/Decision governance (docs/information-flow-and-permissions.md) ===
+// The pattern that makes non-authoritative actors safe: they file a request,
+// an authority decides, state changes only on decision, external parties are
+// notified only on decision.
+
+model Request {
+  id             String    @id @default(cuid())
+  orgId          String
+  tripId         String?
+  trip           Trip?     @relation(fields: [tripId], references: [id])
+  type           String // cancellation | reassignment | expense | advance | delay_ack
+  requestedById  String
+  subjectUserId  String? // whom the request concerns (e.g. the driver)
+  reasonCode     String? // breakdown | illness | dock_refusal | hours_exhausted | customer_request | other
+  note           String?
+  evidenceDocIds String[]
+  status         String    @default("PENDING") // PENDING | APPROVED | DECLINED | EXPIRED
+  slaDueAt       DateTime?
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  policySnapshot Json?
+  createdAt      DateTime  @default(now())
+
+  @@index([orgId, status])
+  @@index([tripId])
+}
+
+model CancellationPolicy {
+  id                  String   @id @default(cuid())
+  orgId               String
+  customerId          String?
+  freeNoticeHours     Int      @default(12) // free-cancel window before planned pickup
+  lateCancelFeePct    Decimal  @default(0) @db.Decimal(5, 2)
+  requireEvidence     Boolean  @default(false)
+  slaMinutes          Int      @default(120) // dispatcher response window before escalation
+  autoApproveEvidence Boolean  @default(true) // e.g. breakdown photo auto-approves
+  createdAt           DateTime @default(now())
+}
+
+// The missing dimension: how an actor relates to THIS trip (not just their global role)
+model TripActor {
+  id           String   @id @default(cuid())
+  tripId       String
+  trip         Trip     @relation(fields: [tripId], references: [id])
+  userId       String?
+  orgId        String?
+  relationship String // employed_driver | subcontractor_driver | solo_owner | dispatcher | owner | customer
+  createdAt    DateTime @default(now())
+
+  @@index([tripId])
 }
 
 // === Connect marketplace (board task #76, UXF-M1) ===

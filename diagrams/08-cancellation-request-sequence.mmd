@@ -1,0 +1,23 @@
+sequenceDiagram
+    participant D as Driver (employed)
+    participant API as RoadwiseFleet API
+    participant FM as Dispatcher / Owner
+    participant C as Customer (WhatsApp/portal)
+    participant W as Webhook/ERP
+    D->>API: POST cancellation-request {reason, evidence, ETA impact}
+    API->>API: policy check (relationship, state, notice window)
+    API->>FM: push + dashboard alert + SLA timer starts (e.g. 2h)
+    API->>D: "Request sent — you are still responsible until decided"
+    alt Approved
+        FM->>API: decision=approve (+optional fee/penalty)
+        API->>API: state → CANCELLED + RequestDecided event
+        API->>C: WhatsApp template "Shipment cancelled — rebooking options"
+        API->>W: webhook trip.status_changed
+        API->>D: "Cancellation approved — you are released"
+    else Declined
+        FM->>API: decision=decline (reason)
+        API->>D: "Declined — trip continues (reason)"
+        API->>API: state unchanged, request archived
+    else SLA expired (nobody decided)
+        API->>API: auto-escalate to owner and auto-approve only if policy allows (e.g. breakdown evidence)
+    end
