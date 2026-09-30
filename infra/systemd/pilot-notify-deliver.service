@@ -1,0 +1,15 @@
+[Unit]
+Description=RoadwiseFleet customer notification delivery (drain the outbound queue)
+Documentation=file:///opt/roadwisefleet/api/infra/notifications.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=debian
+Group=debian
+EnvironmentFile=-/etc/roadwisefleet/notifications.env
+ExecStart=/usr/local/bin/pilot-notify-deliver.sh --drain /var/lib/roadwisefleet/notifications/queue
+# The transport command, the sender and any provider credential live in the
+# 0600 EnvironmentFile above; none of them are written here. With no transport
+# configured the delivery exits 3 and sends nothing (never invents a sender).

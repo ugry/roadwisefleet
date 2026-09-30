@@ -6,10 +6,19 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "test": "node --test src/",
+    "test:router": "tsx --test test/customer-portal-guards.test.ts test/track-router.test.ts test/driver-pwa.test.ts test/app-shell.test.ts test/trips-list.test.ts test/user-payload.test.ts test/dashboard.test.ts test/delivery-timestamps.test.ts test/trip-driver-scope.test.ts test/trip-assign.test.ts test/documents-ui.test.ts test/tracking-link.test.ts test/customer-portal.test.ts test/marketplace.test.ts test/solo.test.ts",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:generate": "prisma generate"
+    "db:status": "prisma migrate status",
+    "db:seed": "tsx scripts/seed-pilot.ts",
+    "db:reset": "tsx scripts/seed-pilot.ts --reset",
+    "smoke": "tsx scripts/smoke-pilot.ts",
+    "handoff": "tsx scripts/waitlist-handoff.ts"
   },
   "dependencies": {
+    "@fastify/static": "^8.0.0",
     "@prisma/client": "^6.0.0",
     "fastify": "^5.0.0"
   },

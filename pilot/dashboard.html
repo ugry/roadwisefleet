@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="dash.title"></title>
+<style>
+  :root{
+    --navy-950: oklch(0.20 0.04 258);
+    --navy-800: oklch(0.30 0.045 258);
+    --bg: oklch(0.985 0.003 250);
+    --surface: oklch(1 0 0);
+    --ink: oklch(0.24 0.05 258);
+    --muted: oklch(0.48 0.02 255);
+    --border: oklch(0.90 0.006 255);
+    --accent: oklch(0.80 0.165 82);
+    --accent-deep: oklch(0.47 0.130 62);
+    --on-accent: oklch(0.20 0.040 258);
+    --on-dark: oklch(0.985 0.002 250);
+    --success: oklch(0.56 0.130 158);
+    /* AA-safe success text (8.04:1 on --bg); the mid-tone --success is only for
+   fills/borders. Board task #70, WCAG 1.4.3. */
+    --success-deep: oklch(0.40 0.12 158);
+    --danger: oklch(0.55 0.190 26);
+    --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --shadow-card: 0 1px 2px oklch(0.2 0.04 258 / .05), 0 10px 30px oklch(0.2 0.04 258 / .06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45}
+  a{color:var(--accent-deep)}
+  header.top{background:var(--navy-950);color:var(--on-dark);padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header.top .brand{font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:.02em;text-transform:uppercase}
+  header.top .tag{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+  header.top .spacer{flex:1}
+  header.top nav a{color:var(--on-dark);opacity:.85;margin-left:14px;text-decoration:none;font-size:13px}
+  header.top nav a:hover{opacity:1;text-decoration:underline}
+  header.top .lang-slot label.lang{display:flex;align-items:center;gap:6px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;opacity:.85}
+  header.top select.lang-switcher{font-family:inherit;font-size:13px;padding:5px 7px;border-radius:6px;border:1px solid var(--navy-950);
+    background:var(--on-dark);color:var(--ink)}
+  main{max-width:1100px;margin:0 auto;padding:26px 20px 60px}
+  h1{font-family:var(--font-display);font-weight:600;font-size:28px;letter-spacing:.01em;margin:0 0 4px}
+  .muted{color:var(--muted);font-size:13px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-card);padding:18px;margin:18px 0}
+  .card h2{font-family:var(--font-display);font-weight:600;font-size:18px;margin:0 0 12px;letter-spacing:.01em}
+  label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 0 4px}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+  input:focus,select:focus{outline:none;box-shadow:0 0 0 3px oklch(0.80 0.165 82 / .55);border-color:var(--accent)}
+  button{font-family:inherit;font-size:14px;font-weight:600;border:1px solid transparent;border-radius:7px;padding:9px 14px;cursor:pointer}
+  button.primary{background:var(--accent);color:var(--on-accent)}
+  button.primary:hover{filter:brightness(1.05)}
+  button.ghost{background:transparent;border-color:var(--border);color:var(--ink)}
+  button.small{padding:5px 9px;font-size:12px}
+  button:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:160px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+  .status{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;background:var(--bg);border:1px solid var(--border);color:var(--ink);text-transform:uppercase}
+  .status.s-DELIVERED,.status.s-POD_UPLOADED,.status.s-INVOICED,.status.s-SETTLED{color:var(--success-deep);border-color:var(--success-deep)}
+  .status.s-CANCELLED{color:var(--danger);border-color:var(--danger)}
+  .status.s-IN_TRANSIT,.status.s-LOADED{color:var(--accent-deep);border-color:var(--accent-deep)}
+  .actions{display:flex;gap:6px;flex-wrap:wrap}
+  .msg{padding:10px 12px;border-radius:7px;margin:12px 0;font-size:13px;display:none;white-space:pre-wrap}
+  .msg.show{display:block}
+  .msg.err{background:oklch(0.55 0.19 26 / .08);border:1px solid var(--danger);color:var(--danger)}
+  .msg.ok{background:oklch(0.56 0.13 158 / .10);border:1px solid var(--success);color:oklch(0.40 0.12 158)}
+  .hidden{display:none !important}
+  .who{font-size:13px;color:var(--muted)}
+  tr.clickable{cursor:pointer}
+  tr.clickable:hover{background:oklch(0.985 0.003 250)}
+  .overlay{position:fixed;inset:0;background:oklch(0.2 0.04 258 / .35);opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:19}
+  .overlay.open{opacity:1;pointer-events:auto}
+  /* visibility (not just transform) so a closed drawer is out of the tab order
+     and out of the accessibility tree — WCAG 2.1.1 / 4.1.2. Board task #70. */
+  .drawer{position:fixed;top:0;right:0;height:100%;width:min(560px,100%);background:var(--surface);border-left:1px solid var(--border);box-shadow:-8px 0 30px oklch(0.2 0.04 258 / .18);transform:translateX(102%);visibility:hidden;transition:transform .18s ease,visibility 0s linear .18s;z-index:20;display:flex;flex-direction:column}
+  .drawer:focus-visible{outline:none}
+  .drawer.open{transform:none;visibility:visible;transition:transform .18s ease}
+  .drawer-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+  .drawer-head h2{font-family:var(--font-display);font-weight:600;font-size:18px;margin:0;flex:1}
+  .drawer-body{padding:16px 18px 40px;overflow:auto}
+  .section-title{font-family:var(--font-display);font-weight:600;font-size:15px;text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px;color:var(--navy-800)}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:14px;margin:0 0 6px}
+  .kv dt{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0;padding-top:2px}
+  .kv dd{margin:0}
+  .timeline{list-style:none;margin:0;padding:0}
+  .timeline li{position:relative;padding:0 0 14px 18px;border-left:2px solid var(--border)}
+  .timeline li:last-child{border-left-color:transparent}
+  .timeline li:before{content:"";position:absolute;left:-6px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--accent)}
+  .tl-what{font-weight:600}
+  .tl-when{font-size:12px;color:var(--muted)}
+  .pnl{font-family:var(--font-display);font-size:22px;margin:0}
+  .pnl.pos{color:var(--success-deep)}
+  .pnl.neg{color:var(--danger)}
+  .empty{color:var(--muted);font-size:13px}
+  @media (max-width:640px){ table,thead,tbody,th,td,tr{display:block} thead{display:none} td{border:none;padding:3px 0} tr{border-bottom:1px solid var(--border);padding:8px 0} }
+
+  /* --- accessibility pass (board task #70) -------------------------------- */
+  /* Solid, high-contrast keyboard focus ring (WCAG 2.4.7). The input rule
+     above keeps the amber glow for mouse focus; :focus-visible wins for keys. */
+  :focus-visible{outline:3px solid var(--accent-deep);outline-offset:2px;border-radius:4px}
+  input:focus-visible,select:focus-visible{outline:3px solid var(--accent-deep);outline-offset:1px;box-shadow:none}
+  /* The route cell is a real button so the drawer opens from the keyboard too. */
+  .row-open{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:2px}
+  .row-open:hover{color:var(--accent-deep)}
+  /* Touch targets: >=44px wherever the pointer is coarse (WCAG 2.5.8). */
+  @media (pointer:coarse){
+    button.small{min-height:44px;min-width:44px;padding:10px 14px}
+    header.top select.lang-switcher{min-height:44px}
+    header.top nav a{display:inline-block;padding:10px 4px}
+    .row-open{min-height:44px}
+    .drawer-head button{min-height:44px}
+  }
+  /* Honour the OS reduced-motion setting (WCAG 2.3.3). */
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="brand" data-i18n="brand.name"></span>
+  <span class="tag" data-i18n="common.pilotTag"></span>
+  <span class="spacer"></span>
+  <span class="lang-slot" id="langSlot"></span>
+  <nav>
+    <a href="driver.html" data-i18n="nav.driver"></a>
+    <a href="index.html" data-i18n="nav.pilotHome"></a>
+  </nav>
+</header>
+<main>
+  <h1 data-i18n="nav.dashboard"></h1>
+  <p class="muted" data-i18n="dash.lead"></p>
+
+  <div id="globalMsg" class="msg" role="status" aria-live="polite"></div>
+
+  <section id="loginCard" class="card">
+    <h2 data-i18n="common.signIn"></h2>
+    <form id="loginForm" autocomplete="on">
+      <div class="row">
+        <div>
+          <label for="email" data-i18n="common.email"></label>
+          <input id="email" name="email" type="email" required autocomplete="username" data-i18n-placeholder="login.emailPlaceholder">
+        </div>
+        <div>
+          <label for="password" data-i18n="common.password"></label>
+          <input id="password" name="password" type="password" required autocomplete="current-password">
+        </div>
+      </div>
+      <div style="margin-top:14px"><button class="primary" type="submit" data-i18n="common.signIn"></button></div>
+    </form>
+  </section>
+
+  <section id="app" class="hidden">
+    <p class="who"><span data-i18n="common.signedInAs"></span> <strong id="whoName"></strong> <span id="whoRole"></span> · <a href="#" id="logout" data-i18n="common.signOut"></a></p>
+
+    <div class="card" id="createCard">
+      <h2 data-i18n="dash.createTrip"></h2>
+      <form id="createForm">
+        <div class="row">
+          <div>
+            <label for="orderId" data-i18n="dash.orderRequired"></label>
+            <select id="orderId" name="orderId" required><option value="" data-i18n="common.loading"></option></select>
+          </div>
+          <div>
+            <label for="driverId" data-i18n="dash.driverOptional"></label>
+            <select id="driverId" name="driverId"><option value="" data-i18n="dash.unassigned"></option></select>
+          </div>
+          <div>
+            <label for="truckId" data-i18n="dash.truckOptional"></label>
+            <select id="truckId" name="truckId"><option value="" data-i18n="dash.unassigned"></option></select>
+          </div>
+          <div>
+            <label for="rateEur" data-i18n="dash.rateOptional"></label>
+            <input id="rateEur" name="rateEur" type="number" min="0" step="0.01" placeholder="1200">
+          </div>
+        </div>
+        <div style="margin-top:14px"><button class="primary" type="submit" data-i18n="dash.createTrip"></button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 data-i18n="dash.trips"></h2>
+      <div style="margin-bottom:10px"><button class="ghost small" id="refresh" type="button" data-i18n="common.refresh"></button></div>
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="dash.colRoute"></th>
+            <th data-i18n="dash.colDriver"></th>
+            <th data-i18n="common.status"></th>
+            <th data-i18n="dash.colRate"></th>
+            <th data-i18n="dash.colTransition"></th>
+          </tr>
+        </thead>
+        <tbody id="tripRows"><tr><td colspan="5" class="muted" data-i18n="common.loading"></td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="overlay" class="overlay"></div>
+<aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true" tabindex="-1" data-i18n-aria-label="dash.tripDetail">
+  <div class="drawer-head">
+    <h2 id="drawerTitle" data-i18n="dash.tripDetail"></h2>
+    <button class="ghost small" id="drawerClose" type="button" data-i18n="common.close"></button>
+  </div>
+  <div class="drawer-body" id="drawerBody"><p class="muted" data-i18n="dash.selectTrip"></p></div>
+</aside>
+
+<script src="lib/i18n.js"></script>
+<script src="lib/i18n-ui.js"></script>
+<script>
+(function () {
+  'use strict';
+  var TOKEN_KEY = 'rwf_token';
+  var USER_KEY = 'rwf_user';
+  // Mirror of apps/api/src/trip-status.js — UI convenience only; the API is authoritative.
+  var TRANSITIONS = {
+    DRAFT: ['ASSIGNED', 'CANCELLED'],
+    ASSIGNED: ['LOADED', 'CANCELLED'],
+    LOADED: ['IN_TRANSIT'],
+    IN_TRANSIT: ['DELIVERED'],
+    DELIVERED: ['POD_UPLOADED'],
+    POD_UPLOADED: ['INVOICED'],
+    INVOICED: ['SETTLED'],
+    SETTLED: [],
+    CANCELLED: []
+  };
+
+  // Board task #6: every string the page shows comes from the locale catalogues
+  // (pilot/locales/*.json). `i18n` is set by the boot below; until then the
+  // helper returns the key, which never renders because the boot runs first.
+  var i18n = null;
+  var openTripId = null;
+
+  function $(id) { return document.getElementById(id); }
+  function t(key, params) { return i18n ? i18n.t(key, params) : key; }
+  function statusLabel(status) { return t('status.' + status); }
+  function token() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+  function sessionUser() {
+    try { return JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function setMsg(text, kind) {
+    var el = $('globalMsg');
+    el.className = 'msg show ' + (kind || 'err');
+    el.textContent = text;
+  }
+  function clearMsg() { var el = $('globalMsg'); el.className = 'msg'; el.textContent = ''; }
+
+  function errorText(status, data) {
+    if (status === 401) return t('error.notAuthorised401');
+    if (status === 403) return t('error.forbidden403');
+    var code = (data && data.error) || ('http_' + status);
+    if (code === 'invalid_transition') {
+      return t('error.invalidTransition', { from: statusLabel(data.from), to: statusLabel(data.to) });
+    }
+    if (code === 'invalid_status') return t('error.invalidStatus');
+    return t('error.http', { code: code, status: status });
+  }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = {};
+    if (opts.body) headers['content-type'] = 'application/json';
+    if (opts.token) headers['authorization'] = 'Bearer ' + opts.token;
+    return fetch(path, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (data) {
+        return { status: res.status, data: data };
+      });
+    });
+  }
+
+  // Currency/number/date formatting is locale-aware (board task #6).
+  function money(v) {
+    var formatted = i18n ? i18n.currency(v, 'EUR') : null;
+    return formatted === null ? t('common.none') : formatted;
+  }
+
+  function fmtDate(v) {
+    if (!v) return t('common.none');
+    return i18n ? i18n.dateTime(v) : String(v);
+  }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function showApp() {
+    var user = sessionUser();
+    if (user) {
+      $('whoName').textContent = user.name || user.email || '';
+      $('whoRole').textContent = user.roleId ? '(' + user.roleId + ')' : '';
+    }
+    $('loginCard').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    loadReference();
+    loadTrips();
+  }
+
+  function showLogin() {
+    $('app').classList.add('hidden');
+    $('loginCard').classList.remove('hidden');
+  }
+
+  function loadTrips() {
+    return api('/api/trips', { token: token() }).then(function (r) {
+      if (r.status === 401) { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(USER_KEY); showLogin(); setMsg(errorText(r.status, r.data), 'err'); return; }
+      if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
+      renderTrips(r.data && r.data.trips ? r.data.trips : []);
+    });
+  }
+
+  function option(value, label) {
+    return '<option value="' + esc(value) + '">' + esc(label) + '</option>';
+  }
+
+  // Reference lists for the create-trip form. Only dispatch-capable roles may
+  // read them; a driver (403) simply gets the create card hidden.
+  function loadReference() {
+    return api('/api/reference', { token: token() }).then(function (r) {
+      if (r.status === 403) { $('createCard').classList.add('hidden'); return; }
+      if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
+      fillReference((r.data && r.data.reference) || {});
+    });
+  }
+
+  function fillReference(ref) {
+    var orders = ref.orders || [];
+    var drivers = ref.drivers || [];
+    var trucks = ref.trucks || [];
+    $('createCard').classList.remove('hidden');
+
+    $('orderId').innerHTML = option('', t('dash.selectOrder')) + orders.map(function (o) {
+      var customer = o.customer ? o.customer.name : '';
+      var label = (customer ? customer + ' · ' : '') +
+        (o.origin || '?') + ' → ' + (o.destination || '?') +
+        (o.cargo ? ' · ' + o.cargo : '') +
+        (o.status ? ' [' + o.status + ']' : '');
+      return option(o.id, label);
+    }).join('');
+
+    $('driverId').innerHTML = option('', t('dash.unassigned')) + drivers.map(function (d) {
+      return option(d.id, d.name || d.id);
+    }).join('');
+
+    $('truckId').innerHTML = option('', t('dash.unassigned')) + trucks.map(function (t2) {
+      var label = [t2.plate, t2.euroClass, t2.dimensions].filter(Boolean).join(' · ');
+      return option(t2.id, label || t2.id);
+    }).join('');
+
+    if (!orders.length) {
+      setMsg(t('dash.noOrders'), 'err');
+    }
+  }
+
+  function renderTrips(trips) {
+    var body = $('tripRows');
+    if (!trips.length) {
+      body.innerHTML = '<tr><td colspan="5" class="muted">' + esc(t('dash.noTrips')) + '</td></tr>';
+      return;
+    }
+    body.innerHTML = trips.map(function (trip) {
+      var order = trip.order || {};
+      var route = esc(order.origin || '?') + ' → ' + esc(order.destination || '?');
+      var driver = trip.driver ? esc(trip.driver.name || trip.driver.email || trip.driverId) : (trip.driverId ? esc(trip.driverId) : t('common.none'));
+      var next = TRANSITIONS[trip.status] || [];
+      var buttons = next.map(function (s) {
+        return '<button class="ghost small" data-trip="' + esc(trip.id) + '" data-to="' + esc(s) + '">' + esc(statusLabel(s)) + '</button>';
+      }).join('');
+      return '<tr class="clickable" data-open="' + esc(trip.id) + '">' +
+        '<td><button type="button" class="row-open" data-open="' + esc(trip.id) + '">' + route + '</button></td>' +
+        '<td>' + driver + '</td>' +
+        '<td><span class="status s-' + esc(trip.status) + '">' + esc(statusLabel(trip.status)) + '</span></td>' +
+        '<td>' + money(trip.rateEur) + '</td>' +
+        '<td><div class="actions">' + (buttons || '<span class="muted">' + esc(t('common.terminal')) + '</span>') + '</div></td>' +
+      '</tr>';
+    }).join('');
+    Array.prototype.forEach.call(body.querySelectorAll('button[data-trip]'), function (btn) {
+      btn.addEventListener('click', function () {
+        transition(btn.getAttribute('data-trip'), btn.getAttribute('data-to'), btn);
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('tr[data-open]'), function (tr) {
+      tr.addEventListener('click', function (ev) {
+        // A transition button inside the row must not also open the drawer.
+        if (ev.target && ev.target.closest && ev.target.closest('button')) return;
+        loadTripDetail(tr.getAttribute('data-open'));
+      });
+    });
+    // Keyboard equivalent of the row click (WCAG 2.1.1): the route cell is a
+    // real button, so Enter/Space on it opens the same drawer.
+    Array.prototype.forEach.call(body.querySelectorAll('button.row-open'), function (btn) {
+      btn.addEventListener('click', function (ev) {
+        if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+        loadTripDetail(btn.getAttribute('data-open'));
+      });
+    });
+  }
+
+  // Board task #70: keep focus inside the dialog while it is open and return it
+  // to the control that opened it on close (WCAG 2.4.3).
+  var lastFocus = null;
+  function openDrawer() {
+    lastFocus = document.activeElement;
+    $('drawer').classList.add('open');
+    $('drawer').setAttribute('aria-hidden', 'false');
+    $('overlay').classList.add('open');
+    var dlg = $('drawer');
+    if (dlg && typeof dlg.focus === 'function') dlg.focus();
+  }
+
+  function closeDrawer() {
+    var wasOpen = $('drawer').classList.contains('open');
+    $('drawer').classList.remove('open');
+    $('drawer').setAttribute('aria-hidden', 'true');
+    $('overlay').classList.remove('open');
+    openTripId = null;
+    if (wasOpen && lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+    lastFocus = null;
+  }
+
+  // Trip detail (board task #2): one read-only GET /api/trips/:id, rendered into
+  // the drawer. Org scoping is the API's job; here we only display what it returns.
+  function loadTripDetail(id) {
+    openTripId = id;
+    $('drawerTitle').textContent = t('dash.tripTitle', { id: id });
+    $('drawerBody').innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
+    openDrawer();
+    return api('/api/trips/' + encodeURIComponent(id), { token: token() }).then(function (r) {
+      if (r.status !== 200) {
+        $('drawerBody').innerHTML = '<p class="msg err show">' + esc(errorText(r.status, r.data)) + '</p>';
+        return;
+      }
+      renderTripDetail(r.data && r.data.trip ? r.data.trip : {});
+    }).catch(function (err) {
+      $('drawerBody').innerHTML = '<p class="msg err show">' + esc(t('error.networkDetail', { detail: err.message })) + '</p>';
+    });
+  }
+
+  function renderTripDetail(trip) {
+    var order = trip.order || {};
+    var totals = trip.totals || {};
+    var pnl = totals.pnlEur;
+    var pnlClass = (pnl === null || pnl === undefined) ? '' : (pnl < 0 ? 'neg' : 'pos');
+
+    var events = trip.statusEvents || [];
+    var timeline = events.length ? '<ul class="timeline">' + events.map(function (e) {
+      return '<li>' +
+        '<div class="tl-what">' + esc(statusLabel(e.from)) + ' → ' + esc(statusLabel(e.to)) + '</div>' +
+        '<div class="tl-when">' + esc(fmtDate(e.at)) + (e.actor ? ' · ' + esc(e.actor.name) : '') + '</div>' +
+      '</li>';
+    }).join('') + '</ul>' : '<p class="empty">' + esc(t('dash.noEvents')) + '</p>';
+
+    var docs = trip.documents || [];
+    var docRows = docs.length ? docs.map(function (d) {
+      return '<tr><td>' + esc(t('doctype.' + d.docType)) + '</td><td>' + esc(t('docstatus.' + d.status)) + '</td><td>' + esc(fmtDate(d.uploadedAt)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="3" class="empty">' + esc(t('dash.noDocuments')) + '</td></tr>';
+
+    var expenses = trip.expenses || [];
+    var expRows = expenses.length ? expenses.map(function (x) {
+      return '<tr><td>' + esc(x.category) + '</td><td>' + money(x.amountEur) + '</td></tr>';
+    }).join('') : '<tr><td colspan="2" class="empty">' + esc(t('dash.noExpenses')) + '</td></tr>';
+
+    $('drawerBody').innerHTML =
+      '<p><span class="status s-' + esc(trip.status) + '">' + esc(statusLabel(trip.status)) + '</span></p>' +
+      '<dl class="kv">' +
+        '<dt>' + esc(t('dash.colRoute')) + '</dt><dd>' + esc(order.origin || '?') + ' → ' + esc(order.destination || '?') + '</dd>' +
+        '<dt>' + esc(t('dash.cargo')) + '</dt><dd>' + esc(order.cargo || t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('dash.customer')) + '</dt><dd>' + esc(order.customer ? order.customer.name : t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('common.driver')) + '</dt><dd>' + esc(trip.driver ? (trip.driver.name || trip.driver.email || trip.driver.id) : t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('dash.truck')) + '</dt><dd>' + esc(trip.truck ? (trip.truck.plate || trip.truck.id) : t('common.none')) + '</dd>' +
+        '<dt>' + esc(t('common.rate')) + '</dt><dd>' + money(trip.rateEur) + '</dd>' +
+      '</dl>' +
+      '<div class="section-title">' + esc(t('dash.timeline')) + '</div>' + timeline +
+      '<div class="section-title">' + esc(t('dash.documents')) + '</div>' +
+        '<table><thead><tr><th>' + esc(t('common.type')) + '</th><th>' + esc(t('common.status')) + '</th><th>' + esc(t('dash.uploaded')) + '</th></tr></thead><tbody>' + docRows + '</tbody></table>' +
+      '<div class="section-title">' + esc(t('dash.expenses')) + '</div>' +
+        '<table><thead><tr><th>' + esc(t('dash.category')) + '</th><th>' + esc(t('dash.amount')) + '</th></tr></thead><tbody>' + expRows + '</tbody></table>' +
+      '<div class="section-title">' + esc(t('dash.pnl')) + '</div>' +
+        '<p class="pnl ' + pnlClass + '">' + money(pnl) + '</p>' +
+        '<p class="muted">' + esc(t('dash.pnlFormula', { rate: money(trip.rateEur), expenses: money(totals.expensesEur) })) + '</p>' +
+      '<div class="section-title">' + esc(t('dash.trackingTitle')) + '</div>' +
+        '<p class="muted">' + esc(t('dash.trackingHint')) + '</p>' +
+        '<button class="ghost small" id="trackLinkBtn" type="button">' + esc(t('dash.createTrackLink')) + '</button>' +
+        '<p class="muted" id="trackLinkOut">' + esc(t('dash.noLink')) + '</p>';
+
+    // Injected above, so look it up inside the drawer body rather than with the
+    // $-helper, which would need the id to exist in the static document.
+    var linkBtn = $('drawerBody').querySelector('#trackLinkBtn');
+    if (linkBtn) {
+      linkBtn.addEventListener('click', function () { createTrackLink(trip.id, linkBtn); });
+    }
+  }
+
+  // Board task #5: mint a shareable, login-free tracking link for this trip.
+  // Owner/dispatcher only — the API answers 403 for any other role.
+  function createTrackLink(id, btn) {
+    btn.disabled = true;
+    var out = $('drawerBody').querySelector('#trackLinkOut');
+    out.textContent = t('dash.creating');
+    api('/api/trips/' + encodeURIComponent(id) + '/track-link', { method: 'POST', token: token() })
+      .then(function (r) {
+        btn.disabled = false;
+        if (r.status !== 201) { out.textContent = errorText(r.status, r.data); return; }
+        var link = (r.data && r.data.link) || {};
+        var url = new URL(link.url, window.location.origin).href;
+        out.innerHTML = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        out.textContent = t('error.networkDetail', { detail: err.message });
+      });
+  }
+
+  function refreshOpenDrawer(id) {
+    if (openTripId === id && $('drawer').classList.contains('open')) loadTripDetail(id);
+  }
+
+  function transition(id, to, btn) {
+    clearMsg();
+    btn.disabled = true;
+    api('/api/trips/' + encodeURIComponent(id) + '/status', { method: 'POST', token: token(), body: { status: to } })
+      .then(function (r) {
+        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); }
+        else { setMsg(t('dash.tripMoved', { id: id, to: statusLabel(to) }), 'ok'); }
+        return loadTrips().then(function () { refreshOpenDrawer(id); });
+      })
+      .catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  $('loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    clearMsg();
+    api('/api/auth/login', { method: 'POST', body: { email: $('email').value.trim(), password: $('password').value } })
+      .then(function (r) {
+        if (r.status !== 200) { setMsg(errorText(r.status, r.data), 'err'); return; }
+        sessionStorage.setItem(TOKEN_KEY, r.data.token);
+        sessionStorage.setItem(USER_KEY, JSON.stringify(r.data.user || null));
+        $('password').value = '';
+        // Board task #6: the login response carries the org's default locale.
+        if (i18n && typeof i18n.setUser === 'function') i18n.setUser(r.data.user);
+        else showApp();
+        setMsg(t('common.signedIn'), 'ok');
+      })
+      .catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); });
+  });
+
+  $('createForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    clearMsg();
+    var orderId = $('orderId').value;
+    if (!orderId) { setMsg(t('dash.selectOrderFirst'), 'err'); return; }
+    var body = { orderId: orderId };
+    var driverId = $('driverId').value;
+    var truckId = $('truckId').value;
+    var rate = $('rateEur').value.trim();
+    if (driverId) body.driverId = driverId;
+    if (truckId) body.truckId = truckId;
+    if (rate !== '') body.rateEur = Number(rate);
+    api('/api/trips', { method: 'POST', token: token(), body: body }).then(function (r) {
+      if (r.status !== 201) { setMsg(errorText(r.status, r.data), 'err'); return; }
+      setMsg(t('dash.tripCreated', { id: r.data.trip && r.data.trip.id }), 'ok');
+      $('createForm').reset();
+      $('orderId').value = '';
+      loadTrips();
+    }).catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); });
+  });
+
+  $('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
+  $('drawerClose').addEventListener('click', closeDrawer);
+  $('overlay').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeDrawer(); return; }
+    // Trap Tab inside the open dialog so focus cannot wander behind it.
+    if (e.key !== 'Tab') return;
+    var drawer = $('drawer');
+    if (!drawer.classList.contains('open')) return;
+    var focusables = drawer.querySelectorAll('a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])');
+    if (!focusables.length) return;
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  $('logout').addEventListener('click', function (e) {
+    e.preventDefault();
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    clearMsg();
+    closeDrawer();
+    showLogin();
+  });
+
+  // Board task #6: boot i18n BEFORE anything renders, so no key ever reaches
+  // the screen. The org locale from the login response is the tenant default;
+  // the user's own language wins over it (see pilot/lib/i18n.js).
+  var user = sessionUser();
+  window.RoadwiseI18nUI.init({
+    mount: '#langSlot',
+    user: user,
+    org: user && user.locale,
+    onApply: function (ui) {
+      i18n = ui;
+      if (token()) showApp(); else showLogin();
+      if (openTripId && $('drawer').classList.contains('open')) loadTripDetail(openTripId);
+    }
+  });
+})();
+</script>
+</body>
+</html>

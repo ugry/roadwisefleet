@@ -1,0 +1,27 @@
+# RoadwiseFleet — staging deploy unit (elilavps2)
+#
+# Host path: /etc/systemd/system/roadwise-deploy-staging.service
+# Runbook:   infra/deploy.md  (board task eila/tasks#31)
+#
+# READY-TO-APPLY ARTIFACT — not installed. Runs the deployer as root because it
+# restarts roadwise-staging-api.service, writes /opt/roadwisefleet/releases and
+# /var/lib/roadwisefleet, and runs `pnpm install` + `prisma migrate deploy`.
+# Privilege boundary and the pull-deploy risk are documented in deploy.md §7.
+#
+# The unit is oneshot and triggered by roadwise-deploy-staging.timer. Running it
+# by hand is safe (the deployer is idempotent and takes a lock):
+#   sudo systemctl start roadwise-deploy-staging.service
+
+[Unit]
+Description=RoadwiseFleet staging deploy (pull main -> staging, health check, auto-rollback)
+Documentation=file:/opt/roadwisefleet/staging/current/infra/deploy.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/roadwise-deploy.sh staging
+TimeoutStartSec=15min
+# No credentials in the unit: the deployer sources the 0600 EnvironmentFile
+# itself (/opt/roadwisefleet/staging/.env) and never echoes it.

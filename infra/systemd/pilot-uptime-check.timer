@@ -1,0 +1,21 @@
+# Ready-to-apply artifact — timer for the pilot uptime check (task eila/tasks#10).
+#
+# NOT installed by CI. Install to /etc/systemd/system/pilot-uptime-check.timer
+# (mode 0644) and `systemctl enable --now pilot-uptime-check.timer`.
+#
+# Runs every 5 minutes. On a failure the script itself applies the alert
+# cooldown (ALERT_COOLDOWN_MIN), so the timer frequency does not control
+# alert volume.
+
+[Unit]
+Description=Run the RoadwiseFleet pilot uptime check every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=pilot-uptime-check.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target

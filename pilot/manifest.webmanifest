@@ -1,0 +1,20 @@
+{
+  "id": "/pilot/",
+  "name": "RoadwiseFleet Driver",
+  "short_name": "RWF Driver",
+  "description": "Your current trip, one-thumb status updates and photo proof of delivery — online or offline.",
+  "start_url": "/pilot/driver.html",
+  "scope": "/pilot/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1f3a",
+  "theme_color": "#0b1f3a",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

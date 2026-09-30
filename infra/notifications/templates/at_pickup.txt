@@ -1,0 +1,7 @@
+Subject: {{trip_ref}} is at the pickup point
+
+Hi {{customer_name}},
+
+The driver has arrived at {{pickup}} for {{trip_ref}} and is loading now.
+
+-- RoadwiseFleet

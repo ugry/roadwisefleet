@@ -8,7 +8,27 @@
   },
   "scripts": {
     "dev": "pnpm --filter @roadwisefleet/api dev",
+    "test": "pnpm --filter @roadwisefleet/api test",
+    "test:router": "pnpm --filter @roadwisefleet/api test:router",
+    "db:generate": "pnpm --filter @roadwisefleet/api db:generate",
     "db:migrate": "pnpm --filter @roadwisefleet/api db:migrate",
+    "db:status": "pnpm --filter @roadwisefleet/api db:status",
+    "db:seed": "pnpm --filter @roadwisefleet/api db:seed",
+    "db:reset": "pnpm --filter @roadwisefleet/api db:reset",
+    "smoke": "pnpm --filter @roadwisefleet/api smoke",
+    "handoff": "pnpm --filter @roadwisefleet/api handoff",
     "deploy": "./deploy.sh"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
+  },
+  "devDependencies": {
+    "@prisma/client": "^6.0.0",
+    "prisma": "^6.0.0"
   }
 }

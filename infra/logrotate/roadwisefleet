@@ -1,0 +1,23 @@
+# Ready-to-apply artifact — logrotate drop-in for RoadwiseFleet pilot logs
+# (task eila/tasks#10, "confirm logrotate covers pilot logs").
+#
+# NOT installed by CI. Install to /etc/logrotate.d/roadwisefleet (mode 0644).
+#
+# A drop-in for /etc/logrotate.d/eila-agents already exists on the host; it is
+# owned by the orchestrator and could not be read from this account, so this
+# file only covers the pilot-specific logs and is additive (logrotate merges all
+# files in /etc/logrotate.d).
+#
+# Journald already caps the roadwise-*.service units (their output goes to the
+# journal, not to files), so this covers the file-based logs only.
+
+/var/log/roadwisefleet/*.log {
+    weekly
+    rotate 8
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    create 0640 debian debian
+}

@@ -1,0 +1,7 @@
+Subject: {{carrier_name}} was awarded {{trip_ref}}
+
+Hi {{customer_name}},
+
+Your load {{trip_ref}} has been awarded to {{carrier_name}} at {{price}}. We will notify you when the driver is assigned and at every milestone until delivery.
+
+-- RoadwiseFleet
