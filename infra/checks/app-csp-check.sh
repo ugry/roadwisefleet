@@ -1,34 +1,42 @@
 #!/usr/bin/env bash
-# RoadwiseFleet — Fleet Manager (/app/) CSP vs. app assets check (READ-ONLY).
+# RoadwiseFleet — strict-surface (/app/, /c/, /s/) CSP vs. asset check (READ-ONLY).
 #
 # Board #69 / GitHub #48. The Fleet Manager is served by the API at /app/ and
 # gets its own header snippet
-# (infra/nginx/snippets/roadwisefleet-headers-app.conf). The app pages load
-# same-origin scripts (`/pilot/lib/*.js`, `/app/lib/*.js`, `/app/app.js`) and a
-# same-origin stylesheet, and declare no inline code — so the app policy must
-# include `script-src 'self'` and must NOT be the pilot snippet's wider
-# `'unsafe-inline'` policy. A policy that omits 'self' is the board #65/#39
-# failure mode (the app shell never boots); 'unsafe-inline' here would silently
-# give up the stricter policy the app's own markup allows.
+# (infra/nginx/snippets/roadwisefleet-headers-app.conf). Board #87 added the
+# customer portal (/c/) and the solo-driver surface (/s/), which reuse the same
+# snippet. Those pages load same-origin scripts and stylesheets and declare no
+# inline code — so the policy must include `script-src 'self'` and must NOT be
+# the pilot snippet's wider `'unsafe-inline'` policy. A policy that omits 'self'
+# is the board #65/#39 failure mode (the shell never boots); 'unsafe-inline'
+# here would silently give up the stricter policy the markup allows.
 #
-# This check reads the policy from the snippet and every resource the app HTML/JS
+# Board #91: /s/ also declares a PWA manifest
+# (`<link rel="manifest" href="/s/manifest.webmanifest" />`, solo/index.html),
+# and `manifest-src` has no fallback other than `default-src` — which is
+# `'none'` — so the manifest fetch was blocked until `manifest-src 'self'` was
+# added. The check now fails when a surface declares a manifest the policy does
+# not allow (and CI runs it on `solo/` too, so removing the directive fails).
+#
+# This check reads the policy from the snippet and every resource the HTML/JS
 # actually declares, applies CSP fallback semantics, and fails if any of them is
-# not allowed OR if the policy is wider than the app needs (both directions of
-# the inline decision). It also asserts the lockdown was NOT relaxed.
+# not allowed OR if the policy is wider than the surface needs (both directions
+# of the inline decision). It also asserts the lockdown was NOT relaxed.
 #
 # Modes:
 #   (default)    repo-only, no network — runs in CI (.github/workflows/ci.yml,
-#                job `app-csp-check`) on every PR and push.
+#                job `app-csp-check`, once per surface: app/, customer/, solo/)
+#                on every PR and push.
 #   --live       additionally compares the LIVE /app/ headers with the repo
 #                policy (HEAD requests only, no credentials). Owner change
 #                window only; never part of CI.
 #   --self-test  fixture assertions that prove this check FAILS on a reused
-#                pilot policy, on a no-'self' policy and on a relaxed lockdown,
-#                and that it detects a future inline <script>/<style> under a
-#                strict policy.
+#                pilot policy, on a no-'self' policy, on a relaxed lockdown, on a
+#                future inline <script>/<style> under a strict policy, and on a
+#                declared manifest the policy blocks (board #91).
 #   --help
 #
-# Exit: 0 = the policy matches the app's real needs, 1 = it does not.
+# Exit: 0 = the policy matches the surface's real needs, 1 = it does not.
 
 set -uo pipefail
 
@@ -91,7 +99,7 @@ has() { # has <sources-string> <token>
 }
 
 check_surface() {
-  local p e_script e_style e_connect
+  local p e_script e_style e_connect e_manifest
   local url inline_scripts inline_styles srcs
 
   if [ ! -f "$SNIPPET" ]; then
@@ -141,10 +149,12 @@ check_surface() {
   e_script="$(eff "$p" script-src default-src)"
   e_style="$(eff "$p" style-src default-src)"
   e_connect="$(eff "$p" connect-src default-src)"
+  e_manifest="$(eff "$p" manifest-src default-src)"
   printf '\n=== effective sources ===\n'
   printf '  script-src      -> %s\n' "${e_script:-<empty>}"
   printf '  style-src       -> %s\n' "${e_style:-<empty>}"
   printf '  connect-src     -> %s\n' "${e_connect:-<empty>}"
+  printf '  manifest-src    -> %s\n' "${e_manifest:-<empty>}"
 
   # --- resources the app actually declares ----------------------------------
   local files=("$APP_DIR"/*.html)
@@ -226,6 +236,32 @@ $srcs
 EOF
   fi
 
+  # 3b. a declared PWA manifest needs manifest-src 'self' (board #91). /s/ (solo)
+  #     declares one; /app/ and /c/ do not, so an absent manifest is fine and the
+  #     directive is a no-op there. CSP gives manifest-src no fallback other than
+  #     default-src, which is 'none' here — so without the directive the browser
+  #     blocks the manifest fetch and the PWA never installs.
+  srcs="$(grep -ohE '<link[^>]+rel="manifest"[^>]*>' "${files[@]}" | sed -E 's/.*href="([^"]*)".*/\1/' | sort -u || true)"
+  if [ -z "$srcs" ]; then
+    printf '  (no manifest declared)\n'
+  else
+    while IFS= read -r url; do
+      [ -n "$url" ] || continue
+      case "$url" in
+        http://*|https://*|//*)
+          warn "absolute manifest URL $url — an external host would have to be allowed; the surface is supposed to be same-origin" ;;
+        *)
+          if has "$e_manifest" "'self'"; then
+            ok "manifest $url allowed (manifest-src allows 'self')"
+          else
+            fail "manifest $url is BLOCKED — manifest-src has no 'self' (effective: ${e_manifest:-<empty>}); the fetch falls back to default-src 'none' (board #91)"
+          fi ;;
+      esac
+    done <<EOF
+$srcs
+EOF
+  fi
+
   # 4. same-origin fetch() needs connect-src 'self'
   if grep -rqE 'fetch\(' "$APP_DIR"; then
     if has "$e_connect" "'self'"; then
@@ -263,9 +299,9 @@ live_check() {
 
 self_test() {
   local tmp out rc passed=0 failed=0
-  local policy_app policy_pilot policy_noself policy_relaxed
+  local policy_app policy_solo policy_pilot policy_noself policy_relaxed
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/app-csp-selftest.XXXXXX")" || return 2
-  mkdir -p "$tmp/html_clean" "$tmp/html_inline"
+  mkdir -p "$tmp/html_clean" "$tmp/html_inline" "$tmp/html_manifest"
 
   cat > "$tmp/html_clean/index.html" <<'HTML'
 <!doctype html><html><head><link rel="stylesheet" href="/app/app.css"></head>
@@ -275,13 +311,21 @@ HTML
 <!doctype html><html><head><style>body{margin:0}</style></head>
 <body><script>boot();</script></body></html>
 HTML
-  for d in html_clean html_inline; do
+  # board #91: the solo surface — same-origin stylesheet + module script, NO
+  # inline code, and a declared PWA manifest.
+  cat > "$tmp/html_manifest/index.html" <<'HTML'
+<!doctype html><html><head><link rel="stylesheet" href="/s/solo.css">
+<link rel="manifest" href="/s/manifest.webmanifest" /></head>
+<body><script type="module" src="/s/solo.js"></script></body></html>
+HTML
+  for d in html_clean html_inline html_manifest; do
     cat > "$tmp/$d/app.js" <<'JS'
 async function api(path) { return fetch(path, { credentials: 'same-origin' }); }
 JS
   done
 
   policy_app="default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"
+  policy_solo="default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; manifest-src 'self'; connect-src 'self'"
   policy_pilot="default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; worker-src 'self'; manifest-src 'self'; connect-src 'self'"
   policy_noself="default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self'; script-src 'unsafe-inline'; connect-src 'self'"
   policy_relaxed="default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'"
@@ -290,6 +334,7 @@ JS
     printf '# fixture\nadd_header Content-Security-Policy "%s" always;\n' "$2" > "$1"
   }
   mk_snippet "$tmp/app.conf" "$policy_app"
+  mk_snippet "$tmp/solo.conf" "$policy_solo"
   mk_snippet "$tmp/pilot.conf" "$policy_pilot"
   mk_snippet "$tmp/noself.conf" "$policy_noself"
   mk_snippet "$tmp/relaxed.conf" "$policy_relaxed"
@@ -331,6 +376,10 @@ JS
   run_case "inline <script> under a strict policy is rejected" "$tmp/app.conf" "$tmp/html_inline" 1 "inline <script> tag(s) present but script-src lacks 'unsafe-inline'"
   # 6. inline code with an unsafe-inline policy is legitimately accepted
   run_case "inline code with an unsafe-inline policy is accepted" "$tmp/pilot.conf" "$tmp/html_inline" 0 "inline <script> tag(s) allowed"
+  # 7. board #91: the solo policy allows the declared manifest
+  run_case "the strict policy with manifest-src accepts the solo manifest surface" "$tmp/solo.conf" "$tmp/html_manifest" 0 "manifest /s/manifest.webmanifest allowed"
+  # 8. board #91: dropping manifest-src blocks the manifest fetch and must FAIL
+  run_case "a policy without manifest-src is rejected on a manifest surface" "$tmp/app.conf" "$tmp/html_manifest" 1 "manifest /s/manifest.webmanifest is BLOCKED"
 
   rm -rf "$tmp"
   printf '\nself-test: %d passed, %d failed\n' "$passed" "$failed"

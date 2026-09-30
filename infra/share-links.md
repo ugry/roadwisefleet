@@ -21,14 +21,27 @@ response nginx serves, not external reachability):
 | --- | --- |
 | `GET /track/<64-hex>` | **200** `text/html`; `x-robots-tag: noindex, nofollow`; pilot CSP (`default-src 'none'`…); **no `Set-Cookie`** |
 | `GET /api/track/<64-hex>` | **404** `application/json`; `x-robots-tag: noindex`; **no `Set-Cookie`** |
-| `GET /s/<64-hex>` | **404** `text/html` (static-root fallthrough, static CSP) — **not routed yet** |
+| `GET /s/<64-hex>` | **404** — see the board #91 update below: `/s/` is now the solo-driver shell (board #77/#87), and the #75 document/invoice token route was never implemented |
 
 So the **F8 tracking link is already live and correct** for the tracking surface:
 the HTML shell is public, the data endpoint rejects an unknown token with a clear
 404 and a JSON error, and no cookie is set. The `/track/` nginx location is
 applied on the host (it serves the pilot CSP header set).
 
-`/s/` does not exist on the host yet — that is the surface this task adds.
+**Board #91 update (2026-09-30).** `/s/` is no longer the surface this task
+specified. The solo-driver shell (board #77) answers there — live measured
+2026-09-30: `GET /s/` **200** `text/html` with the strict **app** CSP,
+`GET /s` **301** → `/s/` (PR #73 / board #87). The document/invoice share token
+under `/s/<token>` was **never implemented** (the app half was requested from Max
+and not built; see §7). Two consequences for this runbook:
+
+* the `/s/` nginx location now includes `roadwisefleet-headers-app.conf`, not the
+  pilot snippet — the solo shell declares no inline `<script>`/`<style>`;
+* the location is still kept on the `rwf_share` zone and the PII-free log
+  (§3/§4). The board #75 review decided **not** to relax the merged
+  `share-link-check` guard, so the guard's `SHARE_LOCATIONS=("/track/" "/s/")`
+  now reads as "locations that can carry a share token", not "the three #75
+  surfaces". §3 below carries the corrected wording.
 
 Token model in code (`apps/api/src/track-link.js`, F8/#39):
 
@@ -48,12 +61,12 @@ Three guest artefacts, one primitive:
 | Surface | Path | Token scope | Served by |
 | --- | --- | --- | --- |
 | tracking page | `/track/<token>` | `trip:<id>` | **live** (F8) |
-| POD / eCMR download | `/s/<token>` | `document:<id>` | **to build** (Max) |
-| invoice view | `/s/<token>` | `invoice:<id>` | **to build** (Max) |
+| POD / eCMR download | `/s/<token>` | `document:<id>` | **never implemented** (board #91: /s/ is the solo shell) |
+| invoice view | `/s/<token>` | `invoice:<id>` | **never implemented** (board #91: /s/ is the solo shell) |
 
-One nginx location (`/s/`) serves both new artefacts; the API dispatches on the
-token scope and sets `Content-Type` / `Content-Disposition` (inline for the
-invoice view, attachment for the document download).
+If a document/invoice token route is ever built it needs its own prefix decision
+(§3): `/s/` currently belongs to the solo-driver shell, so reusing it would put
+two unrelated surfaces in one location.
 
 Contract properties, mapped to the acceptance criteria:
 
@@ -87,9 +100,11 @@ Files (both protected — reviewed by the Team Leader, merged by the owner):
 * `infra/nginx/roadwisefleet.conf`
   * `location /track/` moves from `rwf_pilot` to `rwf_share` and logs with the
     redacted format,
-  * new `location /s/` (proxy to `127.0.0.1:8080`, `rwf_share`, redacted log,
-    pilot header snippet — the pages are self-contained) and `location = /s`
-    → 301 to the site root,
+  * **`location /s/` today (board #91 correction):** it serves the solo-driver
+    shell (board #77/#87) with `rwf_share` + the redacted log and the **app**
+    header snippet — the pilot snippet this runbook used to recommend was
+    superseded by PR #73; `location = /s` → 301 to `/s/` (not to the site root).
+    The zone/log choice is intentionally unchanged: see the board #91 note in §1.
   * `limit_req_status 429` (already present) keeps the rate-limit answer a clear
     retryable status.
 
@@ -98,9 +113,11 @@ file, or `nginx -t` refuses the reload (`unknown limit_req_zone` / `unknown log
 format`). Preflight: `bash infra/checks/nginx-limits-preflight.sh`; the guarded
 pairing is also checked in CI by `share-link-check.sh`.
 
-The API route for `/s/` does not exist yet, so until Max's half lands the
-location proxies to the API which answers 404 — **nothing is exposed by
-installing it early**; the surface becomes reachable the moment the route ships.
+The API route for `/s/<scope>/<token>` does not exist (board #91: it was never
+built), so the `/s/` location serves the solo shell and any other `/s/*` path is
+the API's own 404 — **nothing is exposed by having the location installed**; the
+invariant the `--live` probe checks is that an unknown `/s/*` path never returns
+data with a 200.
 
 ## 4. Request logging without PII
 
@@ -150,10 +167,10 @@ so neither the uploads storage nor the backup set changes shape.
 
 | Acceptance criterion | Status | Evidence / gap |
 | --- | --- | --- |
-| link opens in a clean browser profile with no account | **tracking: met live**; docs/invoice: pending | `/track/` is a 200 shell with no cookie and no session. New `--live` probe asserts cookie-free + noindex. The "clean profile" step is a manual browser check (no browser in my session). |
+| link opens in a clean browser profile with no account | **tracking: met live**; docs/invoice: **not implemented** (board #91 — `/s/` is the solo shell) | `/track/` is a 200 shell with no cookie and no session. New `--live` probe asserts cookie-free + noindex. The "clean profile" step is a manual browser check (no browser in my session). |
 | revoked/expired link returns a clear 404/410 page | **tracking: met** | `/api/track/<random>` → 404 JSON today; `--live` asserts 404/410 and never 200. `track-link.test.js` proves expiry + version + secret-rotation rejection. |
 | token ≥32 bytes of entropy | **primitive exists; not yet asserted for the new scopes** | HMAC-SHA256 MAC = 32 bytes; covered by code + `track-link.test.js` for the trip scope. The `document`/`invoice` scopes must reuse the same primitive (Max) — a CI assertion belongs with that code. |
-| rate limit holds under a simple loop | **artifacts + CI guard; live proof pending the owner reload** | `rwf_share` zone + `share-link-check.sh --live` loop (expects ≥1 × 429). On the host today `/track/` uses `rwf_pilot`; the repo change moves it to `rwf_share`. |
+| rate limit holds under a simple loop | **artifacts + CI guard; live proof pending** | `rwf_share` zone + `share-link-check.sh --live` loop (expects ≥1 × 429). The repo wiring is merged (PR #64); whether the host is actually serving an unthrottled `/track/` is only provable by the `--live` loop after the nginx window. |
 | uploads storage and backups still pass their checks | **unchanged by design** | §5; `uploads-perms-check.sh` unchanged and still gated in CI. |
 
 ## 7. Role split and routing
@@ -163,8 +180,10 @@ so neither the uploads storage nor the backup set changes shape.
 * **App (software development → Max, max.cooper@elilaltd.com):** the scoped
   `document`/`invoice` share endpoints in `apps/api/src/routes/track.ts` (reusing
   `track-link.js`), the WhatsApp/SMS share actions, and the node test asserting
-  the new token scopes' entropy/expiry/revocation. Requested via a ticket; the
-  contract above is the interface.
+  the new token scopes' entropy/expiry/revocation. Requested via a ticket
+  (`eila/requests#18`); the contract above is the interface. **Status 2026-09-30
+  (board #91): never implemented — `/s/` is the solo-driver shell, so any future
+  token route needs its own nginx prefix before it can be built.**
 * **Owner / Team Leader:** the nginx change window (protected path
   `infra/nginx/**`) and, if a formal log-retention position is wanted, a written
   period.
@@ -174,8 +193,10 @@ so neither the uploads storage nor the backup set changes shape.
 * **B1 — nginx reload window (owner).** The repo change is inert until installed
   on elilavps2; `nginx -t` and the reload are host/root work in an approved
   window. Exact order: §3 / `nginx-limits-preflight.sh`.
-* **B2 — app endpoints (Max).** Until `/s/<scope>/<token>` exists, the `/s/`
-  location answers 404; the two non-tracking acceptance rows cannot be proven.
+* **B2 — app endpoints (Max).** The `document`/`invoice` route under `/s/<scope>/<token>`
+  was never built (board #91); the `/s/` prefix now belongs to the solo-driver shell,
+  so the two non-tracking acceptance rows stay unprovable until a prefix decision is
+  made (a new prefix is needed — do not fold a token route into the solo location).
 * **B3 — manual browser/profile check.** "Opens in a clean browser profile" is a
   human step (my session has no browser); documented so it is not silently
   claimed.
