@@ -298,6 +298,24 @@ jobs:
       - name: Check the repo nginx share wiring
         run: bash infra/checks/share-link-check.sh
 
+  browseros-health:
+    name: BrowserOS health guard (#8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #8. browseros.service can be `active (running)` with a healthy
+      # MCP `/health` while every tab/window call fails with
+      # "CDP error: No browser window available", because the profile never
+      # finished first-run onboarding — `systemctl status` cannot see that.
+      # The guard asserts the precondition the MCP calls need (a drivable CDP
+      # page target) and names the failure. There is no browser on a CI runner,
+      # so only the fixture-driven self-test runs here; `--live` runs on
+      # elilavps2. The self-test proves each rejection, including the
+      # onboarding-only page list that reproduces the defect.
+      - name: Self-test the guard (fixtures, no host, no network)
+        run: bash infra/checks/browseros-health.sh --self-test
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'
