@@ -6,15 +6,16 @@ ones that should not be public. **No host change is made by this document** — 
 is the reviewed plan for a change that needs owner approval and host access.
 
 **Host:** elilavps2 (`51.222.139.227`). **Verified:** 2026-09-22 ~15:45 UTC, read-only;
-re-verified 2026-09-22 ~16:20 UTC; re-verified again **2026-09-22 18:05 UTC** after the
-16:25 UTC operator reboot (task `eila/tasks#9`).
+re-verified 2026-09-22 ~16:20 UTC; re-verified **2026-09-22 18:05 UTC** after the
+16:25 UTC operator reboot; **re-verified again 2026-09-30 08:32 UTC** (task `eila/tasks#9`) —
+§1, §4 step 2 and §5 below are that read.
 
 **Related:** [`pilot-exposure.md`](./pilot-exposure.md) (public HTTP surface),
 [`pilot-db.md`](./pilot-db.md) (Postgres/Redis), [`pilot-observability.md`](./pilot-observability.md).
 
 ---
 
-## 1. Inventory (`ss -ltn`, re-verified 2026-09-22 18:05 UTC)
+## 1. Inventory (`ss -ltn`, re-verified 2026-09-30 08:32 UTC)
 
 | Bind | Port | Owner (§3) | Assessment |
 |---|---|---|---|
@@ -32,6 +33,7 @@ re-verified 2026-09-22 ~16:20 UTC; re-verified again **2026-09-22 18:05 UTC** af
 | `127.0.0.1` | 6379 | pilot Redis | correct |
 | `127.0.0.1` | 8008 | Synapse (Matrix) | correct — `Server: Synapse/1.161.0` |
 | `127.0.0.1` | 2586, 8877, 9101 | internal services | correct (loopback) |
+| `127.0.0.1` | **7311–7314, 9230** | unidentified (loopback; my unprivileged `ss -ltnp` shows no process names) | correct (loopback) — **new since 2026-09-22**; agent tooling listens in this range, but I did not confirm the owner (see §3 provenance) |
 | `127.0.0.1` / `127.0.0.53` / `127.0.0.54` | 25, 53 | MTA + stub resolver | correct |
 
 **Finding H1 (residual):** 3000, 9000, 9001, 9200, 5355 and (new) 9100 are still
@@ -40,7 +42,7 @@ them at the packet level (§2), but the binds themselves are unchanged — a flu
 or bypassed firewall re-exposes them. That is why task #9 stays **open** for the
 loopback-rebind step.
 
-> **Provenance.** The bind list is my own `ss -ltn` (2026-09-22 18:05 UTC). The
+> **Provenance.** The bind list is my own `ss -ltn` (2026-09-30 08:32 UTC). The
 > **owner** column is the overseer's `sudo ss -ltnp` read (Victor, board #9,
 > 2026-09-22) — my account sees no process names without root and I hold no
 > `sudo`, so I could not independently re-derive it. Labelled as third-party
@@ -125,6 +127,21 @@ instead of `0.0.0.0`. For podman/docker, publish on loopback (`-p
 127.0.0.1:PORT:PORT`) and restart the owning unit. This survives a firewall being
 flushed or bypassed.
 
+Per-service readiness (verified read-only 2026-09-30; **verify first** — never paste
+a directive that has not been confirmed against the live file):
+
+| Port(s) | Service | Where the bind address lives | First command (read-only) | Change | Rollback |
+|---|---|---|---|---|---|
+| 3000 | `gitea` | the gitea config file — typically `/etc/gitea/app.ini`, `[server]` → `HTTP_ADDR` (**not read by me**: I have no access to it) | `sudo grep -n -A3 '^\[server\]' /etc/gitea/app.ini` | `HTTP_ADDR = 127.0.0.1` (same port), restart gitea | restore the file from the window backup, restart |
+| 9000, 9001, 9200 | `browseros` / `browseros_server` | the AppImage's own config (`/opt/browseros/profile/.browseros/config.json`, mode 0700 — **not readable to me**). The systemd unit's `ExecStart` carries **no** bind flag (verified 2026-09-30 from `systemctl status browseros.service`): `xvfb-run -a /opt/browseros/BrowserOS.AppImage --appimage-extract-and-run --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir=/opt/browseros/profile` | `sudo grep -Ei 'host\|bind\|address\|port' /opt/browseros/profile/.browseros/config.json` | set the listener host to `127.0.0.1` in that config (exact key confirmed by the read above), restart `browseros.service` | restore the config backup, restart |
+| 5355 | `systemd-resolved` (LLMNR) | `/etc/systemd/resolved.conf` | `sudo grep -n '^LLMNR' /etc/systemd/resolved.conf` | `LLMNR=no`, then `sudo systemctl restart systemd-resolved` | remove the line, restart |
+
+Keep the nginx → gitea proxy working: confirm the upstream **before** rebinding
+(`sudo nginx -T \| grep -n 'proxy_pass.*3000'` — expect `127.0.0.1:3000`) and re-check
+`https://gitea.elilaltd.com/` **after**. A wrong key in a config file does not fail
+closed — it silently does nothing — so each change needs its own after-check
+(`ss -ltn` shows the new bind, and the consuming client still works).
+
 **Step 3 — LLMNR off.** If nothing needs it:
 ```bash
 # /etc/systemd/resolved.conf  ->  LLMNR=no
@@ -166,6 +183,18 @@ loopback-only; `22`, `80`, `443` public as intended. `systemctl status ufw.servi
 **0 / 2047 MB used**, RAM available 8.7 GB (was 88 % swap used, 205 MB free) —
 **O3 resolved**. Backup timers survived the reboot: `roadwise-pg-backup.timer`
 next 2026-09-23 03:15 UTC, `roadwisefleet-backup.timer` next 2026-09-23 03:30 UTC.
+
+**Re-verification (2026-09-30 08:32 UTC, read-only):** `ss -ltn` is unchanged in
+substance — `3000` (`*`), `9000`, `9001`, `9200`, `5355` are still bound to public
+addresses (v4+v6), and **`9100`** is still public (UFW-restricted to elilavps1);
+`22`, `80`, `443` remain the only intended public services. The loopback set has grown
+(§1): `7311–7314` and `9230` are new (loopback-only, owner not confirmed by me — no
+process names without root).
+`systemctl status ufw.service` → **`active (exited)` since 2026-09-22 16:25:35 UTC**
+(not restarted since), i.e. the network-level closure H2 records is still the only
+protection on ports 3000/9000/9001/9200/5355/9100. **Nothing has been rebound** — the
+H1 residual is unchanged, and §4 step 2 now carries the per-service readiness detail
+for the window.
 
 **What I could not verify myself:** the live rule list (root-only `user.rules`),
 and external closure (no second vantage point — my probes from elilavps2 traverse
