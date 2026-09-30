@@ -392,7 +392,7 @@ if [ "$MODE" = "self-test" ]; then
   exit $?
 fi
 
-printf 'RoadwiseFleet Fleet Manager (/app/) CSP check — %s\n' "$(date -u '+%Y-%m-%d %H:%M:%SZ')"
+printf 'RoadwiseFleet strict-surface CSP check (%s) — %s\n' "${APP_DIR#"$REPO_ROOT"/}" "$(date -u '+%Y-%m-%d %H:%M:%SZ')"
 check_surface
 if [ "$MODE" = "live" ]; then
   live_check
@@ -401,8 +401,8 @@ fi
 printf '\n=== Result ===\n'
 printf '  failures: %d   warnings: %d\n' "$fails" "$warns"
 if [ "$fails" -gt 0 ]; then
-  printf '  the app CSP does not match the app surface — do NOT install/reload; fix the snippet first\n'
+  printf '  the CSP does not match the surface — do NOT install/reload; fix the snippet first\n'
   exit 1
 fi
-printf '  policy covers every declared app resource and is not wider than the app needs — safe to install in the change window\n'
+printf '  policy covers every declared resource and is not wider than the surface needs — safe to install in the change window\n'
 exit 0
