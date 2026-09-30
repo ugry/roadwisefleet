@@ -232,6 +232,28 @@ jobs:
       - name: Check the repo notification catalogue
         run: bash infra/scripts/pilot-notify-deliver.sh --check-repo
 
+  share-link-check:
+    name: Share-link guard (#75)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #75 (UXF-O1). A guest share link carries its capability in the URL
+      # path, so two deployment properties are acceptance-relevant and easy to
+      # lose in a later edit:
+      #   1. /track/ and /s/ must be limited by the dedicated rwf_share zone
+      #      (an enumerable token is not a capability), and
+      #   2. the access log must not record the token — the default `combined`
+      #      format logs $request/$http_referer, and the share page's own
+      #      same-origin fetch returns the token in the Referer.
+      # The self-test proves the guard FAILS on a leaky log format and on a
+      # share location that still uses the pilot zone.
+      - name: Self-test the guard (fixtures, no host, no network)
+        run: bash infra/checks/share-link-check.sh --self-test
+
+      - name: Check the repo nginx share wiring
+        run: bash infra/checks/share-link-check.sh
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'
