@@ -6,6 +6,7 @@ import { hashPassword, verifyPassword } from '../auth/password.js';
 import { signToken } from '../auth/tokens.js';
 import { localePayload } from '../i18n.js';
 import { createRateLimiter } from '../rate-limit.js';
+import { resolveClientIp } from '../client-ip.js';
 import { OWNER_PERMISSIONS, OWNER_ROLE, REGISTER_AUDIT_ACTION, defaultOrgName } from '../registration.js';
 // The signup validation is shared with the browser. The file is UMD (a classic
 // script for the page), so it is imported as a CommonJS default export.
@@ -20,7 +21,10 @@ const LOCKOUT_MS = 15 * 60 * 1000;
  *   POST /api/auth/register  public — self-service fleet-owner signup (board
  *                            task #86, owner directive 2026-09-30): creates the
  *                            Org + an `owner` User and issues the same session
- *                            token as login. Rate-limited per client IP.
+ *                            token as login. Rate-limited per REAL client IP
+ *                            (`client-ip.js`): the API sits behind nginx on
+ *                            loopback, so `req.ip` alone would be one shared
+ *                            bucket for every visitor (PR #78 review, P1).
  *   POST /api/auth/login     email + password against the `User` rows.
  *   GET  /api/auth/me        the signed-in principal.
  *
@@ -48,7 +52,10 @@ export async function authRoutes(app: FastifyInstance) {
    * reaches validation or the database.
    */
   app.post('/auth/register', async (req, reply) => {
-    const gate = registrationLimiter.check(req.ip || 'unknown');
+    // Key on the REAL client, never the shared loopback peer (PR #78 review):
+    // nginx forwards with `X-Real-IP: $remote_addr`, and `resolveClientIp()`
+    // only trusts that header when the immediate peer is loopback.
+    const gate = registrationLimiter.check(resolveClientIp(req));
     if (!gate.allowed) {
       reply.header('retry-after', String(gate.retryAfterSeconds));
       return reply.code(429).send({ error: 'rate_limited', retryAfterSeconds: gate.retryAfterSeconds });

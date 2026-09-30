@@ -131,3 +131,67 @@ test('another client has its own window', async () => {
   });
   assert.equal(res.statusCode, 400, 'the exhausted window belongs to the first IP only');
 });
+
+test('behind the loopback proxy the window follows X-Real-IP, not the peer', async () => {
+  // The real deployment: nginx on 127.0.0.1 forwards with `X-Real-IP: $remote_addr`.
+  // Keying on the peer would put every visitor in ONE bucket (the P1 defect): the
+  // first three hits from client A would exhaust the window for client B too.
+  const bad = { ...VALID, password: 'x' };
+  const loopback = { socket: { remoteAddress: '127.0.0.1' } };
+  const asClient = (realIp: string) => ({
+    ...loopback,
+    headers: { 'x-real-ip': realIp },
+  });
+
+  for (let i = 0; i < 3; i += 1) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: bad,
+      ...asClient('203.0.113.7'),
+    });
+    assert.equal(res.statusCode, 400, `client A request ${i + 1} is under the limit`);
+  }
+  const refused = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: VALID,
+    ...asClient('203.0.113.7'),
+  });
+  assert.equal(refused.statusCode, 429, 'client A is exhausted');
+
+  const other = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: { ...VALID, email: 'nope' },
+    ...asClient('198.51.100.9'),
+  });
+  assert.equal(other.statusCode, 400, 'a different real client has its own window');
+});
+
+test('a local caller without proxy headers does not spend a proxied client’s window', async () => {
+  // A local caller that sends no X-Real-IP / X-Forwarded-For keeps its own
+  // (loopback) bucket; a proxied visitor is keyed on the real client instead.
+  const bad = { ...VALID, password: 'x' };
+  for (let i = 0; i < 3; i += 1) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: bad,
+      remoteAddress: '127.0.0.1',
+    });
+    assert.equal(res.statusCode, 400);
+  }
+  const proxied = await app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: { ...VALID, email: 'nope' },
+    remoteAddress: '127.0.0.1',
+    headers: { 'x-real-ip': '203.0.113.11' },
+  });
+  assert.equal(
+    proxied.statusCode,
+    400,
+    'a proxied client is not spent by the local caller’s window',
+  );
+});

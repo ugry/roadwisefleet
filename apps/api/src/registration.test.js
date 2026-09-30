@@ -64,7 +64,11 @@ test('defaultOrgName prefers the company, then names the fleet after the owner',
 test('the register endpoint wires the shared rules, the role and the rate limit (drift guard)', () => {
   const route = read('apps/api/src/routes/auth.ts');
   assert.match(route, /app\.post\('\/auth\/register'/);
-  assert.match(route, /registrationLimiter\.check\(req\.ip/);
+  // The limiter is keyed on the REAL client, not `req.ip`: behind nginx on
+  // loopback `req.ip` is one shared bucket for every visitor (PR #78 review).
+  assert.match(route, /import \{ resolveClientIp \} from '\.\.\/client-ip\.js'/);
+  assert.match(route, /registrationLimiter\.check\(resolveClientIp\(req\)\)/);
+  assert.doesNotMatch(route, /registrationLimiter\.check\(req\.ip/);
   assert.match(route, /reply\.code\(429\)/);
   assert.match(route, /error: 'rate_limited'/);
   assert.match(route, /OWNER_ROLE/);
