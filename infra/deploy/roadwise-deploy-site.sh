@@ -729,6 +729,21 @@ PY
   check "no ready notification is sent when the web tree could not be published" "$(notified '^ready ')" "0"
   WEB_ROOT_VALUE="$WWW"
 
+  # --- 7. board #92: the unit must not pin a different surface URL ----------
+  # The unit's Environment=RWF_SITE_URL WINS over this script's own default, so
+  # a stale pin silently changes the recorded deploy URL and the READY-TO-TEST
+  # notify target. That is exactly how board #92 happened: the merged default
+  # (board #87) moved to the site root while the unit kept
+  # https://roadwisefleet.com/pilot/. Assert the two agree, so the next drift
+  # fails CI instead of being discovered from a state file months later.
+  local unit_file script_default unit_value
+  unit_file="$(cd "$(dirname "$SELF")/../systemd" && pwd)/roadwise-deploy-site.service"
+  script_default="$(grep -E '^SITE_URL=' "$SELF" | head -n1 | sed -E 's/.*RWF_SITE_URL:-([^}]*)\}.*/\1/')"
+  unit_value="$(grep -E '^Environment=RWF_SITE_URL=' "$unit_file" | head -n1 | cut -d= -f3-)"
+  check "the unit pins the same surface URL as the script default (board #92)" "$unit_value" "$script_default"
+  check "the unit does not pin the retired /pilot/ surface (board #92)" \
+    "$(printf '%s\n' "$unit_value" | grep -c '/pilot/' || true)" "0"
+
   rm -rf "$tmp"
   printf 'self-test: %d passed, %d failed\n' "$tests_pass" "$tests_fail"
   [ "$tests_fail" = 0 ] || return 1

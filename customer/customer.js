@@ -23,6 +23,8 @@ const PANELS = {
   shipments: 'shipmentsPanel',
   book: 'bookPanel',
   shipment: 'shipmentPanel',
+  offers: 'offersPanel',
+  autoMatch: 'autoMatchPanel',
   account: 'accountPanel'
 };
 
@@ -32,8 +34,12 @@ const state = {
   token: '',
   user: null,
   shipmentId: null,
+  loadId: null,
   me: null,
-  trackLink: null
+  trackLink: null,
+  offerLoad: null,
+  compare: [],
+  autoMatch: null
 };
 
 /* ------------------------------------------------------------- helpers --- */
@@ -69,13 +75,25 @@ function errorKey(err) {
   if (err.error === 'email_taken') return 'error.emailTaken';
   if (err.error === 'no_carrier_org') return 'error.noCarrierOrg';
   if (err.error === 'network') return 'error.network';
+  // Marketplace (#78) failures with their own sentence.
+  const byCode = {
+    auto_match_pending_owner: 'autoMatch.gate',
+    load_awarded: 'offers.err.loadAwarded',
+    load_closed: 'offers.err.loadClosed',
+    load_expired: 'offers.err.loadExpired',
+    offer_closed: 'offers.err.offerClosed',
+    offer_expired: 'offers.err.offerExpired',
+    load_not_found: 'offers.err.loadNotFound',
+    offer_not_found: 'offers.err.offerNotFound'
+  };
+  if (err.error && byCode[err.error]) return byCode[err.error];
   const byStatus = {
     0: 'error.network',
     400: 'error.badRequest',
     401: 'error.sessionExpired',
     403: 'error.forbidden',
     404: 'error.notFound',
-    409: 'error.emailTaken',
+    409: 'error.conflict',
     423: 'error.accountLocked',
     429: 'error.rateLimited',
     503: 'error.noCarrierOrg'
@@ -254,6 +272,8 @@ function showPanel(view) {
   }
   if (view === 'shipments') renderShipments();
   if (view === 'book') renderBook();
+  if (view === 'offers') renderOffers();
+  if (view === 'autoMatch') renderAutoMatch();
   if (view === 'account') renderAccount();
 }
 
@@ -588,8 +608,17 @@ async function onSubmitBooking(event) {
   }
   try {
     const data = await api('/customer/orders', { method: 'POST', body: payload });
+    if (data.load && data.marketplace) {
+      // Board task #78: the marketplace path posts the load and opens the
+      // compare screen — the same order the wizard created, now collect offers.
+      state.loadId = data.load.id;
+      state.shipmentId = data.order ? data.order.id : null;
+      setMsg('bookMsg', 'book.marketplacePosted', 'success');
+      showPanel('offers');
+      return;
+    }
     if (!data.order) {
-      showMarketplaceNotice(form, data.marketplace);
+      setMsg('bookMsg', 'error.unexpected', 'error');
       return;
     }
     setMsg('bookMsg', 'book.created', 'success');
@@ -611,30 +640,260 @@ async function onSubmitBooking(event) {
   }
 }
 
-/** A marketplace path: explain the phase, never a dead end. */
-function showMarketplaceNotice(form, notice) {
-  const box = form.querySelector('#bookMsg');
-  if (!box) return;
-  box.className = 'alert';
-  box.hidden = false;
-  box.textContent = t('book.marketplacePending') + (notice && notice.task ? ' (' + notice.task + ')' : '');
-  if (box.querySelector('#bk-fallback')) return;
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.id = 'bk-fallback';
-  button.className = 'secondary';
-  button.textContent = t('book.marketplaceFallback');
-  button.addEventListener('click', () => {
-    const own = form.querySelector('[name="supplyChoice"][value="own_carrier"]');
-    if (own) {
-      own.checked = true;
-      onBookingChange({ target: own });
-      if (own.focus) own.focus();
+/* ------------------------------------------------- offers (compare/award) --- */
+
+function offerBadge(key) {
+  return '<span class="badge">' + esc(t(key)) + '</span>';
+}
+
+/** One compare row: price, ETAs, rating, truck, verification and terms. */
+function compareRow(row) {
+  const flags = row.flags || {};
+  const badges =
+    (flags.cheapest ? offerBadge('offers.flag.cheapest') : '') +
+    (flags.fastest ? offerBadge('offers.flag.fastest') : '') +
+    (flags.verified ? offerBadge('offers.flag.verified') : '');
+  const eta = (value) => (value ? new Date(value).toLocaleString() : t('offers.notGiven'));
+  const rating = row.carrierRating === null || row.carrierRating === undefined ? t('offers.notRated') : String(row.carrierRating);
+  const delta =
+    row.deltaVsBudget === null || row.deltaVsBudget === undefined
+      ? ''
+      : '<span class="meta">' +
+        esc(t(row.deltaVsBudget <= 0 ? 'offers.underBudget' : 'offers.overBudget', { amount: Math.abs(row.deltaVsBudget) })) +
+        '</span>';
+  const open = row.status === 'SENT' || row.status === 'VIEWED';
+  const actions = open
+    ? '<div class="actions">' +
+      '<button type="button" class="primary" data-award="' + esc(row.id) + '">' + esc(t('offers.award')) + '</button>' +
+      '<button type="button" class="secondary" data-counter="' + esc(row.id) + '">' + esc(t('offers.counter')) + '</button>' +
+      '<button type="button" class="danger" data-decline="' + esc(row.id) + '">' + esc(t('offers.decline')) + '</button>' +
+      '</div>'
+    : '<span class="meta">' + esc(t(CORE.statusKey(row.status))) + '</span>';
+  return (
+    '<tr data-offer="' + esc(row.id) + '">' +
+    '<td><strong>' + esc(row.carrierName || '') + '</strong>' + badges +
+    '<div class="meta">' + esc(row.carrierTruck || t('offers.notGiven')) + '</div></td>' +
+    '<td>' + esc(t('offers.price')) + ': ' + esc(row.priceEur === null ? '—' : row.priceEur) + delta + '</td>' +
+    '<td>' + esc(t('offers.pickup')) + ': ' + esc(eta(row.pickupEtaAt)) + '</td>' +
+    '<td>' + esc(t('offers.delivery')) + ': ' + esc(eta(row.deliveryEtaAt)) + '</td>' +
+    '<td>' + esc(t('offers.rating')) + ': ' + esc(rating) + '</td>' +
+    '<td>' + esc(t('offers.verification')) + ': ' + esc(t(row.carrierVerified ? 'offers.verifiedYes' : 'offers.verifiedNo')) + '</td>' +
+    '<td>' + esc(t('offers.terms')) + ': ' + esc(t('offers.terms.' + (row.cancellationTerms || 'standard'))) + '</td>' +
+    '<td>' + actions + '</td>' +
+    '</tr>'
+  );
+}
+
+/**
+ * The compare screen. With a load id it shows that load's offers; without one
+ * it lists the customer's own posted loads and lets one be opened. Every fact
+ * comes from `GET /api/customer/loads(/:id)`, so a refresh restores the screen.
+ */
+async function renderOffers() {
+  const wrap = $('offersBody');
+  if (!wrap) return;
+  wrap.innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
+  try {
+    if (!state.loadId) {
+      const data = await api('/customer/loads');
+      const loads = Array.isArray(data.loads) ? data.loads : [];
+      state.offerLoad = null;
+      state.compare = [];
+      wrap.innerHTML =
+        '<h2>' + esc(t('offers.myLoads')) + '</h2>' +
+        (loads.length === 0
+          ? '<p class="muted">' + esc(t('offers.noLoads')) + '</p>'
+          : loads
+              .map(
+                (load) =>
+                  '<article class="trip-row">' +
+                  '<span class="route">' + esc(load.origin) + ' → ' + esc(load.destination) + '</span>' +
+                  '<span>' + esc(t(CORE.statusKey(load.status))) + '</span>' +
+                  '<span class="meta">' + esc(t('offers.offerCount', { count: load.offerCount || 0 })) + '</span>' +
+                  '<div class="actions"><button type="button" class="secondary" data-open-load="' + esc(load.id) + '">' +
+                  esc(t('offers.open')) + '</button></div>' +
+                  '</article>'
+              )
+              .join(''));
+      return;
     }
-    setMsg('bookMsg', '');
+    const data = await api('/customer/loads/' + encodeURIComponent(state.loadId));
+    state.offerLoad = data.load || null;
+    state.compare = Array.isArray(data.compare) ? data.compare : [];
+    state.autoMatch = data.autoMatch || null;
+    const load = state.offerLoad || {};
+    const rows = state.compare.length
+      ? '<table class="compare"><caption>' + esc(t('offers.compareCaption')) + '</caption>' +
+        '<thead><tr>' +
+        ['offers.col.carrier', 'offers.col.price', 'offers.col.pickup', 'offers.col.delivery', 'offers.col.rating', 'offers.col.verification', 'offers.col.terms', 'offers.col.actions']
+          .map((key) => '<th scope="col">' + esc(t(key)) + '</th>')
+          .join('') +
+        '</tr></thead><tbody>' + state.compare.map(compareRow).join('') + '</tbody></table>'
+      : '<p class="muted">' + esc(t('offers.empty')) + '</p>';
+    wrap.innerHTML =
+      '<button type="button" class="link" id="offersBack">' + esc(t('offers.back')) + '</button>' +
+      '<h1>' + esc(load.origin || '') + ' → ' + esc(load.destination || '') + '</h1>' +
+      '<p>' + esc(t(CORE.statusKey(load.status))) + ' · ' + esc(t('offers.offerCount', { count: state.compare.length })) + '</p>' +
+      rows +
+      '<p id="offersMsg" class="alert" role="status" hidden></p>';
+    const back = wrap.querySelector('#offersBack');
+    if (back) back.addEventListener('click', () => { state.loadId = null; renderOffers(); });
+  } catch (err) {
+    setMsg('globalMsg', errorKey(err), 'error');
+    wrap.innerHTML = '';
+  }
+}
+
+function onOffersClick(event) {
+  const target = event.target;
+  if (!target || !target.getAttribute) return;
+  const openLoad = target.getAttribute('data-open-load');
+  if (openLoad) { state.loadId = openLoad; renderOffers(); return; }
+  const award = target.getAttribute('data-award');
+  if (award) { awardOffer(award); return; }
+  const decline = target.getAttribute('data-decline');
+  if (decline) { declineOffer(decline); return; }
+  const counter = target.getAttribute('data-counter');
+  if (counter) { toggleCounterForm(counter); }
+}
+
+function toggleCounterForm(offerId) {
+  const wrap = $('offersBody');
+  if (!wrap) return;
+  const row = wrap.querySelector('[data-offer="' + offerId + '"]');
+  if (!row) return;
+  const next = row.nextElementSibling;
+  if (next && next.getAttribute('data-counter-form') === offerId) {
+    row.parentNode.removeChild(next);
+    return;
+  }
+  const form = document.createElement('tr');
+  form.setAttribute('data-counter-form', offerId);
+  form.innerHTML =
+    '<td colspan="8"><form class="counter-form" novalidate>' +
+    '<label for="ct-' + esc(offerId) + '-price">' + esc(t('offers.counterPrice')) + '</label>' +
+    '<input id="ct-' + esc(offerId) + '-price" name="priceEur" type="number" min="0" step="0.01" inputmode="decimal">' +
+    '<label for="ct-' + esc(offerId) + '-terms">' + esc(t('offers.terms')) + '</label>' +
+    '<select id="ct-' + esc(offerId) + '-terms" name="cancellationTerms">' +
+    ['standard', 'flexible', 'strict']
+      .map((id) => '<option value="' + esc(id) + '">' + esc(t('offers.terms.' + id)) + '</option>')
+      .join('') +
+    '</select>' +
+    '<label for="ct-' + esc(offerId) + '-note">' + esc(t('offers.counterNote')) + '</label>' +
+    '<input id="ct-' + esc(offerId) + '-note" name="note" type="text">' +
+    '<button type="submit" class="primary">' + esc(t('offers.counterSend')) + '</button>' +
+    '</form></td>';
+  const inner = form.querySelector('form');
+  inner.addEventListener('submit', (event) => {
+    event.preventDefault();
+    sendCounter(offerId, inner);
   });
-  box.appendChild(document.createElement('br'));
-  box.appendChild(button);
+  row.parentNode.insertBefore(form, row.nextSibling);
+}
+
+async function sendCounter(offerId, form) {
+  const value = (name) => {
+    const node = form.querySelector('[name="' + name + '"]');
+    return node ? node.value : '';
+  };
+  const payload = { priceEur: value('priceEur'), cancellationTerms: value('cancellationTerms'), note: value('note') };
+  try {
+    await api('/customer/offers/' + encodeURIComponent(offerId) + '/counter', { method: 'POST', body: payload });
+    // Re-render FIRST, then show the message: renderOffers() replaces the
+    // offers body (and its #offersMsg node), so a message set before it is lost.
+    await renderOffers();
+    setMsg('offersMsg', 'offers.countered', 'success');
+  } catch (err) {
+    setMsg('offersMsg', errorKey(err), 'error');
+  }
+}
+
+async function declineOffer(offerId) {
+  try {
+    await api('/customer/offers/' + encodeURIComponent(offerId) + '/decline', { method: 'POST', body: {} });
+    await renderOffers();
+    setMsg('offersMsg', 'offers.declined', 'success');
+  } catch (err) {
+    setMsg('offersMsg', errorKey(err), 'error');
+  }
+}
+
+async function awardOffer(offerId) {
+  if (!state.loadId) return;
+  try {
+    const data = await api('/customer/loads/' + encodeURIComponent(state.loadId) + '/award', {
+      method: 'POST',
+      body: { offerId, paymentMethod: 'invoice' }
+    });
+    const count = Array.isArray(data.notifications) ? data.notifications.length : 0;
+    state.shipmentId = data.trip ? data.trip.id : null;
+    await renderOffers();
+    setMsg('offersMsg', count > 0 ? 'offers.awarded' : 'offers.awardedNoNotice', 'success');
+  } catch (err) {
+    setMsg('offersMsg', errorKey(err), 'error');
+  }
+}
+
+/* ------------------------------------------------------------ auto-match --- */
+
+function renderAutoMatch() {
+  const wrap = $('autoMatchBody');
+  if (!wrap) return;
+  wrap.innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
+  api('/customer/auto-match')
+    .then((data) => {
+      state.autoMatch = data || null;
+      const rules = (data && data.rules) || CORE.autoMatchDefaults();
+      const gate = (data && data.entitlement) || {};
+      const gateNote = gate.allowed
+        ? ''
+        : '<p class="alert" role="status">' + esc(t('autoMatch.gate', { gate: gate.ownerGate || '' })) + '</p>';
+      wrap.innerHTML =
+        '<h1>' + esc(t('autoMatch.title')) + '</h1>' +
+        '<p class="lead">' + esc(t('autoMatch.lead')) + '</p>' +
+        gateNote +
+        '<form id="autoMatchForm" novalidate>' +
+        '<label class="choice"><input type="checkbox" name="enabled"' + (rules.enabled ? ' checked' : '') + '>' +
+        '<span class="choice-title">' + esc(t('autoMatch.enabled')) + '</span></label>' +
+        '<label for="am-maxPriceEur">' + esc(t('autoMatch.maxPrice')) + '</label>' +
+        '<input id="am-maxPriceEur" name="maxPriceEur" type="number" min="0" step="0.01" inputmode="decimal" value="' +
+        esc(rules.maxPriceEur === null || rules.maxPriceEur === undefined ? '' : rules.maxPriceEur) + '">' +
+        '<label for="am-minRating">' + esc(t('autoMatch.minRating')) + '</label>' +
+        '<input id="am-minRating" name="minRating" type="number" min="0" max="5" step="0.1" inputmode="decimal" value="' +
+        esc(rules.minRating === null || rules.minRating === undefined ? '' : rules.minRating) + '">' +
+        '<button type="submit" class="primary">' + esc(t('autoMatch.save')) + '</button>' +
+        '<p id="autoMatchMsg" class="alert" role="status" hidden></p>' +
+        '</form>';
+      const form = wrap.querySelector('#autoMatchForm');
+      form.addEventListener('submit', onSubmitAutoMatch);
+    })
+    .catch((err) => {
+      setMsg('globalMsg', errorKey(err), 'error');
+      wrap.innerHTML = '';
+    });
+}
+
+async function onSubmitAutoMatch(event) {
+  event.preventDefault();
+  const form = event.target;
+  const value = (name) => {
+    const node = form.querySelector('[name="' + name + '"]');
+    return node ? node.value : '';
+  };
+  const enabledNode = form.querySelector('[name="enabled"]');
+  const payload = {
+    enabled: Boolean(enabledNode && enabledNode.checked),
+    maxPriceEur: value('maxPriceEur'),
+    minRating: value('minRating')
+  };
+  try {
+    await api('/customer/auto-match', { method: 'PUT', body: payload });
+    setMsg('autoMatchMsg', 'autoMatch.saved', 'success');
+    renderAutoMatch();
+  } catch (err) {
+    if (err.error === 'auto_match_pending_owner') setMsg('autoMatchMsg', 'autoMatch.gate', 'error');
+    else setMsg('autoMatchMsg', errorKey(err), 'error');
+  }
 }
 
 /* ------------------------------------------------------------- account --- */
@@ -972,6 +1231,8 @@ function wireEvents() {
       if (event.target && event.target.id === 'teamForm') onSubmitTeam(event);
     });
   }
+  const offersBody = $('offersBody');
+  if (offersBody) offersBody.addEventListener('click', onOffersClick);
 }
 
 async function loadCatalogue() {
@@ -1004,4 +1265,19 @@ if (typeof document !== 'undefined') {
   boot();
 }
 
-export { boot, showView, showPanel, readBooking, onSubmitBooking, errorKey, t, state };
+export {
+  boot,
+  showView,
+  showPanel,
+  readBooking,
+  onSubmitBooking,
+  renderOffers,
+  onOffersClick,
+  awardOffer,
+  compareRow,
+  renderAutoMatch,
+  onSubmitAutoMatch,
+  errorKey,
+  t,
+  state
+};

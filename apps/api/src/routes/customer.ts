@@ -6,6 +6,8 @@ import { hashPassword } from '../auth/password.js';
 import { signToken } from '../auth/tokens.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { publicTrackUrl, reconstructTrackLink, signTrackLink } from '../track-link.js';
+import { sweepExpired } from '../marketplace-sweep.js';
+import * as market from '../marketplace.js';
 import * as customerCore from '../../../../customer/lib/customer-core.js';
 
 /*
@@ -403,15 +405,39 @@ export async function customerRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: normalized.error, field: normalized.field, detail: normalized.detail });
     }
     const value = normalized.value;
+    const rows = customerCore.buildOrderData(value, { customerId: resolved.principal.customerId });
 
     if (value.marketplace) {
-      return reply.code(202).send({
-        order: null,
-        marketplace: customerCore.marketplaceNotice(value.supplyChoice),
+      // Board task #78 (UXF-C2): a marketplace path now POSTS the load for real
+      // — the order + booking are created exactly as a direct booking, plus a
+      // LoadPosting the carriers bid on. The award creates the trip (in the
+      // carrier org), so nothing is lost and nobody re-enters the load.
+      const result = await prisma.$transaction(async (tx) => {
+        const order = await tx.order.create({ data: rows.order });
+        await tx.orderBooking.create({ data: { ...rows.booking, orderId: order.id } });
+        const load = await tx.loadPosting.create({
+          data: {
+            ...market.buildLoadPostingData(value, {
+              orderId: order.id,
+              customerId: resolved.principal.customerId,
+              postedById: resolved.principal.userId,
+            }),
+            expiresAt: market.defaultLoadExpiry(new Date()),
+          },
+        });
+        return { orderId: order.id, load };
+      });
+      const created = await prisma.order.findFirst({
+        where: { id: result.orderId, customerId: resolved.principal.customerId },
+        include: ORDER_INCLUDE,
+      });
+      return reply.code(201).send({
+        order: customerCore.orderDetail(created),
+        load: market.loadCard(result.load),
+        marketplace: { code: 'marketplace_posted', supplyChoice: value.supplyChoice, task: null },
       });
     }
 
-    const rows = customerCore.buildOrderData(value, { customerId: resolved.principal.customerId });
     const orderId = await prisma.$transaction(async (tx) => {
       const order = await tx.order.create({ data: rows.order });
       await tx.orderBooking.create({ data: { ...rows.booking, orderId: order.id } });
@@ -493,5 +519,299 @@ export async function customerRoutes(app: FastifyInstance) {
     return reply.code(201).send({
       link: { url: publicTrackUrl(env.PUBLIC_BASE_URL, minted.token), expiresAt: minted.expiresAt },
     });
+  });
+
+  // --------------------------------------------------------- marketplace ---
+  // Board task #78 (UXF-C2): the customer compares the structured offers on
+  // their own posted load, counters, declines and awards. The domain rules
+  // (state machines, award plan, compare rows, auto-match) live in
+  // `marketplace.js` — the SAME module the fleet/solo side uses — so the two
+  // surfaces cannot drift. These routes only add the customer tenancy: the load
+  // must be the caller's own, and "not mine" is a flat 404, never a 403.
+
+  /** One load posting, as the compare screen reads it. */
+  const CUSTOMER_LOAD_SELECT = {
+    id: true,
+    customerId: true,
+    orgId: true,
+    orderId: true,
+    origin: true,
+    destination: true,
+    cargo: true,
+    equipment: true,
+    loadReadyAt: true,
+    deliverByAt: true,
+    pricingMode: true,
+    priceEur: true,
+    status: true,
+    expiresAt: true,
+    awardedOfferId: true,
+    awardedAt: true,
+    tripId: true,
+    createdAt: true,
+  } as const;
+
+  /** One offer card, compare facets included. Never a relation dump. */
+  const CUSTOMER_OFFER_SELECT = {
+    id: true,
+    loadId: true,
+    carrierOrgId: true,
+    carrierUserId: true,
+    carrierName: true,
+    priceEur: true,
+    pickupEtaAt: true,
+    deliveryEtaAt: true,
+    note: true,
+    carrierTruck: true,
+    carrierVerified: true,
+    cancellationTerms: true,
+    side: true,
+    status: true,
+    parentOfferId: true,
+    expiresAt: true,
+    createdAt: true,
+  } as const;
+
+  /** `awardPlan`'s failures mapped to the HTTP the customer surface answers. */
+  const AWARD_STATUS: Record<string, number> = {
+    load_not_found: 404,
+    offer_not_found: 404,
+    load_awarded: 409,
+    load_closed: 409,
+    load_expired: 409,
+    offer_expired: 409,
+    offer_closed: 409,
+    order_required: 409,
+  };
+
+  /** The caller's own load, or null. There is no org-wide path here. */
+  async function ownLoad(customerId: string, loadId: string) {
+    return prisma.loadPosting.findFirst({
+      where: { id: loadId, customerId },
+      select: CUSTOMER_LOAD_SELECT,
+    });
+  }
+
+  /** The auto-match rules + their entitlement, read back from the profile. */
+  async function autoMatchState(customerId: string) {
+    const row = await prisma.customerProfile.findUnique({
+      where: { customerId },
+      select: { autoMatch: true },
+    });
+    const stored = (row?.autoMatch ?? null) as Record<string, unknown> | null;
+    const rules = market.normalizeAutoMatch(stored ?? {});
+    const value = rules.ok ? rules.value : market.autoMatchDefaults();
+    return { rules: value, entitlement: market.autoMatchEntitlement(value), ownerGate: market.AUTO_MATCH_OWNER_GATE };
+  }
+
+  /** Own load postings with their offer counts — the compare screen's index. */
+  app.get('/customer/loads', { preHandler: auth }, async (req, reply) => {
+    const resolved = await resolveCustomer(req);
+    if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
+    const where = { customerId: resolved.principal.customerId };
+    const ids = await prisma.loadPosting.findMany({ where, select: { id: true } });
+    await sweepExpired(prisma, ids.map((row) => row.id));
+    const loads = await prisma.loadPosting.findMany({
+      where,
+      select: { ...CUSTOMER_LOAD_SELECT, _count: { select: { offers: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return reply.send({
+      loads: loads.map((load: any) => ({
+        ...market.loadCard(load),
+        offerCount: load._count?.offers ?? 0,
+      })),
+    });
+  });
+
+  /**
+   * The compare screen for ONE own load: the demand, every structured offer —
+   * cheapest first, with the honest flags (cheapest / fastest / verified) and
+   * the delta against the named budget — plus the auto-match rules state. The
+   * whole screen is derived from this one read, so a refresh restores it.
+   */
+  app.get('/customer/loads/:id', { preHandler: auth }, async (req, reply) => {
+    const resolved = await resolveCustomer(req);
+    if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
+    const { id } = req.params as { id: string };
+    const load = await ownLoad(resolved.principal.customerId, id);
+    if (!load) return reply.code(404).send({ error: 'not_found' });
+    await sweepExpired(prisma, [id]);
+    const fresh = await ownLoad(resolved.principal.customerId, id);
+    if (!fresh) return reply.code(404).send({ error: 'not_found' });
+
+    const offers = await prisma.marketplaceOffer.findMany({
+      where: { loadId: id },
+      select: CUSTOMER_OFFER_SELECT,
+      orderBy: { createdAt: 'asc' },
+    });
+    const autoMatch = await autoMatchState(resolved.principal.customerId);
+    return reply.send({
+      load: market.loadCard(fresh),
+      compare: market.compareRows(offers, fresh),
+      offerCount: offers.length,
+      autoMatch,
+    });
+  });
+
+  /**
+   * Award one open offer: creates the carrier's Trip against the load's order,
+   * declines the open rivals and returns the notification for both sides — the
+   * same pure `awardPlan` / `buildAwardTripData` the marketplace route uses.
+   */
+  app.post('/customer/loads/:id/award', { preHandler: auth }, async (req, reply) => {
+    const resolved = await resolveCustomer(req);
+    if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
+    const { id } = req.params as { id: string };
+    const load = await ownLoad(resolved.principal.customerId, id);
+    if (!load) return reply.code(404).send({ error: 'not_found' });
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const award = market.normalizeAward(body);
+    if (!award.ok) {
+      return reply.code(400).send({ error: award.error, field: award.field, detail: award.detail });
+    }
+
+    const offers = await prisma.marketplaceOffer.findMany({ where: { loadId: id }, select: CUSTOMER_OFFER_SELECT });
+    const plan = market.awardPlan({ load, offers, offerId: body.offerId, now: new Date() });
+    if (!plan.ok) return reply.code(AWARD_STATUS[plan.error] ?? 409).send({ error: plan.error });
+
+    const winner = offers.find((offer) => offer.id === plan.winnerId)!;
+    const now = new Date();
+    const trip = await prisma.$transaction(async (tx) => {
+      const createdTrip = await tx.trip.create({ data: market.buildAwardTripData({ load, offer: winner }) });
+      await tx.loadPosting.update({
+        where: { id },
+        data: { status: 'AWARDED', awardedOfferId: winner.id, awardedAt: now, tripId: createdTrip.id },
+      });
+      await tx.marketplaceOffer.update({ where: { id: winner.id }, data: { status: 'ACCEPTED', decidedAt: now } });
+      if (plan.declinedIds.length > 0) {
+        await tx.marketplaceOffer.updateMany({
+          where: { id: { in: plan.declinedIds } },
+          data: { status: 'DECLINED', decidedAt: now },
+        });
+      }
+      return createdTrip;
+    });
+
+    const fresh = await ownLoad(resolved.principal.customerId, id);
+    const declinedOffers = offers.filter((offer) => plan.declinedIds.includes(offer.id));
+    const notifications = market.awardOutcomeNotifications({ load: fresh, offer: winner, trip, declinedOffers });
+    return reply.code(201).send({
+      load: market.loadCard(fresh),
+      trip: {
+        id: trip.id,
+        orgId: trip.orgId,
+        orderId: trip.orderId,
+        driverId: trip.driverId,
+        status: trip.status,
+        rateEur: trip.rateEur,
+      },
+      offer: market.offerCard({ ...winner, status: 'ACCEPTED' }),
+      declined: plan.declinedIds,
+      notifications,
+      paymentMethod: award.value.paymentMethod,
+    });
+  });
+
+  /** Counter an offer with a structured card (the parent becomes COUNTERED). */
+  app.post('/customer/offers/:id/counter', { preHandler: auth }, async (req, reply) => {
+    const resolved = await resolveCustomer(req);
+    if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
+    const { id } = req.params as { id: string };
+    const parent = await prisma.marketplaceOffer.findUnique({ where: { id }, select: CUSTOMER_OFFER_SELECT });
+    if (!parent) return reply.code(404).send({ error: 'not_found' });
+    const load = await ownLoad(resolved.principal.customerId, parent.loadId);
+    if (!load) return reply.code(404).send({ error: 'not_found' });
+    if (!market.canCounter({ offer: parent, load, principal: { customerId: resolved.principal.customerId } })) {
+      return reply.code(409).send({ error: market.isOfferOpen(parent.status) ? 'forbidden' : 'offer_closed' });
+    }
+    const normalized = market.normalizeOffer(req.body, { requirePrice: false });
+    if (!normalized.ok) {
+      return reply.code(400).send({ error: normalized.error, field: normalized.field, detail: normalized.detail });
+    }
+    const value = normalized.value;
+    const now = new Date();
+    const expiresAt = value.expiresAt ?? new Date(now.getTime() + market.DEFAULT_OFFER_TTL_SECONDS * 1000);
+    const counter = await prisma.$transaction(async (tx) => {
+      const created = await tx.marketplaceOffer.create({
+        data: {
+          loadId: parent.loadId,
+          carrierOrgId: parent.carrierOrgId,
+          carrierUserId: parent.carrierUserId,
+          carrierName: parent.carrierName,
+          priceEur: value.priceEur ?? parent.priceEur,
+          pickupEtaAt: value.pickupEtaAt ?? parent.pickupEtaAt,
+          deliveryEtaAt: value.deliveryEtaAt ?? parent.deliveryEtaAt,
+          note: value.note,
+          carrierTruck: parent.carrierTruck ?? null,
+          carrierVerified: parent.carrierVerified ?? false,
+          cancellationTerms: typeof (req.body as any)?.cancellationTerms === 'string' ? value.cancellationTerms : parent.cancellationTerms,
+          side: parent.side === 'carrier' ? 'shipper' : 'carrier',
+          status: 'SENT',
+          parentOfferId: parent.id,
+          createdById: resolved.principal.userId,
+          expiresAt,
+        },
+        select: CUSTOMER_OFFER_SELECT,
+      });
+      await tx.marketplaceOffer.update({ where: { id: parent.id }, data: { status: 'COUNTERED', decidedAt: now } });
+      return created;
+    });
+    return reply.code(201).send({ offer: market.offerCard(counter) });
+  });
+
+  /** Decline an offer. A declined offer never closes the load. */
+  app.post('/customer/offers/:id/decline', { preHandler: auth }, async (req, reply) => {
+    const resolved = await resolveCustomer(req);
+    if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
+    const { id } = req.params as { id: string };
+    const offer = await prisma.marketplaceOffer.findUnique({ where: { id }, select: CUSTOMER_OFFER_SELECT });
+    if (!offer) return reply.code(404).send({ error: 'not_found' });
+    const load = await ownLoad(resolved.principal.customerId, offer.loadId);
+    if (!load) return reply.code(404).send({ error: 'not_found' });
+    if (!market.isOfferOpen(offer.status)) {
+      return reply.code(409).send({ error: market.isExpired(offer.expiresAt, new Date()) ? 'offer_expired' : 'offer_closed' });
+    }
+    const updated = await prisma.marketplaceOffer.update({
+      where: { id },
+      data: { status: 'DECLINED', decidedAt: new Date() },
+      select: CUSTOMER_OFFER_SELECT,
+    });
+    return reply.send({ offer: market.offerCard(updated) });
+  });
+
+  /** The auto-match rules screen's read. Enabling is gated on the owner. */
+  app.get('/customer/auto-match', { preHandler: auth }, async (req, reply) => {
+    const resolved = await resolveCustomer(req);
+    if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
+    return reply.send(await autoMatchState(resolved.principal.customerId));
+  });
+
+  /**
+   * Save the rules. `enabled: true` is refused with the owner gate until
+   * `marketplace.js#AUTO_MATCH_OWNER_APPROVED` flips (the owner's #73 q6
+   * answer); the limits are still stored, so the screen survives a refresh.
+   */
+  app.put('/customer/auto-match', { preHandler: auth }, async (req, reply) => {
+    const resolved = await resolveCustomer(req);
+    if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
+    const normalized = market.normalizeAutoMatch(req.body ?? {});
+    if (!normalized.ok) {
+      return reply.code(400).send({ error: normalized.error, field: normalized.field, detail: normalized.detail });
+    }
+    const entitlement = market.autoMatchEntitlement(normalized.value);
+    if (!entitlement.allowed) {
+      return reply
+        .code(403)
+        .send({ error: entitlement.error, detail: entitlement.ownerGate, ownerGate: entitlement.ownerGate });
+    }
+    await prisma.customerProfile.upsert({
+      where: { customerId: resolved.principal.customerId },
+      update: { autoMatch: normalized.value },
+      create: { customerId: resolved.principal.customerId, autoMatch: normalized.value },
+    });
+    return reply.send(await autoMatchState(resolved.principal.customerId));
   });
 }
