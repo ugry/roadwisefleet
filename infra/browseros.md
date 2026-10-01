@@ -47,6 +47,11 @@ drivable page target**. Exit `0` = healthy (warnings allowed), `1` = a real
 failure (the output names which one), `2` = usage. An inactive unit
 short-circuits the network probes, so you get one diagnosis, not four.
 
+`--ensure` is the same check plus the restart-free heal (§5.2 option A): when
+the only failure is the no-drivable-page defect it issues
+`PUT /json/new?about:blank` and re-checks. Use it to repair a session now; the
+timer drives it in the background once installed.
+
 Other checks used in this runbook:
 
 ```bash
@@ -105,9 +110,38 @@ another, `navigate` returned a snapshot — overseer evidence, 2026-09-22
 22:10Z). Use this to unblock an agent session immediately; it is not durable,
 because the next restart can reproduce the broken state.
 
-### 5.2 Durable fix (needs a host window + an MCP client session — not mine)
+### 5.2 Durable options (owner decision + host window)
 
-In an approved change window:
+Two options; both are artifacts in this repo, and the choice is the owner's.
+The root cause is the never-finished onboarding, so only option B removes it —
+option A makes a restart harmless and repairs the defect within ~2 minutes.
+
+**Option A — restart-free self-heal (recommended default; no restart).** The
+proven `PUT /json/new` recovery is driven by a timer instead of by someone
+remembering to run it. `checks/browseros-health.sh --ensure` runs the check and,
+**only** when the failure is the "no drivable page" defect, issues the PUT and
+re-checks; it never touches the browser when the unit/MCP/CDP is the failure.
+
+```bash
+# install in an approved window — does NOT restart browseros.service
+sudo install -m 0755 infra/checks/browseros-health.sh /usr/local/bin/browseros-health.sh
+sudo install -m 0644 infra/systemd/browseros-window-ensure.service /etc/systemd/system/
+sudo install -m 0644 infra/systemd/browseros-window-ensure.timer  /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now browseros-window-ensure.timer
+
+# verify
+/usr/local/bin/browseros-health.sh --ensure     # exits 0, prints any heal it did
+systemctl status browseros-window-ensure.timer   # active (waiting)
+```
+
+Every 2 minutes `--ensure` repairs a window-less browser. It is a mitigation,
+not a root-cause fix: the runbook keeps the onboarding WARN visible. Rollback:
+`sudo systemctl disable --now browseros-window-ensure.timer` and remove the
+three files — the timer does nothing on its own.
+
+**Option B — root cause (needs a restart; the issue's constraint applies).** In
+an approved change window:
 
 1. Complete **or** skip BrowserOS first-run onboarding for
    `/opt/browseros/profile` (the flag/key is a BrowserOS product detail; read
@@ -116,7 +150,8 @@ In an approved change window:
 3. Re-run the health check and the MCP acceptance test (below).
 
 **Constraint (from the issue):** do **not** restart `browseros.service` while
-an overseer run is executing.
+an overseer run is executing. Option A needs no restart, which is why it is the
+default until the owner picks B.
 
 ### 5.3 Acceptance test (an MCP client session, not a shell)
 
@@ -132,9 +167,11 @@ call itself.
   only, and never during an overseer run. Verify with §2 afterwards.
 - **Restart-on-failure:** the unit does **not** currently carry a
   `Restart=` directive that survives a browser crash unseen; if the browser
-  process dies, the unit stays `active` with no window and the health check is
-  the only detector. Wiring it into the monitoring stack is tracked under the
-  observability runbook ([`pilot-observability.md`](./pilot-observability.md)).
+  process dies, the unit stays `active` with no window. The health check is the
+  detector, and the **`browseros-window-ensure` timer** (§5.2 option A) repairs
+  the window-less state every 2 minutes. Wiring the check into the central
+  monitoring stack is tracked under the observability runbook
+  ([`pilot-observability.md`](./pilot-observability.md)).
 - **Do not** edit the unit to add bind flags speculatively: the bind addresses
   live in the AppImage's own config, per
   [`host-exposure.md`](./host-exposure.md) §4.
@@ -161,18 +198,25 @@ call itself.
 
 | Acceptance row | Status |
 |---|---|
-| `browseros_tabs new` + `navigate` returns a page for an agent user | **NOT claimed by me** — needs a `browseros_*` MCP client session; the non-destructive workaround makes it work today (overseer evidence), the durable fix is §5.2 |
-| health output clean | **Reachable now** — §2's guard asserts unit + MCP + CDP + a drivable page; `--self-test` runs in CI |
+| `browseros_tabs new` + `navigate` returns a page for an agent user | **NOT claimed by me** — needs a `browseros_*` MCP client session; the non-destructive workaround makes it work today (overseer evidence), and §5.2 option A now repairs the precondition automatically |
+| health output clean | **Reachable now** — §2's guard asserts unit + MCP + CDP + a drivable page; `--self-test` (incl. the heal fixtures) runs in CI |
 | documented | **This runbook** + the guard (was: diagnosis only in board comments) |
 
 ## 10. Provenance
 
-- First-hand (read-only, 2026-09-30 11:31 UTC): `systemctl status
-  browseros.service`, `ss -ltn`, `curl -sI` on `9200/health` and
-  `9101/json/version`. Note the sandbox only lets me issue HEAD requests, so
-  the CDP `/json/list` **body** could not be re-read by me today — the
+- First-hand (read-only, 2026-10-01): `systemctl status browseros.service`
+  (`active (running) since 2026-09-22 18:50:49 UTC`; Xvfb `:99`;
+  `browseros_server --config=…`; a real renderer tree incl.
+  `--top-chrome-webui`), `curl -sI` on `9200/health` → 200 and
+  `9101/json/version` → 200. Note the sandbox only lets me issue HEAD requests,
+  so the CDP `/json/list` **body** could not be re-read by me — the
   onboarding-only finding is the overseer's, quoted as such.
+- First-hand (read-only, 2026-09-30 11:31 UTC): the layout table in §1 and the
+  `ss -ltn` bind state.
 - Third-party (overseer/Team Leader board comments, 2026-09-22/23): the
   `tabs` errors, the `install_id:""` root cause, the `json/new` workaround, the
   CLI schema skew, the tool count, and the MCP server version.
-- No host change, nothing restarted or installed; artifacts only.
+- No host change, nothing restarted or installed; artifacts only. The
+  `--ensure` heal logic is proven by fixtures in the `browseros-health` CI job
+  (not on a host): a real heal, a no-op on a healthy browser, no PUT when the
+  browser is down, and a heal that does not recover a page.

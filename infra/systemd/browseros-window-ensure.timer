@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodically self-heal the BrowserOS agent window (board eila/tasks#8)
+
+[Timer]
+# Every 2 minutes. The check is one cheap loopback probe and the heal acts only
+# when the browser has no drivable page, so a restart that loses the window
+# (the never-finished-onboarding defect, infra/browseros.md §4) is repaired
+# within ~2 minutes instead of stalling every agent session for hours.
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=browseros-window-ensure.service
+
+[Install]
+WantedBy=timers.target
