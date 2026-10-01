@@ -12,9 +12,14 @@ name: android-release
 # testing -> production) uses PLAY_SERVICE_ACCOUNT_JSON in the `google-play`
 # environment. Secret names + the operator procedure: infra/android-release.md.
 #
-# Until the A1 scaffold exists there is no apps/android/gradlew, so the build job
-# is skipped and this workflow cannot redden CI; the `android-release-check` job
-# in ci.yml guards the contract above in the meantime.
+# Until the A1 scaffold exists there is no apps/android/gradlew, so the build
+# steps are a clean no-op (the job still succeeds) and this workflow cannot
+# redden CI; the `android-release-check` job in ci.yml guards the contract above
+# in the meantime — including the rule that a job-level `if` must never call
+# hashFiles(). hashFiles() needs the checked-out workspace, so it is only valid
+# in step-level expressions; a job-level use makes the whole workflow file
+# invalid ("Unrecognized function: 'hashFiles'") and GitHub marks every push
+# with a failed run.
 
 on:
   workflow_dispatch:
@@ -42,19 +47,36 @@ jobs:
   build:
     name: Build the release bundle
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('apps/android/gradlew') != '' }}
+    outputs:
+      scaffold: ${{ steps.scaffold.outputs.present }}
     steps:
       - uses: actions/checkout@v4
 
+      # The scaffold gate. It must be a step-level check, not a job-level `if`:
+      # hashFiles() is evaluated on the runner against the checkout, so GitHub
+      # rejects a job-level `if` that calls it and the workflow never parses.
+      - name: Is the A1 scaffold present?
+        id: scaffold
+        run: |
+          if [ -f apps/android/gradlew ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::apps/android/gradlew not found — the A1 scaffold (board #103) has not landed; skipping the Android release build"
+          fi
+
       - uses: actions/setup-java@v4
+        if: steps.scaffold.outputs.present == 'true'
         with:
           distribution: temurin
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v4
+        if: steps.scaffold.outputs.present == 'true'
 
       - name: Are the signing secrets configured?
         id: sign
+        if: steps.scaffold.outputs.present == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -67,7 +89,7 @@ jobs:
           fi
 
       - name: Decode the keystore into the runner temp dir
-        if: steps.sign.outputs.signed == 'true'
+        if: steps.scaffold.outputs.present == 'true' && steps.sign.outputs.signed == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -76,7 +98,7 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
       - name: Build the signed release bundle
-        if: steps.sign.outputs.signed == 'true'
+        if: steps.scaffold.outputs.present == 'true' && steps.sign.outputs.signed == 'true'
         working-directory: apps/android
         env:
           ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
@@ -92,7 +114,7 @@ jobs:
             -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
 
       - name: Build an unsigned debug APK (fallback)
-        if: steps.sign.outputs.signed != 'true'
+        if: steps.scaffold.outputs.present == 'true' && steps.sign.outputs.signed != 'true'
         working-directory: apps/android
         run: ./gradlew --no-daemon assembleDebug
 
@@ -101,6 +123,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/release.keystore"
 
       - name: Upload the build outputs
+        if: steps.scaffold.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-release
@@ -113,7 +136,7 @@ jobs:
   publish:
     name: Publish to Google Play
     needs: build
-    if: ${{ needs.build.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.track != 'none' }}
+    if: ${{ needs.build.result == 'success' && needs.build.outputs.scaffold == 'true' && github.event_name == 'workflow_dispatch' && inputs.track != 'none' }}
     runs-on: ubuntu-latest
     environment: google-play
     steps:

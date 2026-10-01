@@ -18,7 +18,12 @@
 #      A1 scaffold, board #103, exists), declares least-privilege permissions,
 #      takes every secret-like value from the `secrets.` context, carries no
 #      inline key material, and is not unconditionally triggered;
-#   5. the workflow and infra/android-release.md agree on the secret-name
+#   5. no job-level `if` calls hashFiles(): hashFiles() needs the checked-out
+#      workspace, so GitHub rejects the whole workflow file ("Unrecognized
+#      function: 'hashFiles'") and marks EVERY push with a failed run. This
+#      shipped once (board #109) because the old check accepted any hashFiles()
+#      as the "gate" without looking at where it was used;
+#   6. the workflow and infra/android-release.md agree on the secret-name
 #      contract, so a rename in one without the other cannot ship silently.
 #
 # Usage:
@@ -141,8 +146,16 @@ check_repo() {
       fail "$wfrel has no top-level 'permissions:' block"
     fi
 
-    if grep -q 'hashFiles(' "$wf" || grep -qE '^[[:space:]]+paths:' "$wf"; then
-      ok "$wfrel is gated (hashFiles or a paths filter)"
+    # A job-level `if` (property of the job, < 8 spaces of indent) may not call
+    # hashFiles(). A step-level `if` (inside the steps list, 8+ spaces) may.
+    if grep -nE '^ {0,7}if:.*hashFiles\(' "$wf" >/dev/null; then
+      fail "$wfrel: a job-level 'if' uses hashFiles() — the workflow file is invalid (hashFiles is only valid in step expressions)"
+    else
+      ok "$wfrel: no job-level 'if' uses hashFiles()"
+    fi
+
+    if grep -qE '^[[:space:]]+paths:' "$wf" || grep -q 'apps/android/gradlew' "$wf"; then
+      ok "$wfrel is gated (trigger paths filter or a step-level scaffold check)"
     else
       fail "$wfrel is not gated — it would run (and fail) before the A1 scaffold exists"
     fi
@@ -235,9 +248,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('apps/android/gradlew') != '' }}
     steps:
+      - name: is the A1 scaffold present?
+        id: scaffold
+        if: ${{ hashFiles('apps/android/gradlew') != '' }}
+        run: echo "present=true" >> "$GITHUB_OUTPUT"
       - name: decode
+        if: steps.scaffold.outputs.present == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
@@ -353,6 +370,46 @@ self_test() {
   check_repo "$st/nowf" > "$st/out" 2>&1
   out="$(cat "$st/out")"
   contains "a missing workflow is rejected" "$out" "no Android release workflow"
+
+  # 9. a JOB-LEVEL `if` calling hashFiles() FAILS — the defect that shipped on
+  #    board #109. hashFiles() needs the checkout, so GitHub rejects the file
+  #    ("Unrecognized function: 'hashFiles'") and every push to main is red.
+  mk_good_repo "$st/jobgate"
+  cat > "$st/jobgate/.github/workflows/android-release.yml" <<'YAML'
+name: android-release
+on:
+  pull_request:
+    paths:
+      - 'apps/android/**'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('apps/android/gradlew') != '' }}
+    steps:
+      - name: decode
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+      - name: release
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease bundleRelease
+      - name: publish
+        env:
+          PLAY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: echo "${PLAY:+configured}"
+YAML
+  fails=0
+  warns=0
+  check_repo "$st/jobgate" > "$st/out" 2>&1
+  rc=$?
+  out="$(cat "$st/out")"
+  expect "a job-level hashFiles if fails (rc)" 1 "$rc"
+  contains "the job-level if is named" "$out" "a job-level 'if' uses hashFiles()"
 
   printf '\nself-test: %d passed, %d failed\n' "$pass" "$failed"
   if [ "$failed" -gt 0 ]; then
