@@ -30,7 +30,7 @@ flowchart TD
     D_ACCT -->|"yes"| SIGNIN["Sign in<br/>email+password / SSO / phone OTP"]:::act
     D_ACCT -->|"no"| D_NEED{"What do I need?"}:::dec
     D_NEED -->|"book a shipment"| REG
-    D_NEED -->|"I am a carrier / solo driver"| X_CARRIER["Go to Connect signup<br/>(see Solo Driver flow / Fleet flow)"]:::warn
+    D_NEED -->|"I am a carrier / solo driver"| X_CARRIER["Go to Hauling Market signup<br/>(see Solo Driver flow / Fleet flow)"]:::warn
     D_NEED -->|"I run my own trucks"| X_FLEET["Go to Fleet Manager signup<br/>(see Fleet Manager flow)"]:::warn
     D_NEED -->|"just track one shipment"| GUEST_TRACK
 
@@ -197,7 +197,7 @@ flowchart TD
     end
 
     %% ================= SMALL FIRM VARIANT =================
-    subgraph SMALLFIRM["Variant — Small firm / infrequent shipper (Connect light)"]
+    subgraph SMALLFIRM["Variant — Small firm / infrequent shipper (Hauling Market light)"]
         SF1["One account, one screen:<br/>Post a load"]:::entry
         SF2["Form: route · cargo · date · equipment · price"]:::act
         SF3["Broadcast to verified fleets AND solo drivers<br/>within the hour"]:::act
