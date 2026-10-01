@@ -1,0 +1,134 @@
+name: android-release
+
+# Board #109 (AND1-OPS1) — signing + distribution for the Android driver app.
+#
+# The debug build of the app scaffold (board #103, A1) belongs to ci.yml; this
+# workflow owns the *release* artifact and the Google Play upload.
+#
+# Signing material is never in this repository. The keystore is a base64 string
+# in the ANDROID_KEYSTORE_BASE64 secret, decoded to the ephemeral runner temp
+# dir for the build and deleted afterwards; the four signing values are consumed
+# through the `secrets.` context only. Distribution (Google Play, internal
+# testing -> production) uses PLAY_SERVICE_ACCOUNT_JSON in the `google-play`
+# environment. Secret names + the operator procedure: infra/android-release.md.
+#
+# Until the A1 scaffold exists there is no apps/android/gradlew, so the build job
+# is skipped and this workflow cannot redden CI; the `android-release-check` job
+# in ci.yml guards the contract above in the meantime.
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Google Play track to publish to (requires the google-play environment)
+        type: choice
+        options:
+          - none
+          - internal
+          - production
+        default: none
+  push:
+    tags:
+      - 'android-v*'
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the release bundle
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('apps/android/gradlew') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Are the signing secrets configured?
+        id: sign
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "signing material present — building a signed release bundle"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::signing secrets are not configured — building an unsigned debug APK only"
+          fi
+
+      - name: Decode the keystore into the runner temp dir
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Build the signed release bundle
+        if: steps.sign.outputs.signed == 'true'
+        working-directory: apps/android
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon assembleRelease bundleRelease \
+            -Pandroid.injected.signing.store.file="$ANDROID_KEYSTORE_FILE" \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
+
+      - name: Build an unsigned debug APK (fallback)
+        if: steps.sign.outputs.signed != 'true'
+        working-directory: apps/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Remove the decoded keystore
+        if: always() && steps.sign.outputs.signed == 'true'
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+      - name: Upload the build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: |
+            apps/android/**/build/outputs/bundle/**/*.aab
+            apps/android/**/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    name: Publish to Google Play
+    needs: build
+    if: ${{ needs.build.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.track != 'none' }}
+    runs-on: ubuntu-latest
+    environment: google-play
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-release
+
+      # The upload uses the Play Developer API with a service account the owner
+      # creates and grants "Release to testing tracks" (infra/android-release.md
+      # section 4). `track: internal` first; promotion to production is a
+      # deliberate operator action, not a default.
+      - name: Upload the AAB to the selected track
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.elilaltd.roadwisefleet.driver
+          releaseFiles: 'apps/android/**/build/outputs/bundle/**/*.aab'
+          track: ${{ inputs.track }}

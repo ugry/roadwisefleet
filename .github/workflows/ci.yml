@@ -316,6 +316,25 @@ jobs:
       - name: Self-test the guard (fixtures, no host, no network)
         run: bash infra/checks/browseros-health.sh --self-test
 
+  android-release-check:
+    name: Android release signing guard (#109)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #109 (AND1-OPS1). The release keystore, the Play service-account
+      # key and the FCM server credential must never reach this public repo, and
+      # the release workflow must take them only from the `secrets.` context.
+      # This job first proves the guard FAILS on each violation (a tracked
+      # keystore, a private key under an innocent name, a .gitignore gap, an
+      # inline base64 blob, a signing value taken from `vars`, an ungated
+      # workflow, a missing workflow) and then checks the repo itself.
+      - name: Self-test the guard (fixtures, no host, no network)
+        run: bash infra/checks/android-release-check.sh --self-test
+
+      - name: Check the repo Android release wiring
+        run: bash infra/checks/android-release-check.sh
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'
