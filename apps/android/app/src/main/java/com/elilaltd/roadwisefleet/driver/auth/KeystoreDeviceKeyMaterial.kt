@@ -45,7 +45,8 @@ class KeystoreDeviceKeyMaterial(
 
     private fun keyPair(): KeyPair? = try {
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        (store.getEntry(alias, null) as? KeyStore.PrivateKeyEntry)?.keyPair ?: generate()
+        val entry = store.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
+        if (entry != null) KeyPair(entry.certificate.publicKey, entry.privateKey) else generate()
     } catch (t: Throwable) {
         null
     }
