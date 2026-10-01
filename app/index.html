@@ -149,6 +149,9 @@
 <!-- The shared driver core owns the document checklist / POD-gate rules
      (board task #4); the documents UI reuses it instead of restating them. -->
 <script src="/pilot/lib/driver-core.js"></script>
+<!-- The one menu configuration keyed by account type + role (board task #112).
+     It must load before app-core.js, which reads window.RoadwiseMenus. -->
+<script src="/app/lib/menus.js"></script>
 <script src="/app/lib/app-core.js"></script>
 <!-- The account-type catalogue (board task #111), shared with the API so the
      three-way signup choice and the server agree by construction. -->
@@ -162,6 +165,9 @@
      driver core and the document rules rather than restating them. -->
 <script src="/app/lib/driver.js"></script>
 <script src="/app/lib/tracking.js"></script>
+<!-- The shared live-tracking view model (board task #107, AND1-A5): the fleet
+     app and the customer portal load the SAME module. -->
+<script src="/pilot/lib/live-tracking.js"></script>
 <script src="/app/lib/dispatch.js"></script>
 <script src="/app/lib/dashboard.js"></script>
 <script src="/app/lib/assign.js"></script>

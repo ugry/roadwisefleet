@@ -516,9 +516,17 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   hidden — neither is rendered before the guard has decided.
 - `app/app.css` — the shared layout, responsive at 375px and 1440px.
 - `app/lib/app-core.js` — the pure core (route table, role model, guard, nav and
-  panel renderers). Loaded twice on purpose: as a classic script in the browser
-  and by `src/app-core.test.js` in the no-install CI job, exactly like
+  panel renderers). The navigation comes from `app/lib/menus.js` (board task
+  #112), not from a second list. Loaded twice on purpose: as a classic script in
+  the browser and by `src/app-core.test.js` in the no-install CI job, exactly like
   `pilot/lib/driver-core.js`.
+- `app/lib/menus.js` — the ONE menu configuration keyed by account type + role
+  (board task #112, AND2-MENU1): the customer / fleet-manager / fleet-employed-
+  driver / solo-driver sets, `menuSetFor` / `itemsFor` / `canSee`, and
+  `appNav(role)`, the projection the `/app/` shell renders. Loaded as a classic
+  script BEFORE `app-core.js` (which reads `window.RoadwiseMenus`) and covered,
+  dependency-free, by `src/menus.test.js`. Deny by default: an unknown account
+  type or role gets `[]`.
 - `app/lib/trips.js` — the pure trips view model (board task #34): filter
   normalisation, the `GET /api/trips` query string, CSV export and the flat row
   the table and CSV share. Loaded the same way and covered by
@@ -559,10 +567,14 @@ Behaviour:
 
 - **Auth/roles.** The API is authoritative: the role always comes back from
   `GET /api/auth/me`, so a hand-edited role in storage cannot widen access. The
-  client guard mirrors the API's RBAC — `owner` sees everything, `dispatcher`
-  trips/dispatch/documents/tracking/fleet, `accountant` finance only, `driver`
-  overview + their own trips. An unknown role gets no navigation and no app
-  (deny by default).
+  client guard mirrors the API's RBAC and the **navigation is the menu
+  configuration** (`app/lib/menus.js`, board task #112): the owner sees the
+  management groups (trips, dispatch, documents, tracking, reviews, drivers,
+  vehicles, customers, compliance, finance, analytics, Hauling Market, the fleet
+  and settings), a dispatcher the same minus finance/analytics/billing and
+  settings, an accountant overview/finance/analytics only, and a driver overview +
+  their own trips. An unknown role gets no navigation and no app (deny by
+  default).
 - **Guard.** Any unauthenticated `/app/*` visit goes to `/app/login` (the URL is
   replaced, so the back button does not bounce); a deep link is remembered and
   restored after login when the role may open it; a signed-in user on a route
@@ -598,10 +610,46 @@ Behaviour:
   trip-detail/status flow, and delivery writes `Trip.deliveredAt` (board task #66).
   **Not in this task:** required-document selection (the F6 documents UI, board #37).
 
-Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/dispatch-form.test.js`
-+ `src/assign-form.test.js` + `src/documents-ui.test.js` run in the no-install CI
-job; `test/app-shell.test.ts` adds the HTTP-level `app.inject()` checks under
-`pnpm test:router`.
+Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/menus.test.js` +
+`src/dispatch-form.test.js` + `src/assign-form.test.js` + `src/documents-ui.test.js`
+run in the no-install CI job; `test/app-shell.test.ts` adds the HTTP-level
+`app.inject()` checks under `pnpm test:router`.
+
+### Role-based menus (board task #112, AND2-MENU1)
+The owner's decision of 2026-10-01 (item 3 — "menu options should be shown based
+on who is driver part of fleet? Or solo?") makes the menu a function of the
+**account type + role**, not one list for everybody. `app/lib/menus.js` holds the
+single configuration, with one set per persona from
+`docs/ux-flows/08-menus-overview.mmd`:
+
+- **customer** (`customer`) — Book a load · Shipments · Documents · Payments ·
+  My carriers · Reviews · Account.
+- **fleet_manager** (`fleet`, owner / dispatcher / accountant) — the management
+  groups; which of them a sub-role sees is the account type + role split.
+- **fleet_driver** (`fleet`, role `driver`) — Trips (Start Trip phase console) ·
+  Documents · Money · Messages · More + SOS. **No Hauling Market feed and no
+  billing** — the fleet owns the work. The web driver client is `/app/my-trips`;
+  the Android shell renders the same persona from the same items.
+- **solo_driver** (`solo_driver`, role `solo`) — Loads (Hauling Market feed) ·
+  My truck (availability beacon) · My customers · Chat & wallet · Community ·
+  Verification check marks · Reviews · Billing (**Free**).
+
+`menuSetFor(accountType, role)` resolves the persona, `itemsFor` returns the
+ordered items, `canSee` answers per item, and `appNav(role)` projects the fleet
+persona onto the `/app/` routes the shell actually serves. `app-core.js`'s
+`navFor(role)` is built from `appNav`, so "who sees what" has ONE source: adding
+or removing a menu item is a one-line change in this file, and an item belonging
+to another surface (the customer portal, the solo portal, the Android shell)
+carries `app: null` and is never linked from `/app/`.
+
+Every menu label has an English catalogue entry (`nav.*` in
+`app/locales/en.json`), and the drift is covered by `src/menus.test.js`: the exact
+persona sets, the negative rules (a fleet driver has no Hauling Market and no
+billing; a customer has no carrier tools; a dispatcher/accountant see fewer
+management groups), both driver paths, and the `navFor` ↔ `appNav` projection.
+The account-type ids are the same vocabulary as the registration catalogue
+(`app/lib/account-types.js`, board #111), so the type a person registers as and
+the menu they get cannot drift.
 
 ### Trips list & detail (board task #34, FAv1-F3)
 `/app/trips` is the daily workhorse, built on the F1 shell:

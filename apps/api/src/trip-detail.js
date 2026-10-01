@@ -175,6 +175,11 @@ export function shapeTripDetail(trip) {
     status: trip?.status,
     rateEur,
     createdAt: trip?.createdAt,
+    // Live GPS tracking flag (board task #105/#107): true only while the trip's
+    // current cargo is being tracked (set at Start Trip, cleared at DELIVERED).
+    // The fleet-manager live panel reads THIS boolean — the trips-list `tracking`
+    // key is the link summary object, not this flag (review of PR #98).
+    tracking: trip?.tracking === true,
     // Actual delivery time (board task #40). Null when the trip has not been
     // delivered (or was delivered before the column existed).
     deliveredAt: trip?.deliveredAt ?? null,
