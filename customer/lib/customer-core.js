@@ -271,9 +271,10 @@ export function marketplaceNotice(id) {
 /* ------------------------------------------------------------- auto-match --- */
 
 /**
- * The owner gate the auto-match toggle waits on (board task #78). The server
- * (`apps/api/src/marketplace.js`) is the authority; this constant only lets the
- * UI name the same gate without a second round trip.
+ * The owner question the auto-match toggle originally waited on (board task
+ * #78). The owner answered on 2026-10-01 (#73 q6: "no limits"), so the gate is
+ * open and this is only the label for the historical question. The server
+ * (`apps/api/src/marketplace.js`) remains the authority.
  */
 export const AUTO_MATCH_OWNER_GATE = 'UXF-OWN1 (#73 q6)';
 

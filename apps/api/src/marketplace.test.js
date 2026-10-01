@@ -539,29 +539,33 @@ test('compareRows is deterministic and tolerates an absent load price', () => {
   assert.equal(market.compareRows(null, {}).length, 0);
 });
 
-test('auto-match rules validate, and enabling is gated on the owner answer', () => {
+test('auto-match rules validate, and enabling is live now the owner answered q6', () => {
   const rules = market.normalizeAutoMatch({ enabled: true, maxPriceEur: 1200, minRating: 4 });
   assert.equal(rules.ok, true);
   assert.equal(rules.value.minRating, 4);
   assert.equal(market.normalizeAutoMatch({ minRating: 9 }).field, 'minRating');
   assert.equal(market.normalizeAutoMatch({ maxPriceEur: -1 }).field, 'maxPriceEur');
 
-  const gated = market.autoMatchEntitlement({ enabled: true, maxPriceEur: 1200, minRating: null });
-  assert.equal(gated.allowed, false);
-  assert.equal(gated.error, market.AUTO_MATCH_PENDING_OWNER);
-  assert.equal(gated.ownerGate, market.AUTO_MATCH_OWNER_GATE);
-  assert.equal(market.AUTO_MATCH_OWNER_APPROVED, false, 'the owner gate is closed until #73 q6');
+  assert.equal(market.AUTO_MATCH_OWNER_APPROVED, true, 'the owner answered #73 q6 — no limits');
+
+  const live = market.autoMatchEntitlement({ enabled: true, maxPriceEur: 1200, minRating: null });
+  assert.equal(live.allowed, true, 'enabling is no longer refused');
+  assert.equal(live.active, true, 'an enabled rule takes effect immediately');
+  assert.equal(live.error, undefined, 'the owner-gate error is gone');
 
   const off = market.autoMatchEntitlement({ enabled: false, maxPriceEur: 1200, minRating: null });
   assert.equal(off.allowed, true);
   assert.equal(off.active, false);
 
-  const approved = market.autoMatchEntitlement(
+  // The `ownerApproved` override still pins the closed state, so the gate
+  // mechanism stays covered even though the live default is now open.
+  const forcedClosed = market.autoMatchEntitlement(
     { enabled: true, maxPriceEur: 1200, minRating: 4 },
-    { ownerApproved: true },
+    { ownerApproved: false },
   );
-  assert.equal(approved.allowed, true);
-  assert.equal(approved.active, true, 'once the owner answers, an enabled rule is live');
+  assert.equal(forcedClosed.allowed, false);
+  assert.equal(forcedClosed.error, market.AUTO_MATCH_PENDING_OWNER);
+  assert.equal(forcedClosed.ownerGate, market.AUTO_MATCH_OWNER_GATE);
 });
 
 test('autoMatchAccepts and autoMatchWinner respect price and rating — and never guess', () => {
@@ -588,7 +592,7 @@ test('autoMatchAccepts and autoMatchWinner respect price and rating — and neve
     'o2',
     'without a rating rule the cheapest open offer wins — the DECLINED o4 is never picked',
   );
-  assert.equal(market.autoMatchWinner({ enabled: false }, offers), null, 'a gated engine picks nothing');
+  assert.equal(market.autoMatchWinner({ enabled: false }, offers), null, 'a disabled engine picks nothing');
   assert.equal(market.autoMatchWinner({ ...rules, maxPriceEur: 10 }, offers), null);
 });
 
