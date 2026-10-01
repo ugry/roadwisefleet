@@ -104,6 +104,7 @@
 
   "solo.bid.unverified": "You can browse loads now. Bidding opens once your verification is approved.",
   "solo.bid.pending": "Your papers are with us — bidding unlocks as soon as they are approved.",
+  "solo.bid.optional": "Verification is optional — you can bid now. Add your papers to earn check marks.",
   "solo.bid.placed": "Your offer has been sent.",
 
   "solo.offers.title": "My offers",
@@ -124,6 +125,12 @@
   "solo.verify.state": "Status",
   "solo.verify.canBid": "Verified — you can bid on loads.",
   "solo.verify.cannotBid": "Not verified yet — you can browse, but you cannot bid until your papers are approved.",
+  "solo.verify.optional": "Verification is optional. Add ID, licence and registration to show check marks — you can bid either way.",
+  "solo.verify.badges": "Document check marks",
+  "solo.verify.badge.verified": "verified",
+  "solo.verify.badge.pending": "in review",
+  "solo.verify.badge.rejected": "rejected",
+  "solo.verify.badge.missing": "not provided",
   "solo.verify.docType": "Document type",
   "solo.verify.file": "Photo or PDF",
   "solo.verify.upload": "Upload paper",

@@ -100,19 +100,28 @@ test('normalizeOtpCode keeps only digits and caps the length', () => {
 
 /* -------------------------------------------------────────────── bid gate --- */
 
-test('canBid is the owner-gated rule: only VERIFIED may bid, deny by default', () => {
-  assert.equal(solo.canBid({ verificationStatus: 'VERIFIED' }).allowed, true);
-  for (const status of ['NONE', 'PENDING', 'REJECTED', undefined]) {
+test('canBid is open by default: verification is optional (owner #73 q5)', () => {
+  for (const status of ['NONE', 'PENDING', 'REJECTED', 'VERIFIED', undefined]) {
     const gate = solo.canBid(status ? { verificationStatus: status } : null);
-    assert.equal(gate.allowed, false, `status ${status} must not bid`);
-    assert.equal(gate.error, 'verification_required');
+    assert.equal(gate.allowed, true, `status ${status} may bid`);
+    assert.equal(gate.error, null);
+    assert.equal(gate.messageKey, null);
   }
-  assert.equal(solo.canBid({ verificationStatus: 'PENDING' }).messageKey, 'solo.bid.pending');
-  assert.equal(solo.canBid(null).messageKey, 'solo.bid.unverified');
 });
 
-test('the bid gate is a real constant, so the strict rule cannot silently loosen', () => {
-  assert.equal(solo.BID_REQUIRES_VERIFICATION, true);
+test('canBid can still be re-armed for the historical strict rule, which stays tested', () => {
+  assert.equal(solo.canBid({ verificationStatus: 'VERIFIED' }, { enforce: true }).allowed, true);
+  for (const status of ['NONE', 'PENDING', 'REJECTED', undefined]) {
+    const gate = solo.canBid(status ? { verificationStatus: status } : null, { enforce: true });
+    assert.equal(gate.allowed, false, `status ${status} must not bid when enforced`);
+    assert.equal(gate.error, 'verification_required');
+  }
+  assert.equal(solo.canBid({ verificationStatus: 'PENDING' }, { enforce: true }).messageKey, 'solo.bid.pending');
+  assert.equal(solo.canBid(null, { enforce: true }).messageKey, 'solo.bid.unverified');
+});
+
+test('the bid gate is a real constant and ships open (owner #73 q5)', () => {
+  assert.equal(solo.BID_REQUIRES_VERIFICATION, false);
 });
 
 /* -------------------------------------------------───────── verification --- */
@@ -133,6 +142,34 @@ test('verificationState lists the four papers, the missing ones and completeness
   assert.equal(complete.complete, true);
   assert.deepEqual(complete.missing, []);
   assert.equal(complete.papers.find((p) => p.docType === 'insurance').status, 'PENDING');
+});
+
+test('verificationState badges are truthful per paper (no fake check mark)', () => {
+  // Nothing supplied: the three check-mark papers are `missing`, not checked.
+  const none = solo.verificationState({ verificationStatus: 'NONE' }, []);
+  assert.deepEqual(none.badges.map((b) => b.docType), ['id', 'licence', 'vehicle_registration']);
+  for (const badge of none.badges) {
+    assert.equal(badge.supplied, false);
+    assert.equal(badge.verified, false);
+    assert.equal(badge.mark, 'missing');
+  }
+
+  const docs = [
+    { docType: 'id', status: 'VERIFIED' },
+    { docType: 'licence', status: 'PENDING' },
+    { docType: 'vehicle_registration', status: 'REJECTED' },
+  ];
+  const mixed = solo.verificationState({ verificationStatus: 'PENDING' }, docs);
+  const byType = Object.fromEntries(mixed.badges.map((b) => [b.docType, b]));
+  assert.deepEqual(
+    { id: byType.id.mark, licence: byType.licence.mark, reg: byType.vehicle_registration.mark },
+    { id: 'verified', licence: 'pending', reg: 'rejected' },
+  );
+  assert.equal(byType.id.verified, true);
+  assert.equal(byType.licence.verified, false, 'a PENDING paper never renders as verified');
+  // A supplied paper is a check-mark row even when review is not finished.
+  assert.equal(byType.licence.supplied, true);
+  assert.equal(byType.vehicle_registration.supplied, true);
 });
 
 test('normalizeVerificationUpload validates the paper type, mime and base64 size', () => {
@@ -305,13 +342,20 @@ test('the solo surface is registered, served and reaches the API', () => {
   }
 });
 
-test('the marketplace offer path applies the solo bid gate (browse yes, bid no)', () => {
+test('the marketplace offer path no longer refuses unverified solo drivers (owner #73 q5)', () => {
   const market = readFileSync(resolve(here, 'routes/marketplace.ts'), 'utf8');
-  assert.match(market, /SOLO_ROLE/, 'the gate knows the solo role');
-  assert.match(market, /canBid\(/, 'the gate uses the shared rule');
-  const offerBlock = market.slice(market.indexOf("app.post('/marketplace/loads/:id/offers'"));
-  assert.ok(offerBlock.indexOf('canBid(') < offerBlock.indexOf('marketplaceOffer.create'), 'the gate runs before any write');
-  // The feed read must NOT be gated: unverified drivers browse freely.
+  assert.match(market, /SOLO_ROLE/, 'the offer path still knows the solo role');
+  assert.equal(/canBid\(/.test(market), false, 'the hard verification gate is gone from the offer path');
+  const offerBlock = market.slice(
+    market.indexOf("app.post('/marketplace/loads/:id/offers'"),
+    market.indexOf("app.post('/marketplace/loads/:id/award'"),
+  );
+  assert.ok(offerBlock.length > 0, 'the offer block is found');
+  assert.equal(offerBlock.includes('verification_required'), false, 'no refusal by verification status');
+  // The profile is still read from the caller's OWN row (never the body), for
+  // the compare facets.
+  assert.match(offerBlock, /soloDriverProfile\.findUnique/, 'the profile is read from the DB, not the body');
+  // The feed read was never gated and still is not.
   const feedBlock = market.slice(market.indexOf("app.get('/marketplace/loads'"), market.indexOf("app.get('/marketplace/loads/:id'"));
   assert.equal(feedBlock.includes('canBid('), false, 'the feed is not gated');
 });

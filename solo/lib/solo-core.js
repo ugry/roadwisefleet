@@ -44,7 +44,7 @@ export const SOLO_ROLE = 'solo';
  */
 export const SOLO_PERMISSIONS = ['trip:*', 'order:create', 'order:read', 'pod:upload', 'expense:create'];
 
-/** Verification-paper lifecycle (diagram 04: verified before he can bid). */
+/** Verification-paper lifecycle (owner #73 q5: optional trust signal, never a bid gate). */
 export const VERIFICATION_STATUSES = ['NONE', 'PENDING', 'VERIFIED', 'REJECTED'];
 
 /** The four papers diagram 04 lists, in the order the UI shows them. */
@@ -52,6 +52,13 @@ export const VERIFICATION_DOC_TYPES = ['id', 'licence', 'vehicle_registration', 
 
 /** The papers that must all be present for a driver to become VERIFIED. */
 export const VERIFICATION_REQUIRED_DOCS = [...VERIFICATION_DOC_TYPES];
+
+/**
+ * The papers the owner asked to surface as trust check marks on a driver's
+ * profile (eila/tasks#73 q5: "ID, License, registration"). `insurance` stays a
+ * required paper for the VERIFIED state but is not part of the check-mark row.
+ */
+export const VERIFICATION_BADGE_DOCS = ['id', 'licence', 'vehicle_registration'];
 
 /** Paper statuses (a paper is reviewed independently of the profile). */
 export const VERIFICATION_DOC_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED'];
@@ -87,12 +94,14 @@ export const MAX_VERIFICATION_BYTES = 10 * 1024 * 1024;
 export const VERIFICATION_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 /**
- * Owner gate #73 q5 decides the *minimum* verification to bid. Until the owner
- * answers, the strict rule ships (browse freely, bid only when VERIFIED), which
- * is exactly the acceptance criterion of this task and never loosens a
- * guardrail. Flip it to `false` only with the owner's answer.
+ * Owner decision #73 q5 (2026-10-01): driver verification is OPTIONAL. A solo
+ * driver without the papers may still use the platform — browse AND bid — so
+ * the strict "bid only when VERIFIED" rule no longer ships. The mechanism is
+ * kept (see `canBid`'s `enforce` option) so the closed state stays covered by
+ * tests and a later owner decision can re-arm it; the four papers stay
+ * uploadable and reviewable either way.
  */
-export const BID_REQUIRES_VERIFICATION = true;
+export const BID_REQUIRES_VERIFICATION = false;
 
 /**
  * The display chain for the driver's next action. Trip status legality lives in
@@ -389,19 +398,45 @@ export function verificationState(profile, docs = []) {
     };
   });
   const missing = papers.filter((paper) => !paper.present).map((paper) => paper.docType);
-  return { status, complete: missing.length === 0, missing, papers };
+  // The truthful per-type trust marks (owner #73 q5): a paper that is SUPPLIED
+  // gets a mark whose state reflects its review status — never a fake verified
+  // badge. An absent paper is marked `missing` and renders no check mark.
+  const badges = VERIFICATION_BADGE_DOCS.map((docType) => {
+    const paper = papers.find((p) => p.docType === docType) || { present: false, status: null };
+    const supplied = Boolean(paper.present);
+    const paperStatus = supplied ? paper.status || 'PENDING' : null;
+    return {
+      docType,
+      supplied,
+      status: paperStatus,
+      verified: Boolean(supplied && paperStatus === 'VERIFIED'),
+      mark: !supplied
+        ? 'missing'
+        : paperStatus === 'VERIFIED'
+          ? 'verified'
+          : paperStatus === 'REJECTED'
+            ? 'rejected'
+            : 'pending',
+    };
+  });
+  return { status, complete: missing.length === 0, missing, papers, badges };
 }
 
 /**
- * The bidding gate (owner gate #73 q5). The default strict rule: a solo driver
- * may always browse, but may only bid/receive awards once VERIFIED. Fleet-carrier
+ * The bidding gate. Owner decision #73 q5 makes verification OPTIONAL: by
+ * default a solo driver may browse AND bid whatever his papers say. Fleet-carrier
  * principals (non-solo) are unaffected — the caller applies this only to a
  * principal that has a SoloDriverProfile.
+ *
+ * `options.enforce` re-arms the historical strict rule (bid only when VERIFIED)
+ * so the mechanism stays covered by tests; production never enforces it.
  * @param {{ verificationStatus?: unknown }|null} profile
+ * @param {{ enforce?: boolean }} [options]
  * @returns {{ allowed: boolean, error: string|null, messageKey: string|null }}
  */
-export function canBid(profile) {
-  if (!BID_REQUIRES_VERIFICATION) return { allowed: true, error: null, messageKey: null };
+export function canBid(profile, options = {}) {
+  const enforce = options.enforce !== undefined ? options.enforce : BID_REQUIRES_VERIFICATION;
+  if (!enforce) return { allowed: true, error: null, messageKey: null };
   const status = typeof profile?.verificationStatus === 'string' ? profile.verificationStatus : 'NONE';
   if (status === 'VERIFIED') return { allowed: true, error: null, messageKey: null };
   return {
