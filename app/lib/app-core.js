@@ -24,13 +24,18 @@
  * and no application.
  */
 (function (root, factory) {
-  var api = factory();
+  // The menu configuration (board #112) is the single source of "who sees what".
+  // Loaded before this file in the browser; required here in Node.
+  var menus = (typeof module === 'object' && module.exports)
+    ? require('./menus.js')
+    : (root && root.RoadwiseMenus);
+  var api = factory(menus);
   if (typeof module === 'object' && module.exports) {
     module.exports = api;
   } else {
     root.RoadwiseAppCore = api;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (menus) {
   'use strict';
 
   /** Where the app is mounted. Absolute, so deep links and assets resolve. */
@@ -174,6 +179,36 @@
       task: null
     },
     {
+      id: 'drivers',
+      // Board task #111 (AND2-REG1) delivered the create/invite API for a
+      // fleet's own drivers; this is the menu entry its screen will plug into.
+      path: '/app/drivers',
+      i18n: 'nav.drivers',
+      roles: ['owner', 'dispatcher'],
+      task: 'board #111'
+    },
+    {
+      id: 'vehicles',
+      path: '/app/vehicles',
+      i18n: 'nav.vehicles',
+      roles: ['owner', 'dispatcher'],
+      task: null
+    },
+    {
+      id: 'customers',
+      path: '/app/customers',
+      i18n: 'nav.customers',
+      roles: ['owner', 'dispatcher'],
+      task: null
+    },
+    {
+      id: 'compliance',
+      path: '/app/compliance',
+      i18n: 'nav.compliance',
+      roles: ['owner', 'dispatcher'],
+      task: null
+    },
+    {
       id: 'finance',
       path: '/app/finance',
       i18n: 'nav.finance',
@@ -181,11 +216,34 @@
       task: 'F10 · board #51–#52'
     },
     {
+      id: 'analytics',
+      path: '/app/analytics',
+      i18n: 'nav.analytics',
+      roles: ['owner', 'accountant'],
+      task: null
+    },
+    {
+      id: 'market',
+      // The marketplace renamed to Hauling Market (owner decision q7, board #100).
+      path: '/app/market',
+      i18n: 'nav.market',
+      roles: ['owner', 'dispatcher'],
+      task: null
+    },
+    {
       id: 'fleet',
       path: '/app/fleet',
       i18n: 'nav.fleet',
       roles: ['owner', 'dispatcher'],
       task: 'board #19'
+    },
+    {
+      id: 'billing',
+      // Fleet plan: EUR 20/month after a 1-month free trial (owner decision q2).
+      path: '/app/billing',
+      i18n: 'nav.billing',
+      roles: ['owner'],
+      task: null
     },
     {
       id: 'settings',
@@ -328,14 +386,23 @@
   }
 
   /**
-   * The navigation a role may see. Unknown roles get nothing — deny by default.
+   * The navigation a role may see, from the ONE menu configuration (board #112):
+   * `menus.appNav` decides which items the role gets, and the route table supplies
+   * the path/label for the items the app actually serves. Unknown roles — and a
+   * missing/incomplete menu config — get nothing: deny by default.
    * @param {unknown} role
    * @returns {Array<{ id: string, path: string, i18n: string, roles: string[] }>}
    */
   function navFor(role) {
     if (!isKnownRole(role)) return [];
+    if (!menus || typeof menus.appNav !== 'function') return [];
+    var wanted = {};
+    var projected = menus.appNav(role);
+    for (var i = 0; i < projected.length; i++) {
+      if (projected[i] && typeof projected[i].app === 'string') wanted[projected[i].app] = true;
+    }
     return ROUTES.filter(function (route) {
-      return route.nav !== false && route.roles.indexOf(role) !== -1;
+      return route.nav !== false && wanted[route.id] === true;
     });
   }
 

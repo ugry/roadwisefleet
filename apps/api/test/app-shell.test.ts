@@ -77,6 +77,7 @@ test('the app assets are served with their real content types', async () => {
     ['/app/app.css', /text\/css/],
     ['/app/app.js', /javascript/],
     ['/app/lib/app-core.js', /javascript/],
+    ['/app/lib/menus.js', /javascript/],
     ['/app/lib/signup.js', /javascript/],
     ['/app/lib/documents.js', /javascript/],
     ['/app/lib/dispatch.js', /javascript/],
@@ -93,6 +94,8 @@ test('the app assets are served with their real content types', async () => {
   assert.match(css.payload, /\.topbar/);
   const core = await app.inject({ method: 'GET', url: '/app/lib/app-core.js' });
   assert.match(core.payload, /RoadwiseAppCore/);
+  const menus = await app.inject({ method: 'GET', url: '/app/lib/menus.js' });
+  assert.match(menus.payload, /RoadwiseMenus/);
   const dispatch = await app.inject({ method: 'GET', url: '/app/lib/dispatch.js' });
   assert.match(dispatch.payload, /RoadwiseDispatch/);
   const dashboard = await app.inject({ method: 'GET', url: '/app/lib/dashboard.js' });
