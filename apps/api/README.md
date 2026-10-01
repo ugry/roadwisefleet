@@ -88,7 +88,7 @@ client can never be more permissive than the API), the Connect marketplace core
 (the load and offer state machines, expiry, the posting/beacon/offer/award
 validators, lane/date/equipment matching, the award plan and the tenancy
 predicates — board task #76; and the customer compare/award read model, the
-cancellation-term vocabulary, the auto-match rules + owner gate and the
+cancellation-term vocabulary, the auto-match rules (live, no owner gate) and the
 award/decline notices — board task #78), the solo driver core (signup/truck validation, the
 OTP gate, the verification state + per-paper trust marks and the `canBid` rule,
 which now ships open — board tasks #77/#96 — own-customer and
@@ -162,9 +162,9 @@ It also drives the customer offer compare/award screen (board task #78) end to e
 in dedicated `qa-offer-*` orgs: a customer's marketplace booking posts a load →
 three carriers offer (each offer's truck derived server-side) → the compare read
 returns all three cheapest-first with the cheapest/fastest/verified flags and the
-budget delta → another customer gets a flat `404` → the auto-match toggle is
-refused with the owner gate (`403 auto_match_pending_owner`) while the limits save
-→ a declined offer leaves the load open → a structured counter supersedes its
+budget delta → another customer gets a flat `404` → the auto-match toggle enables
+immediately (the owner answered #73 q6 with "no limits") and the limits persist
+across a refresh → a declined offer leaves the load open → a structured counter supersedes its
 parent → the award creates the `Trip` in the winning carrier's org, declines the
 open rival and returns the notices for both sides → the awarded state is
 recoverable by a re-read and a second award is `409`.
@@ -1083,7 +1083,7 @@ and an **Auto-match** screen.
 | `POST /api/customer/loads/:id/award` | bearer | `{ offerId, paymentMethod }` → creates the `Trip` in the winning carrier's org against the load's order, declines the open rivals, returns notices for both sides (`201`) |
 | `POST /api/customer/offers/:id/counter` | bearer | a structured counter-offer; the parent becomes `COUNTERED` |
 | `POST /api/customer/offers/:id/decline` | bearer | decline an offer; the load stays open |
-| `GET`/`PUT /api/customer/auto-match` | bearer | the auto-match rules (max price, min rating); enabling is refused with `403 auto_match_pending_owner` until the owner answers #73 q6 |
+| `GET`/`PUT /api/customer/auto-match` | bearer | the auto-match rules (max price, min rating); enabling is live immediately — the owner answered #73 q6 ("no limits"), so no platform cap and no first-time-pairing block |
 
 **Files.** `customer/customer.js` + `index.html` + `customer.css` +
 `locales/en.json` are the surface; the domain rules stay in the shared
@@ -1103,12 +1103,14 @@ columns on `MarketplaceOffer` (`carrierTruck`, `carrierVerified`,
 client value) and `CustomerProfile.autoMatch` (the rules JSON). No column on a
 shared model, so the running pilot is unaffected whether or not it is applied.
 
-**Owner gate.** The auto-match screen ships behind the owner's #73 q6 answer:
-`marketplace.js#AUTO_MATCH_OWNER_APPROVED` is `false`, so an `enabled: true` rule
-is refused with the gate named; the limits still save. Flipping that one constant
-(and its UI copy) is the only change needed to let a stored `enabled` rule take
-effect — the matching predicate (`autoMatchAccepts` / `autoMatchWinner`) is
-already unit-tested.
+**No owner gate (open 2026-10-01).** The owner answered the matching-limits
+question #73 q6 with **"no limits"**, so `marketplace.js#AUTO_MATCH_OWNER_APPROVED`
+is `true`: a stored `enabled` rule takes effect immediately — no platform-imposed
+cap and no first-time-pairing block. The customer's own `maxPriceEur` / `minRating`
+filters keep working and stay configurable. `autoMatchEntitlement`'s
+`ownerApproved` option still pins the closed state, so the mechanism stays
+covered by unit tests even though the live default is open; the matching predicate
+(`autoMatchAccepts` / `autoMatchWinner`) is unchanged and unit-tested.
 
 **Notifications.** There is no mail/text provider on the pilot (the customer
 portal states the same), so "notify both sides" is the durable award state: the

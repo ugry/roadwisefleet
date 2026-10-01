@@ -198,7 +198,7 @@
   "offers.err.offerNotFound": "We could not find that offer.",
 
   "autoMatch.title": "Auto-match rules",
-  "autoMatch.lead": "Set the limits the engine may use to pick an offer automatically: a maximum price and a minimum carrier rating. Enabling is gated on the owner's matching-limits decision.",
+  "autoMatch.lead": "Set the limits the engine may use to pick an offer automatically: a maximum price and a minimum carrier rating. The engine picks the cheapest qualifying offer; leave a limit empty for no limit.",
   "autoMatch.enabled": "Enable auto-match",
   "autoMatch.maxPrice": "Maximum price (EUR)",
   "autoMatch.minRating": "Minimum rating (0–5)",
