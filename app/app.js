@@ -238,6 +238,13 @@
       if (outlet.focus) outlet.focus();
       return panel;
     }
+    if (route && route.view === 'reviews') {
+      outlet.innerHTML = '';
+      renderReviews(outlet, token);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
     var html = '<h1>' + APP.escapeHtml(panel.title) + '</h1>';
     if (route && route.id === 'overview') {
       html += '<div class="panel"><p class="lead">' + APP.escapeHtml(panel.body) + '</p>' +
@@ -2460,6 +2467,130 @@
   function rememberIntent(path) {
     var isAuth = typeof APP.isAuthPath === 'function' ? APP.isAuthPath(path) : APP.isLoginPath(path);
     if (APP.isAppPath(path) && !isAuth) pendingPath = path;
+  }
+
+  /* ------------------------------------------- reviews workspace (board #98) --- */
+
+  /**
+   * Sampled two-sided review prompts (board task #98). A prompt is created
+   * server-side at most once per 10 completed deliveries, so this workspace is
+   * often empty — that is expected, never an error.
+   */
+  function renderReviews(outlet, token) {
+    outlet.innerHTML =
+      '<h1>' + esc(T('nav.reviews')) + '</h1>' +
+      '<p class="lead">' + esc(T('reviews.lead')) + '</p>' +
+      '<div id="reviewsBody" aria-live="polite"><p class="muted">' + esc(T('common.loading')) + '</p></div>';
+    var body = outlet.querySelector('#reviewsBody');
+    if (!body) return;
+    if (body.addEventListener) body.addEventListener('click', function (ev) { onReviewsClick(ev, outlet, body, token); });
+    loadReviewPrompts(outlet, body, token);
+  }
+
+  function loadReviewPrompts(outlet, body, token) {
+    request('/api/reviews/prompts', { token: token }).then(function (res) {
+      if (outlet.querySelector('#reviewsBody') !== body) return;
+      if (!res.ok) {
+        body.innerHTML = '<p class="alert error">' + esc(reviewErrorText(res)) + '</p>';
+        return;
+      }
+      var prompts = (res.data && res.data.prompts) || [];
+      if (!prompts.length) {
+        body.innerHTML = '<p class="muted">' + esc(T('reviews.empty')) + '</p>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < prompts.length; i += 1) html += reviewPromptHtml(prompts[i]);
+      body.innerHTML = html;
+    });
+  }
+
+  function reviewPromptHtml(prompt) {
+    var id = esc(prompt.id);
+    var stars = '';
+    for (var n = 1; n <= 5; n += 1) {
+      stars += '<button type="button" class="star" data-rate="' + n + '" aria-label="' +
+        esc(T('reviews.rate', { n: n })) + '">' + n + '</button>';
+    }
+    return '<article class="card review-prompt" data-prompt="' + id + '">' +
+      '<h2>' + esc(T('reviews.promptTitle')) + '</h2>' +
+      (prompt.actionRef ? '<p class="muted">' + esc(prompt.actionRef) + '</p>' : '') +
+      '<p class="muted small">' + esc(T('reviews.about', { name: prompt.counterpartyName || '' })) + '</p>' +
+      '<div class="stars" role="group" aria-label="' + esc(T('reviews.ratingLabel')) + '">' + stars + '</div>' +
+      '<label for="rev-comment-' + id + '">' + esc(T('reviews.comment')) + '</label>' +
+      '<textarea id="rev-comment-' + id + '" rows="2"></textarea>' +
+      '<button type="button" class="primary" data-submit-review="' + id + '">' + esc(T('reviews.submit')) + '</button>' +
+      '<p class="alert review-msg" role="status" hidden></p>' +
+      '</article>';
+  }
+
+  function reviewClosest(node, attr) {
+    var current = node;
+    while (current && typeof current.getAttribute === 'function') {
+      if (current.getAttribute(attr)) return current;
+      current = current.parentNode;
+    }
+    return null;
+  }
+
+  function onReviewsClick(ev, outlet, body, token) {
+    var target = ev && ev.target;
+    if (!target || typeof target.getAttribute !== 'function') return;
+    var article = reviewClosest(target, 'data-prompt');
+    if (!article) return;
+    var rate = target.getAttribute('data-rate');
+    if (rate) {
+      article.setAttribute('data-rating', rate);
+      var stars = article.querySelectorAll ? article.querySelectorAll('[data-rate]') : [];
+      for (var i = 0; i < stars.length; i += 1) {
+        if (stars[i].classList) stars[i].classList.toggle('is-selected', Number(stars[i].getAttribute('data-rate')) <= Number(rate));
+      }
+      return;
+    }
+    if (target.getAttribute('data-submit-review')) submitReviewPrompt(article, outlet, body, token);
+  }
+
+  function setReviewMsg(article, text, kind) {
+    var node = article.querySelector('.review-msg');
+    if (!node) return;
+    node.textContent = text;
+    node.className = 'alert review-msg' + (kind ? ' ' + kind : '');
+    node.hidden = false;
+  }
+
+  function reviewErrorText(res) {
+    var data = (res && res.data) || {};
+    if (data.error === 'already_reviewed') return T('reviews.already');
+    if ((res && res.status === 401) || data.error === 'unauthorized') return T('error.sessionExpired');
+    if (data.error === 'forbidden') return T('error.forbidden');
+    if (data.error === 'network') return T('error.network');
+    if (data.detail) return String(data.detail);
+    return T('error.unexpected');
+  }
+
+  function submitReviewPrompt(article, outlet, body, token) {
+    var promptId = article.getAttribute('data-prompt');
+    var rating = Number(article.getAttribute('data-rating') || 0);
+    var commentNode = article.querySelector('textarea');
+    if (!rating) {
+      setReviewMsg(article, T('reviews.needRating'), 'error');
+      return;
+    }
+    var button = article.querySelector('[data-submit-review]');
+    if (button) button.disabled = true;
+    request('/api/reviews', {
+      method: 'POST',
+      token: token,
+      body: { promptId: promptId, rating: rating, comment: commentNode ? commentNode.value : '' },
+    }).then(function (res) {
+      if (outlet.querySelector('#reviewsBody') !== body) return;
+      if (!res.ok) {
+        setReviewMsg(article, reviewErrorText(res), 'error');
+        if (button) button.disabled = false;
+        return;
+      }
+      loadReviewPrompts(outlet, body, token);
+    });
   }
 
   /* -------------------------------------------------------------- guard --- */

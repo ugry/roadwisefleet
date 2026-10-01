@@ -30,6 +30,7 @@
   "nav.offers": "Offers",
   "nav.book": "Book a load",
   "nav.autoMatch": "Auto-match",
+  "nav.reviews": "Reviews",
   "nav.account": "Account",
   "nav.signOut": "Sign out",
 
@@ -295,6 +296,19 @@
   "account.error.formInvalid": "Please check the form and try again.",
   "account.error.nameRequired": "Enter a name.",
   "account.error.addressRequired": "Enter the address.",
+
+  "reviews.title": "Reviews",
+  "reviews.lead": "After some deliveries we ask you to rate the carrier — and the carrier rates you. Both sides are asked at most once every ten deliveries.",
+  "reviews.empty": "No reviews to give right now.",
+  "reviews.promptTitle": "Rate this delivery",
+  "reviews.about": "How was {name}?",
+  "reviews.ratingLabel": "Rating from 1 to 5",
+  "reviews.rate": "Rate {n} out of 5",
+  "reviews.comment": "Comment (optional)",
+  "reviews.submit": "Submit review",
+  "reviews.needRating": "Choose a rating from 1 to 5.",
+  "reviews.already": "You have already reviewed this delivery.",
+  "reviews.thanks": "Thanks — your review was recorded.",
 
   "error.invalidCredentials": "Email or password is not correct.",
   "error.accountLocked": "This account is locked for 15 minutes after too many attempts.",

@@ -752,3 +752,21 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
   text-underline-offset: 2px;
 }
 .cell-open:hover { color: var(--accent-deep); }
+
+/* Sampled review prompts (board task #98). */
+.review-prompt { margin: 0 0 16px; }
+.review-prompt .stars { display: flex; gap: 8px; margin: 8px 0 12px; }
+.review-prompt .star {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.review-prompt .star.is-selected { background: var(--accent-deep); border-color: var(--accent-deep); color: #fff; }
+.review-prompt textarea { width: 100%; margin-bottom: 12px; }
+.review-prompt .review-msg { margin-top: 8px; }

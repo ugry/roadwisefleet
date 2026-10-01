@@ -162,6 +162,18 @@
       task: null
     },
     {
+      id: 'reviews',
+      // Implemented by board task #98: the sampled two-sided review prompts.
+      // The carrier rates the customer here; the customer rates the carrier in
+      // the customer portal. A prompt only exists when the server sampled the
+      // delivery (at most one per 10 completed actions).
+      path: '/app/reviews',
+      i18n: 'nav.reviews',
+      roles: ['owner', 'dispatcher'],
+      view: 'reviews',
+      task: null
+    },
+    {
       id: 'finance',
       path: '/app/finance',
       i18n: 'nav.finance',
@@ -457,6 +469,10 @@
     // Implemented view (board task #39, F8): the tracking-links workspace.
     if (route.view === 'tracking') {
       return { title: translate('nav.tracking'), body: translate('common.loading'), task: null };
+    }
+    // Implemented view (board task #98): the sampled review prompts.
+    if (route.view === 'reviews') {
+      return { title: translate('nav.reviews'), body: translate('common.loading'), task: null };
     }
     return {
       title: translate(route.i18n),

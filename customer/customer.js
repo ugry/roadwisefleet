@@ -25,6 +25,7 @@ const PANELS = {
   shipment: 'shipmentPanel',
   offers: 'offersPanel',
   autoMatch: 'autoMatchPanel',
+  reviews: 'reviewsPanel',
   account: 'accountPanel'
 };
 
@@ -84,7 +85,9 @@ function errorKey(err) {
     offer_closed: 'offers.err.offerClosed',
     offer_expired: 'offers.err.offerExpired',
     load_not_found: 'offers.err.loadNotFound',
-    offer_not_found: 'offers.err.offerNotFound'
+    offer_not_found: 'offers.err.offerNotFound',
+    // Reviews (board task #98): a second review is refused, never a rewrite.
+    already_reviewed: 'reviews.already'
   };
   if (err.error && byCode[err.error]) return byCode[err.error];
   const byStatus = {
@@ -274,6 +277,7 @@ function showPanel(view) {
   if (view === 'book') renderBook();
   if (view === 'offers') renderOffers();
   if (view === 'autoMatch') renderAutoMatch();
+  if (view === 'reviews') renderReviews();
   if (view === 'account') renderAccount();
 }
 
@@ -1108,6 +1112,117 @@ async function onSubmitTeam(event) {
   }
 }
 
+/* ------------------------------------------------------------ reviews --- */
+
+/* Two-sided review prompt (board task #98). A prompt appears only when the
+ * server sampled this delivery; the customer rates the carrier here, and the
+ * carrier rates the customer on its own surface. The rating is immutable once
+ * submitted, so the panel never offers an edit. */
+
+function closestAttr(node, attr) {
+  let current = node;
+  while (current && current.getAttribute) {
+    if (current.getAttribute(attr)) return current;
+    current = current.parentNode;
+  }
+  return null;
+}
+
+function reviewPromptHtml(prompt) {
+  const id = esc(prompt.id);
+  let stars = '';
+  for (let n = 1; n <= 5; n += 1) {
+    stars +=
+      '<button type="button" class="star" data-rate="' + n + '" aria-label="' +
+      esc(t('reviews.rate', { n })) + '">' + n + '</button>';
+  }
+  return (
+    '<article class="card review-prompt" data-prompt="' + id + '">' +
+    '<h2>' + esc(t('reviews.promptTitle')) + '</h2>' +
+    (prompt.actionRef ? '<p class="muted">' + esc(prompt.actionRef) + '</p>' : '') +
+    '<p class="muted small">' +
+    esc(t('reviews.about', { name: prompt.counterpartyName || '' })) +
+    '</p>' +
+    '<div class="stars" role="group" aria-label="' + esc(t('reviews.ratingLabel')) + '">' + stars + '</div>' +
+    '<label for="rev-comment-' + id + '">' + esc(t('reviews.comment')) + '</label>' +
+    '<textarea id="rev-comment-' + id + '" rows="2"></textarea>' +
+    '<button type="button" class="primary" data-submit-review="' + id + '">' +
+    esc(t('reviews.submit')) +
+    '</button>' +
+    '<p class="alert review-msg" role="status" hidden></p>' +
+    '</article>'
+  );
+}
+
+function setReviewMsg(article, messageKey, kind) {
+  const node = article.querySelector('.review-msg');
+  if (!node) return;
+  node.textContent = t(messageKey);
+  node.className = 'alert review-msg' + (kind ? ' ' + kind : '');
+  node.hidden = false;
+}
+
+async function renderReviews() {
+  const host = $('reviewsBody');
+  if (!host) return;
+  host.innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
+  let data;
+  try {
+    data = await api('/reviews/prompts');
+  } catch (err) {
+    setMsg('globalMsg', errorKey(err), 'error');
+    host.innerHTML = '';
+    return;
+  }
+  setMsg('globalMsg', '');
+  const prompts = data.prompts || [];
+  if (!prompts.length) {
+    host.innerHTML = '<p class="muted">' + esc(t('reviews.empty')) + '</p>';
+    return;
+  }
+  host.innerHTML = prompts.map(reviewPromptHtml).join('');
+  host.addEventListener('click', onReviewsClick);
+}
+
+function onReviewsClick(event) {
+  const target = event.target;
+  if (!target || !target.getAttribute) return;
+  const article = closestAttr(target, 'data-prompt');
+  if (!article) return;
+  const rate = target.getAttribute('data-rate');
+  if (rate) {
+    article.setAttribute('data-rating', rate);
+    Array.prototype.forEach.call(article.querySelectorAll('[data-rate]'), (button) => {
+      const value = Number(button.getAttribute('data-rate'));
+      button.classList.toggle('is-selected', value <= Number(rate));
+    });
+    return;
+  }
+  if (target.getAttribute('data-submit-review')) submitReviewPrompt(article);
+}
+
+async function submitReviewPrompt(article) {
+  const promptId = article.getAttribute('data-prompt');
+  const rating = Number(article.getAttribute('data-rating') || 0);
+  const commentNode = article.querySelector('textarea');
+  if (!rating) {
+    setReviewMsg(article, 'reviews.needRating', 'error');
+    return;
+  }
+  const button = article.querySelector('[data-submit-review]');
+  if (button) button.disabled = true;
+  try {
+    await api('/reviews', {
+      method: 'POST',
+      body: { promptId, rating, comment: commentNode ? commentNode.value : '' }
+    });
+    renderReviews();
+  } catch (err) {
+    setReviewMsg(article, errorKey(err), 'error');
+    if (button) button.disabled = false;
+  }
+}
+
 /* ------------------------------------------------------------ auth/setup --- */
 
 async function onSubmitLogin(event) {
@@ -1277,6 +1392,8 @@ export {
   compareRow,
   renderAutoMatch,
   onSubmitAutoMatch,
+  renderReviews,
+  onReviewsClick,
   errorKey,
   t,
   state

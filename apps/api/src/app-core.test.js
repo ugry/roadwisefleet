@@ -37,7 +37,7 @@ test('a driver never sees dispatcher navigation', () => {
 
 test('dispatcher, accountant and owner get the navigation their capabilities allow', () => {
   const dispatcher = ROUTE_IDS('dispatcher');
-  assert.deepEqual(dispatcher, ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'fleet']);
+  assert.deepEqual(dispatcher, ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'reviews', 'fleet']);
   for (const forbidden of ['finance', 'settings', 'my-trips']) {
     assert.ok(!dispatcher.includes(forbidden), `dispatcher nav must not contain ${forbidden}`);
   }
@@ -45,7 +45,7 @@ test('dispatcher, accountant and owner get the navigation their capabilities all
   // the trips list is deliberately absent.
   assert.deepEqual(ROUTE_IDS('accountant'), ['overview', 'finance']);
   const owner = ROUTE_IDS('owner');
-  for (const id of ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'finance', 'fleet', 'settings']) {
+  for (const id of ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'reviews', 'finance', 'fleet', 'settings']) {
     assert.ok(owner.includes(id), `owner nav must contain ${id}`);
   }
 });
@@ -190,6 +190,11 @@ test('panelFor marks implemented views and names the board task that fills a pla
   assert.equal(tracking.title, 'nav.tracking');
   assert.equal(tracking.body, 'common.loading');
   assert.equal(tracking.task, null);
+  // The review workspace is implemented too (board task #98).
+  const reviews = appCore.panelFor(appCore.routeForPath('/app/reviews'), t);
+  assert.equal(reviews.title, 'nav.reviews');
+  assert.equal(reviews.body, 'common.loading');
+  assert.equal(reviews.task, null);
   // A route still awaiting its task keeps the placeholder that names the task.
   const finance = appCore.panelFor(appCore.routeForPath('/app/finance'), t);
   assert.match(finance.body, /common\.pending\(F10 · board #51–#52\)/);

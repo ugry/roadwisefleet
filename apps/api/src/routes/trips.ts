@@ -10,6 +10,7 @@ import { getTripDetail } from '../trip-detail.js';
 import { tripReadScope } from '../trip-visibility.js';
 import { parseTripFilters, serializeTripFilters } from '../trip-filters.js';
 import { trackingSummary } from '../track-link.js';
+import { recordCompletedAction } from '../reviews.js';
 import { stripCredentialFields } from '../user-payload.js';
 
 /*
@@ -139,6 +140,16 @@ export async function tripRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'invalid_transition', from: result.from, to: result.to });
       }
       return reply.code(statusForError(result.error)).send({ error: result.error });
+    }
+    // Board task #98: a trip that reaches DELIVERED is a completed action — bump
+    // the two-sided review sampling. Best-effort on purpose: a sampling failure
+    // must never turn a successful delivery into an error response.
+    if (result.trip && result.trip.status === 'DELIVERED') {
+      try {
+        await recordCompletedAction(prisma, { actionId: id });
+      } catch (err) {
+        req.log?.warn?.({ err }, 'review sampling failed');
+      }
     }
     return reply.send({ trip: result.trip });
   });

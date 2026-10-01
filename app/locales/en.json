@@ -21,6 +21,7 @@
   "nav.dispatch": "Dispatch",
   "nav.documents": "Documents",
   "nav.tracking": "Tracking links",
+  "nav.reviews": "Reviews",
   "nav.finance": "Finance",
   "nav.fleet": "Drivers & vehicles",
   "nav.settings": "Settings",
@@ -317,5 +318,17 @@
   "tracking.colActions": "Actions",
   "tracking.empty": "No trips to track yet. Create a trip first.",
   "tracking.error.notFound": "That trip no longer exists in your company. Go back to the trips list.",
-  "tracking.error.invalid": "That tracking link is not valid or has expired."
+  "tracking.error.invalid": "That tracking link is not valid or has expired.",
+
+  "reviews.title": "Reviews",
+  "reviews.lead": "After some deliveries we ask you to rate the customer — and the customer rates you. Both sides are asked at most once every ten deliveries; a rating stays hidden until both sides have had their chance.",
+  "reviews.empty": "No reviews to give right now.",
+  "reviews.promptTitle": "Rate this delivery",
+  "reviews.about": "How was {name}?",
+  "reviews.ratingLabel": "Rating from 1 to 5",
+  "reviews.rate": "Rate {n} out of 5",
+  "reviews.comment": "Comment (optional)",
+  "reviews.submit": "Submit review",
+  "reviews.needRating": "Choose a rating from 1 to 5.",
+  "reviews.already": "You have already reviewed this delivery."
 }
