@@ -14,7 +14,7 @@ flowchart TD
         F2["Customers menu → Add customer (quick)<br/>name · phone · WhatsApp · language · credit terms"]:::fleet
         F3["Create order manually:<br/>route · cargo · date · price (rate card or fixed)"]:::fleet
         F4["Dispatch as usual — assign driver + truck"]:::fleet
-        F5["Send the customer a tracking link<br/>(WhatsApp / SMS / email) — no login"]:::guest
+        F5["Send the customer a read-only link<br/>(WhatsApp / SMS / email) — track / POD / invoice"]:::guest
         F6["Delivery: POD + eCMR arrive on the same link;<br/>customer downloads documents"]:::guest
         F7{"How do they pay?"}:::money
         F8["Invoice from POD → sent to link/email;<br/>bank transfer / card link; mark paid in Finance"]:::money
@@ -64,15 +64,17 @@ flowchart TD
         P6 -->|"registers"| P8
     end
 
-    %% ================= WHAT THE GUEST SEES =================
-    subgraph GUEST["What the unregistered customer sees (no login)"]
+    %% ================= WHAT THE UNREGISTERED PARTY SEES =================
+    subgraph GUEST["What the unregistered party sees (no login, read-only link)"]
         G1["Opens link from WhatsApp / SMS / email"]:::guest
         G2["Live map + ETA + milestone timeline"]:::guest
         G3["Documents: POD · eCMR · invoice — download"]:::guest
         G4["Chat with the carrier about this shipment"]:::guest
-        G5["CTA: Create a free account —<br/>book again, keep history, pay online"]:::ok
+        G5["CTA: Register a free account —<br/>book again, keep history, pay online"]:::ok
         G1 --> G2 --> G3 --> G4 --> G5
     end
+
+    RULE["Registered to transact (q3): a share link is READ-ONLY —<br/>track / POD / invoice; booking through a link is not offered.<br/>The unregistered party is a lightweight record on the carrier's side."]:::warn
 
     START --> F1
     START --> S1
@@ -80,3 +82,4 @@ flowchart TD
     F5 --> G1
     S6 --> G1
     P2 --> G1
+    RULE -.-> GUEST
