@@ -28,8 +28,8 @@
 
   /** Every status the state machine can hold, in lifecycle order. */
   var TRIP_STATUSES = [
-    'DRAFT', 'ASSIGNED', 'LOADED', 'IN_TRANSIT',
-    'DELIVERED', 'POD_UPLOADED', 'INVOICED', 'SETTLED', 'CANCELLED'
+    'DRAFT', 'ASSIGNED', 'EN_ROUTE', 'AT_PICKUP', 'LOADED', 'IN_TRANSIT',
+    'AT_DELIVERY', 'DELIVERED', 'POD_UPLOADED', 'INVOICED', 'SETTLED', 'CANCELLED'
   ];
 
   /** The order the query string is built in, so the same filters give one URL. */

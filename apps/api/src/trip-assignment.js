@@ -24,7 +24,8 @@
  */
 
 import { hasPermission } from './auth/permissions.js';
-import { isTerminal } from './trip-status.js';
+import { isActiveAssignment, isTerminal } from './trip-status.js';
+import { driverHasActiveTrip } from './trips-core.js';
 
 /**
  * Permission a caller must hold to assign/reassign a trip's driver. The seeded
@@ -133,6 +134,15 @@ export async function assignDriver(prisma, { orgId, tripId, body, actor, now }) 
   const driver = await prisma.user.findFirst({ where: { id: driverId, orgId } });
   if (!driver) return { ok: false, error: 'driver_not_found' };
   if (!isDriverAvailable(driver, { now })) return { ok: false, error: 'driver_unavailable' };
+
+  // Board task #105: exactly one active assignment per driver. Reassigning a
+  // trip that is already in an active phase must not double-book the new driver
+  // (the trip's own row is excluded, so a no-op on the same driver is covered by
+  // `already_assigned` above).
+  if (isActiveAssignment(current.status)) {
+    const busy = await driverHasActiveTrip(prisma, { orgId, driverId, excludeTripId: tripId });
+    if (busy) return { ok: false, error: 'driver_busy' };
+  }
 
   // One transaction: the trip row and the timeline entry it must explain. The
   // status deliberately does not move — the event is the record of who acted.

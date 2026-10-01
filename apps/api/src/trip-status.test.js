@@ -5,18 +5,29 @@ import {
   TRIP_STATUSES,
   TERMINAL_STATUSES,
   TRANSITIONS,
+  DRIVER_PHASES,
+  START_TRIP_STATUS,
+  ACTIVE_ASSIGNMENT_STATUSES,
   isTripStatus,
   nextStatuses,
   canTransition,
   isTerminal,
+  isActiveAssignment,
 } from './trip-status.js';
 
 // The documented state machine (docs/diagrams-data-menu-flow.md §7) as
 // [from, to] pairs. Everything not listed here must be rejected.
+// The driver phases (board task #105, AND1-A3) extend the machine; the legacy
+// jump edges (ASSIGNED → LOADED, IN_TRANSIT → DELIVERED) are kept.
 const VALID_TRANSITIONS = [
   ['DRAFT', 'ASSIGNED'],
+  ['ASSIGNED', 'EN_ROUTE'],
+  ['EN_ROUTE', 'AT_PICKUP'],
+  ['AT_PICKUP', 'LOADED'],
   ['ASSIGNED', 'LOADED'],
   ['LOADED', 'IN_TRANSIT'],
+  ['IN_TRANSIT', 'AT_DELIVERY'],
+  ['AT_DELIVERY', 'DELIVERED'],
   ['IN_TRANSIT', 'DELIVERED'],
   ['DELIVERED', 'POD_UPLOADED'],
   ['POD_UPLOADED', 'INVOICED'],
@@ -118,7 +129,20 @@ test('exposes each status exactly once', () => {
   assert.equal(new Set(TRIP_STATUSES).size, TRIP_STATUSES.length);
   assert.deepEqual(
     [...TRIP_STATUSES].sort(),
-    ['ASSIGNED', 'CANCELLED', 'DELIVERED', 'DRAFT', 'INVOICED', 'IN_TRANSIT', 'LOADED', 'POD_UPLOADED', 'SETTLED'],
+    [
+      'ASSIGNED',
+      'AT_DELIVERY',
+      'AT_PICKUP',
+      'CANCELLED',
+      'DELIVERED',
+      'DRAFT',
+      'EN_ROUTE',
+      'INVOICED',
+      'IN_TRANSIT',
+      'LOADED',
+      'POD_UPLOADED',
+      'SETTLED',
+    ],
   );
   for (const status of TRIP_STATUSES) {
     assert.equal(isTripStatus(status), true);
@@ -130,4 +154,50 @@ test('the transition table is immutable', () => {
     /** @type {any} */ (TRANSITIONS).DRAFT = ['SETTLED'];
   }, TypeError);
   assert.deepEqual([...TRANSITIONS.DRAFT], ['ASSIGNED', 'CANCELLED']);
+});
+
+// --- driver phases (board task #105, AND1-A3) -------------------------------
+
+test('the driver phase chain walks one legal step at a time', () => {
+  // ASSIGNED → EN_ROUTE (Start Trip) → AT_PICKUP → LOADED → IN_TRANSIT →
+  // AT_DELIVERY → DELIVERED → POD_UPLOADED
+  const chain = [
+    'ASSIGNED',
+    'EN_ROUTE',
+    'AT_PICKUP',
+    'LOADED',
+    'IN_TRANSIT',
+    'AT_DELIVERY',
+    'DELIVERED',
+    'POD_UPLOADED',
+  ];
+  assert.deepEqual([...DRIVER_PHASES], chain);
+  for (let i = 0; i < chain.length - 1; i += 1) {
+    assert.equal(canTransition(chain[i], chain[i + 1]), true, `${chain[i]} -> ${chain[i + 1]}`);
+  }
+});
+
+test('Start Trip is EN_ROUTE and EN_ROUTE is only reachable from ASSIGNED', () => {
+  assert.equal(START_TRIP_STATUS, 'EN_ROUTE');
+  const sources = TRIP_STATUSES.filter((status) => canTransition(status, 'EN_ROUTE'));
+  assert.deepEqual(sources, ['ASSIGNED']);
+  // A phase cannot be skipped on the new sub-path.
+  assert.equal(canTransition('EN_ROUTE', 'LOADED'), false, 'must pass through AT_PICKUP');
+});
+
+test('the active-assignment statuses are the in-flight driver phases', () => {
+  assert.deepEqual([...ACTIVE_ASSIGNMENT_STATUSES], [
+    'ASSIGNED',
+    'EN_ROUTE',
+    'AT_PICKUP',
+    'LOADED',
+    'IN_TRANSIT',
+    'AT_DELIVERY',
+  ]);
+  for (const status of ACTIVE_ASSIGNMENT_STATUSES) {
+    assert.equal(isActiveAssignment(status), true, `${status} is active`);
+  }
+  for (const status of ['DRAFT', 'DELIVERED', 'POD_UPLOADED', 'INVOICED', 'SETTLED', 'CANCELLED', 'NOPE', null]) {
+    assert.equal(isActiveAssignment(status), false, `${String(status)} is not active`);
+  }
 });

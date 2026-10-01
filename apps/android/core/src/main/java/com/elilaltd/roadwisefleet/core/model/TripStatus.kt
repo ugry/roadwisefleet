@@ -11,9 +11,12 @@ package com.elilaltd.roadwisefleet.core.model
 object TripStatus {
     val TRANSITIONS: Map<String, List<String>> = linkedMapOf(
         "DRAFT" to listOf("ASSIGNED", "CANCELLED"),
-        "ASSIGNED" to listOf("LOADED", "CANCELLED"),
+        "ASSIGNED" to listOf("EN_ROUTE", "LOADED", "CANCELLED"),
+        "EN_ROUTE" to listOf("AT_PICKUP"),
+        "AT_PICKUP" to listOf("LOADED"),
         "LOADED" to listOf("IN_TRANSIT"),
-        "IN_TRANSIT" to listOf("DELIVERED"),
+        "IN_TRANSIT" to listOf("AT_DELIVERY", "DELIVERED"),
+        "AT_DELIVERY" to listOf("DELIVERED"),
         "DELIVERED" to listOf("POD_UPLOADED"),
         "POD_UPLOADED" to listOf("INVOICED"),
         "INVOICED" to listOf("SETTLED"),
@@ -25,6 +28,17 @@ object TripStatus {
 
     /** Statuses the driver app asks the driver to confirm before sending. */
     val CONFIRM_STATUSES = listOf("DELIVERED")
+
+    /**
+     * The status Start Trip sets (board #105, AND1-A3). It is the only
+     * transition that turns live GPS tracking on (`POST /api/trips/:id/start`).
+     */
+    const val START_TRIP_STATUS = "EN_ROUTE"
+
+    /** Statuses in which a driver counts as actively assigned (board #105). */
+    val ACTIVE_ASSIGNMENT_STATUSES = listOf(
+        "ASSIGNED", "EN_ROUTE", "AT_PICKUP", "LOADED", "IN_TRANSIT", "AT_DELIVERY",
+    )
 
     /** Mirrors `DOC_TYPES` in `apps/api/src/documents.js`. */
     val DOC_TYPES = listOf(
@@ -45,4 +59,15 @@ object TripStatus {
     fun requiresConfirmation(to: String): Boolean = CONFIRM_STATUSES.contains(to)
 
     fun isKnownStatus(status: String): Boolean = TRANSITIONS.containsKey(status)
+
+    fun isActiveAssignment(status: String): Boolean = ACTIVE_ASSIGNMENT_STATUSES.contains(status)
+
+    /**
+     * The next driver phase for the primary action button (board #105): the
+     * first legal successor that is not the CANCELLED escape hatch, or null.
+     * The A1 shell showed every successor as an equal button; A3 promotes this
+     * one and demotes the rest.
+     */
+    fun nextPhase(status: String): String? =
+        nextLegalStatuses(status).firstOrNull { it != "CANCELLED" }
 }

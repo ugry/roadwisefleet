@@ -223,10 +223,15 @@ erDiagram
 stateDiagram-v2
     [*] --> DRAFT
     DRAFT --> ASSIGNED: FM dispatches
-    ASSIGNED --> LOADED: driver confirms load
+    ASSIGNED --> EN_ROUTE: driver starts trip (tracking on)
+    EN_ROUTE --> AT_PICKUP: arriving at pickup
+    AT_PICKUP --> LOADED: driver confirms load
+    ASSIGNED --> LOADED: driver confirms load (legacy jump)
     LOADED --> IN_TRANSIT: departed
-    IN_TRANSIT --> DELIVERED: arrived at destination
-    DELIVERED --> POD_UPLOADED: photo + e-signature
+    IN_TRANSIT --> AT_DELIVERY: arriving at delivery
+    AT_DELIVERY --> DELIVERED: arrived at destination
+    IN_TRANSIT --> DELIVERED: arrived at destination (legacy jump)
+    DELIVERED --> POD_UPLOADED: photo + e-signature (tracking off)
     POD_UPLOADED --> INVOICED: FM bills customer
     INVOICED --> SETTLED: customer pays
     DRAFT --> CANCELLED
