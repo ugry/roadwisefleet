@@ -1,5 +1,5 @@
 /**
- * RoadwiseFleet solo driver Connect MVP — core domain (board task #77, UXF-M2).
+ * RoadwiseFleet solo driver Hauling Market MVP — core domain (board task #77, UXF-M2).
  *
  * The solo truck driver is a first-class persona (diagram
  * `docs/ux-flows/04-solo-driver-flow.mmd`): a one-person carrier who is found
