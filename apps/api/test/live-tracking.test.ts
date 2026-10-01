@@ -243,3 +243,61 @@ test('the live stream is org-scoped: a foreign owner and a customer are refused 
     await app.close();
   }
 });
+
+test('the fleet trip-detail payload carries the live tracking flag (#107 review)', async (t) => {
+  const app = buildServer();
+  const orgId = `live-detail-${Date.now()}`;
+  try {
+    await app.ready();
+    if (!(await dbReady(t))) return;
+
+    const marker = `live-detail-${Date.now()}`;
+    // Self-contained: the fleet owner role (deploy/seed creates it elsewhere).
+    await prisma.role.upsert({
+      where: { id: 'owner' },
+      update: {},
+      create: { id: 'owner', permissions: ['trip:*'] },
+    });
+    const org = await prisma.org.create({ data: { id: orgId, name: marker } });
+    const owner = await prisma.user.create({
+      data: { orgId: org.id, roleId: 'owner', name: `${marker} Owner`, email: `${marker}@example.test` },
+    });
+    const customer = await prisma.customer.create({ data: { orgId: org.id, name: marker } });
+    const liveOrder = await prisma.order.create({
+      data: { customerId: customer.id, origin: `${marker}-src`, destination: `${marker}-dst`, status: 'BOOKED', cargo: `${marker} cargo` },
+    });
+    const liveTrip = await prisma.trip.create({
+      data: { orgId: org.id, orderId: liveOrder.id, status: 'EN_ROUTE', tracking: true },
+    });
+    const doneOrder = await prisma.order.create({
+      data: { customerId: customer.id, origin: `${marker}-2src`, destination: `${marker}-2dst`, status: 'DELIVERED' },
+    });
+    const doneTrip = await prisma.trip.create({
+      data: { orgId: org.id, orderId: doneOrder.id, status: 'DELIVERED', tracking: false },
+    });
+
+    const ownerToken = tokenFor(org.id, owner.id, 'owner', `${marker} Owner`);
+
+    // Board task #107 review: the fleet panel reads `trip.tracking` from THIS
+    // payload; without it the panel always said "not started" and never opened
+    // the stream.
+    const live = await app.inject({
+      method: 'GET',
+      url: `/api/trips/${encodeURIComponent(liveTrip.id)}`,
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    assert.equal(live.statusCode, 200, live.body);
+    assert.equal(live.json().trip.tracking, true, 'a live trip must report tracking=true to the fleet panel');
+
+    const done = await app.inject({
+      method: 'GET',
+      url: `/api/trips/${encodeURIComponent(doneTrip.id)}`,
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    assert.equal(done.statusCode, 200, done.body);
+    assert.equal(done.json().trip.tracking, false, 'a delivered trip is not live');
+  } finally {
+    await cleanup(orgId);
+    await app.close();
+  }
+});
