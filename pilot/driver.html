@@ -288,22 +288,42 @@
   }
   function clearMsg() { var el = byId('globalMsg'); el.className = 'msg'; el.textContent = ''; }
 
+  // Board #95 (FAv1-SUP1b / eila/requests#16 §3): a capture rejection must be
+  // visible next to the capture controls, not only at the top of the page where
+  // a phone user scrolling the trip card never sees it.
+  function setCaptureMsg(text) {
+    var el = byId('captureMsg');
+    if (!el) return;
+    el.className = text ? 'msg show err' : 'msg err';
+    el.textContent = text || '';
+    if (text && typeof el.scrollIntoView === 'function') {
+      try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+      catch (e) { el.scrollIntoView(); }
+    }
+  }
+
+  // Board #95 (FAv1-SUP1b): never render a raw API code or HTTP status to a
+  // driver — the user gets a sentence with a next step. The code/status stay in
+  // console.warn for debugging. Spec: eila/requests#16.
   function errorText(status, data) {
-    if (status === 0) return t('driver.offlineSaved');
-    if (status === 401) return t('error.sessionExpired');
-    if (status === 403) return t('error.tripForbidden403');
     var code = (data && data.error) || ('http_' + status);
-    if (code === 'invalid_transition') return t('error.rejectedTransition', { from: statusLabel(data && data.from), to: statusLabel(data && data.to) });
+    if (status !== 0 && status !== 200) console.warn('[roadwisefleet] request failed', status, code);
+    if (status === 0) return t('driver.offlineSaved');
+    if (code === 'invalid_credentials') return t('error.invalidCredentials');
+    if (code === 'account_locked') return t('error.accountLocked');
+    if (status === 401) return t('error.sessionExpired');
+    if (status === 403 || code === 'forbidden' || code === 'no_org') return t('error.tripForbidden403');
+    if (code === 'invalid_transition') return t('error.invalidTransition', { from: statusLabel(data && data.from), to: statusLabel(data && data.to) });
     if (code === 'invalid_status') return t('error.invalidStatus');
     if (code === 'pod_required') return t('error.podRequired');
-    if (code === 'unsupported_type') return t('error.unsupportedType400');
-    if (code === 'file_too_large') return t('error.fileTooLarge400');
-    if (code === 'invalid_size') return t('error.invalidSize');
-    if (code === 'invalid_capture') return t('error.invalidCapture', { detail: (data && data.detail) || '' });
-    if (code === 'invalid_doc_type') return t('error.invalidDocType');
-    if (code === 'invalid_upload') return t('error.invalidUpload');
-    if (code === 'invalid_filename') return t('error.invalidFilename');
-    return t('error.http', { code: code, status: status });
+    if (code === 'unsupported_type') return t('error.unsupportedType');
+    if (code === 'file_too_large') return t('error.fileTooLarge');
+    if (code === 'invalid_size') return t('error.emptyFile');
+    if (code === 'invalid_capture') return t('error.badCapture');
+    if (code === 'invalid_doc_type' || code === 'invalid_filename') return t('error.badDocument');
+    if (code === 'invalid_upload' || code === 'storage_failed') return t('error.uploadFailed');
+    if (status === 413) return t('error.payloadTooLarge');
+    return t('error.http');
   }
 
   function api(path, opts) {
@@ -599,6 +619,7 @@
       '<input id="podFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf" capture="environment">';
     html += '<div class="gps" id="gpsLine">' + esc(gpsLine()) + '</div>';
     html += '<button class="primary" id="captureBtn" type="button">' + esc(t('driver.attachUpload')) + '</button>';
+    html += '<p class="msg err" id="captureMsg" role="alert"></p>';
     html += '<p class="hint muted">' + esc(t('driver.captureHint')) + '</p>';
     html += '</div></div>';
 
@@ -672,21 +693,22 @@
 
   function captureDocument(tripId, btn) {
     clearMsg();
+    setCaptureMsg('');
     var input = byId('podFile');
     var select = byId('docType');
     var file = input && input.files ? input.files[0] : null;
-    if (!file) { setMsg(t('driver.error.choosePhoto'), 'err'); return; }
-    if (file.size <= 0) { setMsg(t('driver.error.emptyFile'), 'err'); return; }
-    if (file.size > MAX_UPLOAD_BYTES) { setMsg(t('driver.error.tooLarge'), 'err'); return; }
+    if (!file) { setCaptureMsg(t('driver.error.choosePhoto')); return; }
+    if (file.size <= 0) { setCaptureMsg(t('driver.error.emptyFile')); return; }
+    if (file.size > MAX_UPLOAD_BYTES) { setCaptureMsg(t('driver.error.tooLarge')); return; }
     var docType = select ? select.value : 'pod';
     var mimeType = guessMime(file.name, file.type);
-    if (!mimeType) { setMsg(t('driver.error.unsupportedType'), 'err'); return; }
+    if (!mimeType) { setCaptureMsg(t('driver.error.unsupportedType')); return; }
 
     btn.disabled = true;
     var capturedAt = new Date().toISOString();
     getPosition(6000).then(function (geo) {
       var capture = core.normalizeCapture({ capturedAt: capturedAt, geo: geo });
-      if (!capture.ok) { setMsg(t('error.invalidCapture', { detail: t(capture.detailKey) }), 'err'); return null; }
+      if (!capture.ok) { setCaptureMsg(t('error.badCapture')); return null; }
       var activeTrip = currentTrip();
       var willSatisfyPod = core.POD_DOC_TYPES.indexOf(docType) !== -1;
       var item = core.makeQueueItem({
@@ -727,8 +749,8 @@
         renderCurrentTrip();
         return syncQueue();
       });
-    }).catch(function (err) {
-      setMsg(t('driver.error.queueFailed', { detail: err.message }), 'err');
+    }).catch(function () {
+      setCaptureMsg(t('driver.error.queueFailed'));
     }).then(function () {
       btn.disabled = false;
     });
@@ -807,6 +829,10 @@
       });
       return chain.then(function () {
         var settled = results.filter(function (r) { return !r.stop; });
+        // Board #95: name the rejected items in the driver's language, never the
+        // raw error code + HTTP status (eila/requests#16 §3).
+        var queuedById = {};
+        state.queue.forEach(function (i) { queuedById[String(i.id)] = i; });
         var applied = core.applySyncResults(state.queue, settled);
         state.queue = applied.queue;
         state.lastError = applied.dropped.length ? (applied.dropped[0].error || 'rejected') : null;
@@ -817,8 +843,10 @@
           renderSync();
           if (applied.dropped.length) {
             setMsg(t('driver.sync.rejected', {
+              count: applied.dropped.length,
               list: applied.dropped.map(function (d) {
-                return (d.error || 'error') + ' (' + d.status + ')';
+                var item = queuedById[String(d.id)];
+                return item ? itemLabel(item) : t('common.none');
               }).join(', ')
             }), 'err');
           } else if (applied.sent.length) {

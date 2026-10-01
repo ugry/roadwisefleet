@@ -248,15 +248,21 @@
   }
   function clearMsg() { var el = $('globalMsg'); el.className = 'msg'; el.textContent = ''; }
 
+  // Board #95 (FAv1-SUP1b): never render a raw API code or HTTP status to a
+  // person — the user gets a sentence with a next step. The code/status stay in
+  // console.warn for debugging. Spec: eila/requests#16.
   function errorText(status, data) {
-    if (status === 401) return t('error.notAuthorised401');
-    if (status === 403) return t('error.forbidden403');
     var code = (data && data.error) || ('http_' + status);
+    if (status !== 200) console.warn('[roadwisefleet] request failed', status, code);
+    if (code === 'invalid_credentials') return t('error.invalidCredentials');
+    if (code === 'account_locked') return t('error.accountLocked');
+    if (status === 401) return t('error.sessionExpired');
+    if (status === 403 || code === 'forbidden' || code === 'no_org') return t('error.forbidden403');
     if (code === 'invalid_transition') {
-      return t('error.invalidTransition', { from: statusLabel(data.from), to: statusLabel(data.to) });
+      return t('error.invalidTransition', { from: statusLabel(data && data.from), to: statusLabel(data && data.to) });
     }
     if (code === 'invalid_status') return t('error.invalidStatus');
-    return t('error.http', { code: code, status: status });
+    return t('error.http');
   }
 
   function api(path, opts) {
@@ -439,8 +445,8 @@
         return;
       }
       renderTripDetail(r.data && r.data.trip ? r.data.trip : {});
-    }).catch(function (err) {
-      $('drawerBody').innerHTML = '<p class="msg err show">' + esc(t('error.networkDetail', { detail: err.message })) + '</p>';
+    }).catch(function () {
+      $('drawerBody').innerHTML = '<p class="msg err show">' + esc(t('error.network')) + '</p>';
     });
   }
 
@@ -513,9 +519,9 @@
         var url = new URL(link.url, window.location.origin).href;
         out.innerHTML = '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>';
       })
-      .catch(function (err) {
+      .catch(function () {
         btn.disabled = false;
-        out.textContent = t('error.networkDetail', { detail: err.message });
+        out.textContent = t('error.network');
       });
   }
 
@@ -532,7 +538,7 @@
         else { setMsg(t('dash.tripMoved', { id: id, to: statusLabel(to) }), 'ok'); }
         return loadTrips().then(function () { refreshOpenDrawer(id); });
       })
-      .catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); })
+      .catch(function () { setMsg(t('error.network'), 'err'); })
       .then(function () { btn.disabled = false; });
   }
 
@@ -550,7 +556,7 @@
         else showApp();
         setMsg(t('common.signedIn'), 'ok');
       })
-      .catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); });
+      .catch(function () { setMsg(t('error.network'), 'err'); });
   });
 
   $('createForm').addEventListener('submit', function (e) {
@@ -571,7 +577,7 @@
       $('createForm').reset();
       $('orderId').value = '';
       loadTrips();
-    }).catch(function (err) { setMsg(t('error.networkDetail', { detail: err.message }), 'err'); });
+    }).catch(function () { setMsg(t('error.network'), 'err'); });
   });
 
   $('refresh').addEventListener('click', function () { clearMsg(); loadTrips(); });
