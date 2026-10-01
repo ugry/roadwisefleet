@@ -45,7 +45,7 @@ fun TripsScreen(translator: Translator) {
 
     val trips by remember { container.repository.observeTrips() }.collectAsState(initial = emptyList())
     val outbox by remember { container.repository.observeOutbox() }.collectAsState(initial = emptyList())
-    val online by remember { container.connectivity.observe() }.collectAsState(initial = container.connectivity.isOnline()) }
+    val online by remember { container.connectivity.observe() }.collectAsState(initial = container.connectivity.isOnline())
     val syncState by container.syncEngine.state.collectAsState()
 
     var pendingConfirm by remember { mutableStateOf<String?>(null) }

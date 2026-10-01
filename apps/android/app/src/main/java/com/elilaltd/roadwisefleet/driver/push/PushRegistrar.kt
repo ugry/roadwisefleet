@@ -22,8 +22,7 @@ class PushRegistrar(private val context: Context) {
     suspend fun currentToken(): String? = withContext(Dispatchers.IO) {
         if (FirebaseApp.getApps(context).isEmpty()) return@withContext null
         try {
-            val app = FirebaseApp.getInstance()
-            Tasks.await(FirebaseMessaging.getInstance(app).token)
+            Tasks.await(FirebaseMessaging.getInstance().token)
         } catch (t: Throwable) {
             Log.w(TAG, "FCM token unavailable: ${t.javaClass.simpleName}")
             null

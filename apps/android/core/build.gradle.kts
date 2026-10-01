@@ -33,7 +33,9 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
-    implementation(libs.androidx.room.runtime)
+    // `api`, not `implementation`: :app holds RoadwiseDatabase and therefore
+    // needs RoomDatabase on its compile classpath.
+    api(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
