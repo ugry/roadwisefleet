@@ -16,6 +16,8 @@ composeBom = "2024.10.01"
 navigationCompose = "2.8.4"
 room = "2.6.1"
 coroutines = "1.9.0"
+work = "2.9.1"
+playServicesLocation = "21.3.0"
 firebaseBom = "33.5.1"
 googleServices = "4.4.2"
 junit = "4.13.2"
@@ -37,6 +39,10 @@ androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+# Board #106 (AND1-A4): the foreground location service uses FusedLocation and
+# WorkManager owns the batched flush/retry.
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
 junit = { module = "junit:junit", version.ref = "junit" }

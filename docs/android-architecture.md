@@ -291,6 +291,53 @@ ASSIGNED → EN_ROUTE (Start Trip) → AT_PICKUP → LOADED → IN_TRANSIT
 
 A4 (GPS upload) reads the `tracking` gate rather than inventing its own.
 
+## 9c. Background location tracking (A4, board #106)
+
+A4 turns the `tracking` gate from A3 into sampled positions, and is built around
+one owner constraint (2026-10-01): **10-minute cadence confirmed, but "I don't
+want app to drain phone."**
+
+- **Battery model — no always-on service.** Location sampling exists only for the
+  active-trip window. `TrackingScheduler.start` starts
+  `LocationTrackingService` on **Start Trip** and `stop` ends it at
+  `DELIVERED`/when the server reports `tracking_off`. There is no boot-persistent
+  location service; `TrackingBootReceiver` only resumes an *active* trip (the id
+  is kept in `TrackingStateStore`), and the first flush after a reboot that ends
+  the trip stops the window. From Android 12 the system may refuse a
+  background foreground-service start (Android 14 restricts location-typed
+  starts), so the boot attempt is best-effort and the window resumes when the
+  driver next opens the app.
+- **Cadence — foreground service, not WorkManager.** WorkManager's periodic floor
+  is 15 minutes, so the 10-minute sample uses a `FusedLocationProvider` request
+  with `PRIORITY_BALANCED_POWER_ACCURACY` and `SAMPLE_INTERVAL_MS = 10 min` in a
+  `foregroundServiceType="location"` service. No continuous GPS, no wake-locks.
+  `TrackingCore.isSampleDue` documents that 10 minutes is a *minimum* interval.
+  WorkManager owns only the **flush/retry** (`GpsFlushWorker`, 15-min periodic
+  plus a one-shot on each stored point and on boot), with a `CONNECTED`
+  constraint.
+- **Offline queue.** Samples go to Room (`gps_points`, v2). `GpsPointEntity`'s
+  primary key is the client-generated id (`TrackingCore.newClientId()`), which is
+  also the server's idempotency key (`GpsPing.clientId`, unique on
+  `(tripId, clientId)`). Replaying a batch after a dropped connection therefore
+  inserts nothing twice on either side (rule R28). `TrackingRepository.flush`
+  uploads per trip in server-sized batches, oldest first, marks accepted rows and
+  purges them; a `409 tracking_off` is terminal and stops tracking.
+- **API contract.** `POST /api/trips/:id/gps` is assigned-driver only and only
+  while `tracking = true`; it validates every point (`gps-ingest.js`) and fans
+  accepted points out on `GET /api/trips/:id/stream` (SSE, trip-scoped) and
+  `GET /api/track/:token/stream` (the read-only share link). The app sends
+  `{ points: [{ id, lat, lng, at, accuracyM? }] }`.
+- **Permissions.** `ACCESS_FINE_LOCATION` is the gate; `ACCESS_BACKGROUND_LOCATION`
+  (API 29+, a settings-page grant from API 30 — best-effort) covers a backgrounded
+  trip, `POST_NOTIFICATIONS` (API 33+) the required foreground notification, and
+  `FOREGROUND_SERVICE_LOCATION` (API 34+) the location service type. Play's
+  Data-Safety background-location justification is an OPS1/owner deliverable.
+- **Battery evidence.** A device/emulator measurement (idle vs active-trip
+  per-hour drain) cannot be produced on this host — there is no Android
+  toolchain (§10); the acceptance battery reading belongs to QA1 (#108). What A4
+  pins here is the *profile* that keeps the cost bounded: a single FGS that runs
+  only for the trip, a 10-minute balanced-power request, and batched uploads.
+
 ## 10. CI-first development (why there is no local build here)
 
 The estate has no usable local Android toolchain: `dl.google.com/android/
@@ -314,6 +361,10 @@ protected path; no A1 change touches it.
   auth code and in the trip-status mirror + new tracking package.
 - The trip-status mirror must be extended **with** the server machine in A3 —
   two state machines are not allowed to drift (`TripCoreTest` pins the pairs).
-- Room's `exportSchema` is off in A1; the first schema change turns it on.
-- Open: the Play Data Safety wording (OPS1/owner), the exact tracking upload
-  batching (A4), and the v4 menu set (`#110`/`#112`).
+- Room `exportSchema` is still off. The first schema change (v2, A4's
+  `gps_points`) ships an explicit `MIGRATION_1_2` in `RoadwiseDatabase.kt`;
+  turning `exportSchema` on and committing the schema JSON is the next schema
+  change's task.
+- The GPS batch shape is decided (A4, `gps-ingest.js` + `TrackingRepository`).
+- Open: the Play Data Safety wording (OPS1/owner), and the v4 menu set
+  (`#110`/`#112`).

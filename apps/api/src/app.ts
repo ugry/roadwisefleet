@@ -19,6 +19,7 @@ import { soloAppRoutes } from './routes/solo-app.js';
 import { soloRoutes } from './routes/solo.js';
 import { reviewRoutes } from './routes/reviews.js';
 import { serverOptions } from './server-options.js';
+import { createGpsHub } from './gps-stream.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,11 @@ export function buildServer() {
   // `routerOptions.maxParamLength` must exceed a real tracking token (~203
   // chars); the Fastify default (100) returned 414 before the handler ran.
   const app = Fastify(serverOptions());
+
+  // Realtime GPS fan-out (board task #106, AND1-A4): one in-process hub per
+  // server instance. The ingest route publishes accepted points; the SSE routes
+  // subscribe. Decorated here so a test can also subscribe/publish directly.
+  app.decorate('gpsHub', createGpsHub());
 
   app.register(healthRoutes);
   app.register(authRoutes, { prefix: '/api' });

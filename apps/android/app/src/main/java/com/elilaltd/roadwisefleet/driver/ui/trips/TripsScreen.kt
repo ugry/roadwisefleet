@@ -1,5 +1,8 @@
 package com.elilaltd.roadwisefleet.driver.ui.trips
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,14 +26,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.elilaltd.roadwisefleet.core.i18n.Translator
 import com.elilaltd.roadwisefleet.core.model.SyncState
 import com.elilaltd.roadwisefleet.core.model.Trip
+import com.elilaltd.roadwisefleet.core.model.TrackingCore
 import com.elilaltd.roadwisefleet.core.model.TripCore
 import com.elilaltd.roadwisefleet.core.model.TripStatus
 import com.elilaltd.roadwisefleet.driver.di.AppContainer
 import com.elilaltd.roadwisefleet.driver.di.LocalAppContainer
+import com.elilaltd.roadwisefleet.driver.tracking.TrackingPermissions
+import com.elilaltd.roadwisefleet.driver.tracking.TrackingScheduler
 import kotlinx.coroutines.launch
 
 /**
@@ -49,11 +56,51 @@ fun TripsScreen(translator: Translator) {
     val online by remember { container.connectivity.observe() }.collectAsState(initial = container.connectivity.isOnline())
     val syncState by container.syncEngine.state.collectAsState()
 
+    val current = trips.firstOrNull { !TripStatus.isTerminal(it.status) } ?: trips.firstOrNull()
+
     var pendingConfirm by remember { mutableStateOf<String?>(null) }
+    // Board #106 (AND1-A4): Start Trip needs location permission before the
+    // tracking window can open; the id is held while the system dialog is up.
+    var pendingStartTrip by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        val tripId = pendingStartTrip
+        pendingStartTrip = null
+        if (tripId != null && grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            scope.launch {
+                enqueuePhase(container, tripId, TripStatus.START_TRIP_STATUS)
+                TrackingScheduler.start(context, tripId)
+            }
+        }
+    }
+
+    // Start the tracking window for the one active trip, and stop it as soon as
+    // no trip has tracking on (delivered/cancelled) — no always-on service.
+    LaunchedEffect(current?.id, current?.tracking) {
+        val active = TrackingCore.activeTrip(trips)
+        if (active != null && TrackingPermissions.canTrack(context)) {
+            TrackingScheduler.start(context, active.id)
+        } else if (active == null) {
+            TrackingScheduler.stop(context)
+        }
+    }
+
+    val launchPhase: (String, String) -> Unit = { tripId, target ->
+        if (target == TripStatus.START_TRIP_STATUS && !TrackingPermissions.canTrack(context)) {
+            pendingStartTrip = tripId
+            permissionLauncher.launch(TrackingPermissions.required())
+        } else {
+            scope.launch {
+                enqueuePhase(container, tripId, target)
+                if (target == TripStatus.START_TRIP_STATUS) TrackingScheduler.start(context, tripId)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) { container.repository.refresh() }
-
-    val current = trips.firstOrNull { !TripStatus.isTerminal(it.status) } ?: trips.firstOrNull()
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -84,7 +131,7 @@ fun TripsScreen(translator: Translator) {
                         if (TripStatus.requiresConfirmation(target)) {
                             pendingConfirm = target
                         } else {
-                            scope.launch { enqueuePhase(container, current.id, target) }
+                            launchPhase(current.id, target)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -100,7 +147,7 @@ fun TripsScreen(translator: Translator) {
                             if (TripStatus.requiresConfirmation(target)) {
                                 pendingConfirm = target
                             } else {
-                                scope.launch { enqueuePhase(container, current.id, target) }
+                                launchPhase(current.id, target)
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -136,7 +183,7 @@ fun TripsScreen(translator: Translator) {
                         pendingConfirm = null
                         val tripId = current?.id
                         if (tripId != null) {
-                            scope.launch { enqueuePhase(container, tripId, confirmTarget) }
+                            launchPhase(tripId, confirmTarget)
                         }
                     },
                 ) { Text(translator.t("common.confirm")) }
