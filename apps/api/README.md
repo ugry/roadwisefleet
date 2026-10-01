@@ -90,9 +90,10 @@ validators, lane/date/equipment matching, the award plan and the tenancy
 predicates — board task #76; and the customer compare/award read model, the
 cancellation-term vocabulary, the auto-match rules + owner gate and the
 award/decline notices — board task #78), the solo driver core (signup/truck validation, the
-OTP gate, the verification state and the bidding rule `canBid`, own-customer and
-quick-job validation, the saved-search filter and the wallet-lite read model —
-board task #77) and the `/s/` static-serving rules, the self-service registration
+OTP gate, the verification state + per-paper trust marks and the `canBid` rule,
+which now ships open — board tasks #77/#96 — own-customer and
+quick-job validation, the saved-search filter and the wallet-lite read model)
+and the `/s/` static-serving rules, the self-service registration
 rules and their fixed-window rate limiter (board task #86 — the same validation
 the browser and `POST /api/auth/register` share), locale
 resolution and the pilot i18n catalogues) runs on the
@@ -145,12 +146,14 @@ shipper and carrier exchange structured counters → the shipper awards and the
 `403` on every object it may not own (and can still browse an open load) → an
 expired offer reads `EXPIRED` and cannot be awarded (`409`) → escrow is refused
 with the UXF-OWN1 reason → beacons publish, browse, rank and stay owner-scoped.
-It also drives the solo driver Connect MVP (board task #77) end to end in a
+It also drives the solo driver Connect MVP (board tasks #77/#96) end to end in a
 dedicated `qa-solo-*` org: signup creates the one-person carrier org, the `solo`
-role and the profile → an UNVERIFIED driver browses the board but is refused a
-bid (`403 verification_required`) → phone OTP completes and a wrong code is
-refused → once VERIFIED the driver bids, the shipper awards and the `Trip` lands
-in the driver's org with the driver assigned → the driver executes the statuses,
+role and the profile → an UNVERIFIED driver browses the board **and** bids (owner
+#73 q5: verification is optional) → phone OTP completes and a wrong code is
+refused → the trust marks stay truthful per paper (`pending` while in review) and
+flip to `verified` only after a real review → the driver bids, the shipper awards
+and the `Trip` lands in the driver's org with the driver assigned → the driver
+executes the statuses,
 uploads a POD (the `pod_required` gate included) and the wallet shows the payment
 status → a quick job for the driver's OWN customer (no shipper account) creates
 an order + trip and mints a **working** public tracking link → the beacon and the
@@ -238,8 +241,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `PATCH /api/solo/me` | bearer, `solo` | name / phone / truck specs; a changed phone resets its verification |
 | `POST /api/solo/otp` | bearer, `solo` | start phone verification; `devCode` only when `SOLO_OTP_RETURN_CODE` is set (the pilot has no SMS sender) |
 | `POST /api/solo/otp/verify` | bearer, `solo` | submit the 6-digit code (HMAC-stored, 10-minute TTL, 5 attempts) |
-| `GET /api/solo/verification` | bearer, `solo` | papers + state + the `bidGate` verdict |
-| `POST /api/solo/verification` | bearer, `solo` | upload a paper (`id` \| `licence` \| `vehicle_registration` \| `insurance`), base64 JSON; all four present moves the profile to `PENDING` |
+| `GET /api/solo/verification` | bearer, `solo` | papers + state + the per-type `badges` (ID / licence / registration: `supplied`, `status`, `verified`) + the `bidGate` verdict, which is now always `allowed` (board #96: verification is optional) |
+| `POST /api/solo/verification` | bearer, `solo` | upload a paper (`id` \| `licence` \| `vehicle_registration` \| `insurance`), base64 JSON; all four present moves the profile to `PENDING`. Upload/review is unchanged and never blocks bidding (board #96) |
 | `GET /api/solo/searches` | bearer, `solo` | saved load-feed filters |
 | `POST /api/solo/searches` | bearer, `solo` | save one (`name` + the known filter keys only) |
 | `DELETE /api/solo/searches/:id` | bearer, `solo` | remove one; a foreign id is a flat `404` |
@@ -1156,15 +1159,20 @@ foreign-key error. A one-person org is what the #76 award needs
 (`MarketplaceOffer.carrierOrgId` is required), which is why the solo driver gets
 one.
 
-**Bidding gate (owner gate #73 q5).** `canBid()` is the single rule and
-`BID_REQUIRES_VERIFICATION` ships the strict answer (browse freely, bid only when
-`VERIFIED`) so no guardrail is loosened while the owner's question is open.
-`routes/marketplace.ts` applies it to `solo` principals only — a fleet carrier is
-unaffected, and the read feed is never gated. Approving the papers is an
-**operator/owner** action: there is deliberately no self-service verify endpoint,
-so a driver can never approve himself past the gate. The client also refuses to
-send the request while the gate is closed (defence in depth; the server's `403`
-is the authority).
+**Verification is optional; per-paper trust marks (owner decision #73 q5, board
+#96).** A solo driver without the papers can still use the platform — browse AND
+bid. `canBid()` is the single rule and `BID_REQUIRES_VERIFICATION` ships
+`false`; the historical strict rule stays re-armable via
+`canBid(profile, { enforce: true })` and is still covered by tests, but no
+production path applies it (the offer path in `routes/marketplace.ts` has no
+`verification_required` refusal and the read feed was never gated). Uploading and
+reviewing the four papers is unchanged; `verificationState()` now also returns
+per-type `badges` for **ID / licence / registration** (`supplied`, `status`,
+`verified`) so the surface can show a truthful check mark per paper — a paper in
+review is `pending`, a missing one renders no mark, and a review is still an
+**operator/owner** action (there is deliberately no self-service verify
+endpoint). The bid button/handler still consult `canBid` (defence in depth), so
+re-arming the rule re-arms the client with it.
 
 **Phone OTP.** 6 digits, 10-minute TTL, 5 attempts; the code is stored as an
 HMAC derived from `AUTH_SECRET` and compared in constant time. The pilot has **no

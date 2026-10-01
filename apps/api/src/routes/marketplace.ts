@@ -7,7 +7,7 @@ import { statusForError } from '../http-errors.js';
 import { stripCredentialFields } from '../user-payload.js';
 import { sweepExpired } from '../marketplace-sweep.js';
 import * as market from '../marketplace.js';
-import { canBid, SOLO_ROLE } from '../../../../solo/lib/solo-core.js';
+import { SOLO_ROLE } from '../../../../solo/lib/solo-core.js';
 
 /*
  * Connect marketplace API (board task #76, UXF-M1).
@@ -324,20 +324,17 @@ export async function marketplaceRoutes(app: FastifyInstance) {
   app.post('/marketplace/loads/:id/offers', { preHandler: auth }, async (req, reply) => {
     const principal = await resolvePrincipal(req);
     if (!market.canSupply(principal.permissions)) return refuse(reply, 'forbidden');
-    // Solo driver gate (board task #77): an unverified solo driver may browse
-    // the board (GET /marketplace/loads is untouched) but may not bid. Applied
-    // only to solo principals, so fleet carriers are unaffected. Denies by
-    // default: a `solo` token without a profile row cannot bid.
+    // Solo driver profile (board tasks #77/#96). Owner decision #73 q5 makes
+    // driver verification OPTIONAL: an unverified solo driver may browse AND
+    // bid, so this path applies no verification refusal at all. The profile is
+    // still loaded because the compare facets below derive the carrier's truck
+    // and verified state from the driver's OWN row, never from the request body.
     let soloProfile: { verificationStatus: string; truckPlate: string | null } | null = null;
     if (principal.roleId === SOLO_ROLE) {
       soloProfile = await prisma.soloDriverProfile.findUnique({
         where: { userId: principal.userId },
         select: { verificationStatus: true, truckPlate: true },
       });
-      const gate = canBid(soloProfile);
-      if (!gate.allowed) {
-        return reply.code(403).send({ error: gate.error, messageKey: gate.messageKey });
-      }
     }
     if (!principal.orgId) {
       return reply.code(400).send({ error: 'org_required', detail: 'a carrier org is required to make an offer' });

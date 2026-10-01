@@ -49,7 +49,8 @@ export function buildServer() {
 
   // Solo driver Connect MVP API (board task #77, UXF-M2): signup, phone OTP,
   // verification papers, own customers, quick jobs and wallet-lite. The load
-  // feed/beacon/offer paths stay the marketplace's; only the bid gate is added.
+  // feed/beacon/offer paths stay the marketplace's; verification is optional
+  // (board #96) and only surfaces as per-paper check marks.
   app.register(soloRoutes, { prefix: '/api' });
 
   // Public customer tracking page: root path `/track/:token` (no auth, not

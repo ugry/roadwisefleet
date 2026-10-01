@@ -8,7 +8,7 @@
  * What this proves, and why it is the layer the dependency-free core test cannot
  * reach — it is the acceptance criteria of the task, in order:
  *   - signup creates the one-person carrier org, the `solo` role and the profile;
- *   - an UNVERIFIED driver browses the board freely but is refused a bid (403);
+ *   - an UNVERIFIED driver browses the board AND bids (owner #73 q5: optional);
  *   - phone OTP completes (dev-echo opt-in) and a wrong code is refused;
  *   - once VERIFIED, the driver bids, the shipper awards, and the award creates
  *     the Trip in the driver's org with the driver assigned;
@@ -257,21 +257,32 @@ if (!ready) {
     assert.equal(res.json().error, 'email_taken');
   });
 
-  test('an UNVERIFIED driver may browse the board but is refused a bid (403)', async () => {
+  test('an UNVERIFIED driver may browse AND bid — verification is optional (owner #73 q5)', async () => {
     const feed = await app.inject({ method: 'GET', url: '/api/marketplace/loads', headers: bearer(soloToken) });
     assert.equal(feed.statusCode, 200, feed.payload);
     assert.ok((feed.json().loads as Array<{ id: string }>).some((l) => l.id === loadId), 'the load is visible');
 
+    // No `verification_required` refusal on the offer path any more.
     const bid = await app.inject({
       method: 'POST',
       url: `/api/marketplace/loads/${loadId}/offers`,
       headers: bearer(soloToken),
-      payload: { priceEur: 1450 },
+      payload: { priceEur: 1400 },
     });
-    assert.equal(bid.statusCode, 403, bid.payload);
-    assert.equal(bid.json().error, 'verification_required');
-    assert.equal(bid.json().messageKey, 'solo.bid.unverified');
-    assert.equal(await prisma.marketplaceOffer.count({ where: { loadId } }), 0, 'nothing was written');
+    assert.equal(bid.statusCode, 201, bid.payload);
+    assert.equal(Number(bid.json().offer.priceEur), 1400, 'the offer carries the typed price (Decimal → string)');
+    assert.equal(bid.json().offer.carrierVerified, false, 'the compare facet stays truthful: not verified');
+    assert.equal(await prisma.marketplaceOffer.count({ where: { loadId, carrierUserId: soloUserId } }), 1, 'the offer is written');
+
+    // The profile shows no check marks yet: no paper is supplied.
+    const me = await app.inject({ method: 'GET', url: '/api/solo/me', headers: bearer(soloToken) });
+    assert.equal(me.statusCode, 200, me.payload);
+    const badges = (me.json().driver.verification.badges as Array<{ supplied: boolean; verified: boolean }>) || [];
+    assert.equal(badges.length, 3, 'the three check-mark papers');
+    for (const badge of badges) {
+      assert.equal(badge.supplied, false, 'nothing supplied yet');
+      assert.equal(badge.verified, false, 'no fake verified badge');
+    }
   });
 
   test('the phone OTP completes and a wrong code is refused', async () => {
@@ -292,7 +303,7 @@ if (!ready) {
     assert.equal(profile?.otpHash, null, 'the code hash is cleared after use');
   });
 
-  test('uploading all four papers moves the profile to PENDING and the gate still denies', async () => {
+  test('uploading all four papers moves the profile to PENDING and the trust marks stay truthful', async () => {
     for (const docType of ['id', 'licence', 'vehicle_registration', 'insurance']) {
       const res = await app.inject({
         method: 'POST',
@@ -307,7 +318,14 @@ if (!ready) {
     assert.equal(state.statusCode, 200, state.payload);
     assert.equal(state.json().verification.complete, true);
     assert.equal(state.json().verification.status, 'PENDING');
-    assert.equal(state.json().bidGate.allowed, false, 'PENDING is still not allowed to bid');
+    assert.equal(state.json().bidGate.allowed, true, 'verification is optional, so bidding stays open');
+    const badges = state.json().verification.badges as Array<{ docType: string; supplied: boolean; mark: string; verified: boolean }>;
+    assert.deepEqual(badges.map((b) => b.docType), ['id', 'licence', 'vehicle_registration']);
+    for (const badge of badges) {
+      assert.equal(badge.supplied, true, `${badge.docType} is supplied`);
+      assert.equal(badge.mark, 'pending', `${badge.docType} is in review — not faked as verified`);
+      assert.equal(badge.verified, false);
+    }
 
     // A non-document is refused (fail-fast, one field).
     const bad = await app.inject({
@@ -322,8 +340,15 @@ if (!ready) {
 
   test('once VERIFIED the driver bids; the award creates the Trip in his org with him assigned', async () => {
     // The operator/owner approves the papers (no self-service verify endpoint on
-    // purpose: a driver can never approve themselves past the gate).
+    // purpose: a driver can never approve himself). A real review marks the
+    // profile AND each paper, so the check marks become `verified`.
     await prisma.soloDriverProfile.update({ where: { userId: soloUserId }, data: { verificationStatus: 'VERIFIED' } });
+    await prisma.soloVerificationDoc.updateMany({ where: { driverId: soloUserId }, data: { status: 'VERIFIED' } });
+    const approved = await app.inject({ method: 'GET', url: '/api/solo/verification', headers: bearer(soloToken) });
+    for (const badge of approved.json().verification.badges as Array<{ docType: string; mark: string; verified: boolean }>) {
+      assert.equal(badge.mark, 'verified', `${badge.docType} shows a verified check mark`);
+      assert.equal(badge.verified, true);
+    }
 
     const bid = await app.inject({
       method: 'POST',
