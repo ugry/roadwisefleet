@@ -1,0 +1,83 @@
+flowchart TB
+    classDef persona fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef surface fill:#d0ebff,stroke:#1864ab,color:#000
+    classDef core fill:#e5dbff,stroke:#5f3dc4,color:#000
+    classDef money fill:#d3f9d8,stroke:#2b8a3e,color:#000
+    classDef rule fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef new fill:#b2f2bb,stroke:#2b8a3e,color:#000,stroke-width:2px
+    classDef off fill:#f1f3f5,stroke:#adb5bd,color:#000,stroke-dasharray:4 3
+
+    subgraph PEOPLE["PERSONAS — every transacting user is registered (q3)"]
+        direction LR
+        CUS["Customer /<br/>small firm"]:::persona
+        FLM["Fleet<br/>Manager"]:::persona
+        DRV["Employed<br/>Driver"]:::persona
+        SOL["Solo<br/>Driver"]:::persona
+        GUE["Unregistered party<br/>read-only link only"]:::off
+    end
+
+    subgraph SURF["SURFACES (menus in the Menus v2 diagram)"]
+        direction LR
+        CS["Customer portal<br/>+ WhatsApp"]:::surface
+        FS["Fleet web app"]:::surface
+        DA["Driver app"]:::surface
+        SA["Solo driver app"]:::surface
+        LK["No-login link<br/>tracking / POD / invoice"]:::off
+    end
+
+    subgraph BACK["SHARED BACKBONE — the information flow"]
+        direction TB
+        ORD["ORDER — demand<br/>route / cargo / dates / payment mode"]:::core
+        HM["HAULING MARKET<br/>beacons ↔ loads → offers → award<br/>auto-match NO LIMITS (q6)"]:::core
+        TRIP["TRIP — one execution object<br/>fleet and solo use the same record"]:::core
+        EV["STATUS EVENT BUS<br/>fan-out to docs / money / trust / notices"]:::core
+        DOCS["DOCUMENTS<br/>eCMR / POD / CMR"]:::core
+        MNY["MONEY<br/>carrier invoice | escrow 3%<br/>| fleet EUR20/mo + 1mo trial"]:::money
+        TRU["TRUST<br/>optional ID/Licence/Registration<br/>check marks | two-sided reviews 1/10"]:::core
+        NOT["NOTIFICATIONS<br/>push / email / SMS / WhatsApp"]:::surface
+    end
+
+    subgraph RULES["Core rules (v2)"]
+        direction LR
+        R1["Register to transact;<br/>link = read-only (q3)"]:::rule
+        R2["Payment per award:<br/>invoice or escrow 3% (q1)"]:::rule
+        R3["Verification opt-in,<br/>never blocks bidding (q5)"]:::rule
+        R4["Review ≤1 per 10 actions,<br/>both directions (q3)"]:::rule
+        R5["Carrier of record = the<br/>contracted carrier (q4)"]:::rule
+        R6["Trial ends → payment<br/>requested (q2)"]:::rule
+    end
+
+    CUS --> CS
+    FLM --> FS
+    DRV --> DA
+    SOL --> SA
+    GUE -.-> LK
+
+    CS --> ORD
+    FS --> ORD
+    SA --> HM
+    ORD --> HM
+
+    HM -->|"award"| TRIP
+    CS -->|"own carrier /<br/>contract"| TRIP
+    FS -->|"own fleet"| TRIP
+
+    TRIP --> EV
+    EV --> DOCS
+    EV --> MNY
+    EV --> TRU
+    EV --> NOT
+
+    DOCS --> LK
+    MNY --> LK
+    NOT --> GUE
+    NOT --> CUS
+    NOT --> FLM
+    NOT --> SOL
+    NOT --> DRV
+    TRU --> HM
+    MNY --> HM
+
+    RULES -.-> BACK
+    DEC["DECISIONS 2026-10-01 (#73):<br/>invoice+escrow both · escrow 3% · free handling between parties<br/>fleet EUR20/mo + 1mo trial (trial-end prompt) · registration mandatory (no guest booking)<br/>verification optional (ID/Licence/Registration check marks) · reviews random 1/10 two-sided<br/>auto-match no limits · marketplace renamed HAULING MARKET · browser-language selection"]:::new
+    DEC -.-> RULES

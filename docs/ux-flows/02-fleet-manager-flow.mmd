@@ -13,7 +13,7 @@ flowchart TD
         O2["Verify email + phone"]:::act
         O3["Upload transport licence + insurance<br/>→ company verification"]:::act
         O4{"Verified?"}:::dec
-        O5["Verified badge on profile<br/>(needed to bid in Connect)"]:::ok
+        O5["Verified badge on profile<br/>(needed to bid in Hauling Market)"]:::ok
         O6["Pending review — can still run<br/>own-fleet operations"]:::warn
         O7["Onboarding wizard"]:::act
         W1["Add first drivers — invite by SMS / email"]:::act
@@ -21,7 +21,7 @@ flowchart TD
         W3["Set rate cards per lane (optional)"]:::act
         W4["Enable regional modules:<br/>EU eCMR · tacho · TR · others"]:::act
         W5["Invite team: Dispatcher · Accountant"]:::act
-        W6["Connect toggle: publish my empty capacity"]:::act
+        W6["Hauling Market toggle: publish my empty capacity"]:::act
         O1 --> O2 --> O3 --> O4
         O4 -->|"yes"| O5 --> O7
         O4 -->|"no"| O6 --> O7
@@ -39,7 +39,7 @@ flowchart TD
         M7["⑦ Compliance"]:::menu
         M8["⑧ Finance"]:::menu
         M9["⑨ Analytics"]:::menu
-        M10["⑩ Connect — marketplace"]:::menu
+        M10["⑩ Hauling Market — marketplace"]:::menu
         M11["⑪ Settings"]:::menu
     end
 
@@ -59,13 +59,13 @@ flowchart TD
         DP1["Dispatch board: columns by status<br/>(New · Assigned · At pickup · In transit · Delivered)"]:::act
         DP2{"Where does the order come from?"}:::dec
         DP3["Own customer (registered or off-platform)<br/>— see Customers menu"]:::act
-        DP4["Connect marketplace load<br/>— browse / accept (backhaul)"]:::act
+        DP4["Hauling Market marketplace load<br/>— browse / accept (backhaul)"]:::act
         DP5["API / ERP push (POST /v1/orders)"]:::act
         DP6["Repeat a past trip in 1 click"]:::act
         DP7["Assign driver + truck:<br/>availability AVAILABLE / ON_TRIP / OFF_DUTY / SICK;<br/>truck not in maintenance"]:::act
         DP8{"Driver accepts the offer?"}:::dec
         DP9["Driver accepted → trip ASSIGNED"]:::ok
-        DP10["Declined / expired → pick next driver<br/>or broadcast to Connect partners"]:::warn
+        DP10["Declined / expired → pick next driver<br/>or broadcast to Hauling Market partners"]:::warn
         DP11["Return-load match: empty truck near a load →<br/>offer to driver for the way back"]:::act
         DP12["Monitor: geofence arrival, ETA drift,<br/>detention timer, docs missing"]:::act
         DP13{"Exception?"}:::dec
@@ -115,7 +115,7 @@ flowchart TD
         DR4["Scorecard: on-time %, delivered count,<br/>avg delay, tenure — drives bonuses"]:::act
         DR5["Advances and settlements"]:::money
         DR6["Invite new driver (SMS / email link + OTP)"]:::act
-        DR7["Recruit via Connect: post a driver vacancy<br/>(Find drivers)"]:::act
+        DR7["Recruit via Hauling Market: post a driver vacancy<br/>(Find drivers)"]:::act
         DR8["Suspend / reactivate"]:::warn
         DR1 --> DR2 --> DR3 --> DR4 --> DR5
         DR1 --> DR6 --> DR7
@@ -171,7 +171,7 @@ flowchart TD
         FI4["Expense approvals (fuel · toll · food)"]:::money
         FI5["Trip profitability + cost per km"]:::money
         FI6["Export to accounting (CSV / XML)"]:::money
-        FI7["Escrow payouts from Connect loads"]:::money
+        FI7["Escrow payouts from Hauling Market loads"]:::money
         FI1 --> FI2 --> FI3 --> FI4 --> FI5 --> FI6 --> FI7
     end
     M8 --> FI1
@@ -188,14 +188,14 @@ flowchart TD
     M9 --> A1
 
     %% ================= CONNECT =================
-    subgraph CONN["⑩ Connect — buy capacity, sell capacity, find partners"]
+    subgraph CONN["⑩ Hauling Market — buy capacity, sell capacity, find partners"]
         CN1["Company profile: fleet size, lanes,<br/>verification badge, ratings"]:::act
         CN2["Publish capacity beacons: truck empty in X,<br/>heading Y, from when"]:::act
         CN3["Browse posted loads → bid / instant-book<br/>(backhaul instead of driving empty)"]:::act
         CN4["Post a load I cannot cover →<br/>subcontract to verified partner or solo driver"]:::act
         CN5["Partners: trusted carriers list,<br/>ratings given and received"]:::act
         CN6["Escrow / payment guarantee for partner loads"]:::money
-        CN7{"Connect on or off?"}:::dec
+        CN7{"Hauling Market on or off?"}:::dec
         CN7 -->|"on"| CN2
         CN7 -->|"off"| CN0["Private mode — own customers only"]:::warn
         CN1 --> CN7
