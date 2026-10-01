@@ -38,6 +38,14 @@ class ApiClient(
     suspend fun postStatus(tripId: String, to: String): ApiResult<Unit> =
         request("POST", "/api/trips/$tripId/status", JSONObject().put("status", to).toString()).map { }
 
+    /**
+     * Start Trip (board #105): the dedicated driver action that moves
+     * ASSIGNED → EN_ROUTE and turns live GPS tracking on. Distinct from
+     * [postStatus] on purpose — only this endpoint flips the tracking flag.
+     */
+    suspend fun startTrip(tripId: String): ApiResult<Unit> =
+        request("POST", "/api/trips/$tripId/start", "{}").map { }
+
     suspend fun postDocument(tripId: String, payloadJson: String): ApiResult<Unit> =
         request("POST", "/api/trips/$tripId/documents", payloadJson).map { }
 

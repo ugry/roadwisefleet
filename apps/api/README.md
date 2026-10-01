@@ -194,8 +194,9 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required); the optional `plannedAt` (ISO-8601) records the promised delivery time on the order in the same transaction (board task #66) |
-| `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66), in the same transaction as the status event; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
-| `POST /api/trips/:id/assign` | bearer, `trip:*` (owner/dispatcher) | assign or reassign the trip's driver (`driverId` required). The change keeps the trip's status and is recorded as a status event naming the acting user (board task #36). `403` for a driver, `409 trip_closed` on a terminal trip, `409 already_assigned` for the current driver, `409 driver_unavailable` for a suspended/locked (or non-driver) assignee, `400 driver_not_found` for an unknown one |
+| `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66) and clears `Trip.tracking`, while the `EN_ROUTE` move (Start Trip) sets `Trip.tracking = true` — both in the same transaction as the status event (board task #105); rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403`, and a move that would double-book the driver with `409 driver_busy` |
+| `POST /api/trips/:id/start` | bearer, `trip:status` + **assigned driver only** | Start Trip (board task #105): the driver's current-assignment action that moves `ASSIGNED → EN_ROUTE` **and** turns live GPS tracking on (`Trip.tracking = true`, `Trip.trackingStartedAt = now`) in one transaction with the status event. A non-assigned driver (or an owner/dispatcher token) is `403`; any status other than `ASSIGNED` is `400 invalid_transition`; unknown/foreign-org trip is `404` |
+| `POST /api/trips/:id/assign` | bearer, `trip:*` (owner/dispatcher) | assign or reassign the trip's driver (`driverId` required). The change keeps the trip's status and is recorded as a status event naming the acting user (board task #36). `403` for a driver, `409 trip_closed` on a terminal trip, `409 already_assigned` for the current driver, `409 driver_unavailable` for a suspended/locked (or non-driver) assignee, `409 driver_busy` when the assignee already has an active trip (board task #105), `400 driver_not_found` for an unknown one |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
 | `GET /api/reference` | bearer, `trip:create` | every create-trip option list in one call (orders, drivers, trucks, customers) |
 | `GET /api/orders` | bearer, `trip:create` | org orders with the customer name folded in |
@@ -688,6 +689,7 @@ than one that says why:
 | Terminal trip (`SETTLED`/`CANCELLED`) | `409 trip_closed` |
 | The driver already on the trip | `409 already_assigned` |
 | Locked/suspended driver, or a non-driver user | `409 driver_unavailable` |
+| The driver already has an active trip (#105) | `409 driver_busy` |
 | Unknown user in the org | `400 driver_not_found` |
 
 "Suspended/unavailable" is the schema's lock state (`User.lockedUntil` in the
@@ -705,6 +707,53 @@ driver is refused on the trip and no longer sees it, the new driver does) plus
 the timeline actor; `scratch/verify-trips-view.js` section 7 drives the real
 `app.js` (control rendered, current driver preselected, exact body POSTed,
 detail re-fetched, reassignment named on the timeline).
+
+### Driver phases & Start Trip (board task #105, AND1-A3)
+The driver walks the trip through explicit phases on the current-assignment
+card, and **Start Trip** is the moment live tracking begins. The lifecycle is
+now:
+
+```
+DRAFT → ASSIGNED → EN_ROUTE → AT_PICKUP → LOADED → IN_TRANSIT
+      → AT_DELIVERY → DELIVERED → POD_UPLOADED → INVOICED → SETTLED
+```
+
+`EN_ROUTE`, `AT_PICKUP` and `AT_DELIVERY` extend the one state machine in
+`src/trip-status.js` — the pre-existing jump edges (`ASSIGNED → LOADED`,
+`IN_TRANSIT → DELIVERED`) are kept so dispatcher flows and trips dispatched
+before the phases existed keep working. `CANCELLED` is still reachable only from
+`DRAFT`/`ASSIGNED`.
+
+- **Start Trip** is the dedicated `POST /api/trips/:id/start`: assigned driver
+  only, legal only from `ASSIGNED`. It moves the trip to `EN_ROUTE` and sets
+  `Trip.tracking = true` + `Trip.trackingStartedAt`, in the same transaction as
+  the status event. The `EN_ROUTE` transition is the *only* one that turns
+  tracking on, and `DELIVERED` is the only one that turns it off — so the flag
+  can never disagree with the status. The migration
+  `20261001183000_add_trip_tracking` adds the two columns (additive: one
+  defaulted boolean, one nullable timestamp).
+- **Exactly one active assignment per driver.** The statuses
+  `ASSIGNED, EN_ROUTE, AT_PICKUP, LOADED, IN_TRANSIT, AT_DELIVERY` are "in
+  flight"; a transition into one of them, or an `assign`, for a driver who
+  already has another in-flight trip is refused with `409 driver_busy`
+  (`driverHasActiveTrip` in `trips-core.js`). A trip that is `DRAFT` (nothing
+  started) or `DELIVERED`+ (only back-office work left) does not occupy the
+  driver.
+- **App.** The Android shell (`apps/android`) mirrors the phases in
+  `core/.../TripStatus.kt` and `TripsScreen` renders the next driver phase as
+  the primary button, with **Start Trip** prominent for an `ASSIGNED` trip and
+  queued through the dedicated endpoint (`OutboxKind.START`) so it works
+  offline-first like every other write.
+
+Pure logic: `src/trip-status.js` (`TRANSITIONS`, `DRIVER_PHASES`,
+`ACTIVE_ASSIGNMENT_STATUSES`, `START_TRIP_STATUS`, `isActiveAssignment`) and
+`src/trips-core.js#startTrip` / `#driverHasActiveTrip`. Tests:
+`src/trip-status.test.js`, `src/trips-core.test.js`,
+`src/trip-assignment.test.js` in the no-install CI job; `test/trip-phases.test.ts`
+(`pnpm test:router`) drives the real route against the DB (assigned driver 200 +
+persisted tracking, non-assigned driver 403, illegal move 400, double-booking
+409). The Android mirror is pinned by `TripCoreTest.kt` and the locale parity
+guard `apps/android/tools/check-locales.mjs`.
 
 ### Documents UI (board task #37, FAv1-F6)
 The trip-detail screen now carries the documents panel the API already backed

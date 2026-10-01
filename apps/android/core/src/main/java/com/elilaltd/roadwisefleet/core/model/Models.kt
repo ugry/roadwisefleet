@@ -62,7 +62,10 @@ object OutboxKind {
     const val STATUS = "status"
     const val DOCUMENT = "document"
     const val SOS = "sos"
-    val ALL = listOf(STATUS, DOCUMENT, SOS)
+
+    /** Start Trip (board #105): POST /api/trips/:id/start, no body. */
+    const val START = "start"
+    val ALL = listOf(STATUS, DOCUMENT, START, SOS)
 }
 
 /** One checklist row — mirrors `driver-core.js#documentChecklist`. */

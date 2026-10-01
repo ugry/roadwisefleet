@@ -250,6 +250,11 @@ model Trip {
   trackLinkVersion   Int       @default(0)
   trackLinkIssuedAt  DateTime?
   trackLinkExpiresAt DateTime?
+  // Live GPS tracking (board task #105, AND1-A3): Start Trip (ASSIGNED →
+  // EN_ROUTE) sets `tracking` true and stamps `trackingStartedAt`; DELIVERED
+  // clears it. Default false so every pre-existing trip keeps its behaviour.
+  tracking          Boolean   @default(false)
+  trackingStartedAt DateTime?
   createdAt          DateTime  @default(now())
 
   documents    Document[]

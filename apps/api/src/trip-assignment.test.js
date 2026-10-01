@@ -54,7 +54,15 @@ function makeFakePrisma() {
     events: /** @type {any[]} */ ([]),
   };
   const match = (row, where) =>
-    Object.entries(where ?? {}).every(([key, value]) => row[key] === value);
+    Object.entries(where ?? {}).every(([key, value]) => {
+      // Prisma filter operators used by the core (board task #105): `in` for the
+      // active-status set and `not` to exclude the trip being changed.
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        if ('in' in value) return value.in.includes(row[key]);
+        if ('not' in value) return row[key] !== value.not;
+      }
+      return row[key] === value;
+    });
   const client = {
     state,
     trip: {
@@ -231,4 +239,33 @@ test('an invalid body is refused before the trip is even read', async () => {
   const result = await assignDriver(prisma, { orgId: 'org1', tripId: 'ghost', body: {}, actor: OWNER });
   assert.equal(result.error, 'invalid_input');
   assert.match(result.detail, /driverId/);
+});
+
+test('a driver already on an active trip is not double-booked (#105)', async () => {
+  const prisma = makeFakePrisma();
+  // d2 is already on an in-flight trip; putting them on t1 as well must not
+  // silently double-book them.
+  prisma.state.trips.push({ id: 't-d2-active', orgId: 'org1', status: 'EN_ROUTE', driverId: 'd2' });
+  const result = await assignDriver(prisma, {
+    orgId: 'org1',
+    tripId: 't1',
+    body: { driverId: 'd2' },
+    actor: OWNER,
+    now: NOW,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'driver_busy');
+  assert.equal(prisma.state.trips.find((t) => t.id === 't1').driverId, 'd1', 'the trip is untouched');
+  assert.equal(prisma.state.events.length, 0, 'no event for a refused assignment');
+
+  // A DRAFT trip that is not yet active may still name a busy driver: the gate
+  // fires when the assignment becomes active, not when it is planned.
+  const drafted = await assignDriver(prisma, {
+    orgId: 'org1',
+    tripId: 't-draft',
+    body: { driverId: 'd2' },
+    actor: OWNER,
+    now: NOW,
+  });
+  assert.equal(drafted.ok, true);
 });

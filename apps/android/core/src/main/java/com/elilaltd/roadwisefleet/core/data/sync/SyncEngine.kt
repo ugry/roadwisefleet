@@ -91,6 +91,8 @@ class SyncEngine(
     private suspend fun send(item: OutboxItem): SendResult = when (item.kind) {
         OutboxKind.STATUS -> result(item.id, api.postStatus(item.tripId, statusFrom(item.payloadJson)))
         OutboxKind.DOCUMENT -> result(item.id, api.postDocument(item.tripId, item.payloadJson))
+        // Board #105: Start Trip uses the dedicated tracking endpoint.
+        OutboxKind.START -> result(item.id, api.startTrip(item.tripId))
         OutboxKind.SOS -> result(item.id, api.postSos(item.payloadJson))
         else -> SendResult(item.id, ok = false, status = null, error = "unknown_kind")
     }

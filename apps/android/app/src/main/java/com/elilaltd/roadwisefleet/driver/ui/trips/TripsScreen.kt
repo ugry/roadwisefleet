@@ -10,6 +10,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -71,13 +72,19 @@ fun TripsScreen(translator: Translator) {
         } else {
             TripCard(current, translator)
             Text(translator.t("driver.updateStatus"), style = MaterialTheme.typography.titleMedium)
-            TripStatus.nextLegalStatuses(current.status).forEach { target ->
+            // Board #105 (AND1-A3): the next driver phase is the PRIMARY action
+            // — for an ASSIGNED trip that is Start Trip (EN_ROUTE), which is
+            // prominent here and goes through the dedicated tracking endpoint.
+            // The remaining successors (e.g. the legal jump to LOADED, or the
+            // CANCELLED escape hatch) stay available as secondary actions.
+            val primaryPhase = TripStatus.nextPhase(current.status)
+            primaryPhase?.let { target ->
                 Button(
                     onClick = {
                         if (TripStatus.requiresConfirmation(target)) {
                             pendingConfirm = target
                         } else {
-                            scope.launch { enqueueAndSync(container, current.id, target) }
+                            scope.launch { enqueuePhase(container, current.id, target) }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -85,6 +92,22 @@ fun TripsScreen(translator: Translator) {
                     Text(translator.t("driver.action.$target"))
                 }
             }
+            TripStatus.nextLegalStatuses(current.status)
+                .filter { it != primaryPhase }
+                .forEach { target ->
+                    OutlinedButton(
+                        onClick = {
+                            if (TripStatus.requiresConfirmation(target)) {
+                                pendingConfirm = target
+                            } else {
+                                scope.launch { enqueuePhase(container, current.id, target) }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(translator.t("driver.action.$target"))
+                    }
+                }
             if (TripStatus.isTerminal(current.status)) {
                 Text(translator.t("driver.closed"), style = MaterialTheme.typography.bodyMedium)
             }
@@ -113,7 +136,7 @@ fun TripsScreen(translator: Translator) {
                         pendingConfirm = null
                         val tripId = current?.id
                         if (tripId != null) {
-                            scope.launch { enqueueAndSync(container, tripId, confirmTarget) }
+                            scope.launch { enqueuePhase(container, tripId, confirmTarget) }
                         }
                     },
                 ) { Text(translator.t("common.confirm")) }
@@ -127,8 +150,14 @@ fun TripsScreen(translator: Translator) {
     }
 }
 
-private suspend fun enqueueAndSync(container: AppContainer, tripId: String, target: String) {
-    container.repository.enqueueStatus(tripId, target)
+private suspend fun enqueuePhase(container: AppContainer, tripId: String, target: String) {
+    // Board #105: Start Trip (EN_ROUTE) is the one action with its own endpoint
+    // — it also turns live tracking on. Every other phase is a status change.
+    if (target == TripStatus.START_TRIP_STATUS) {
+        container.repository.enqueueStart(tripId)
+    } else {
+        container.repository.enqueueStatus(tripId, target)
+    }
     container.syncEngine.syncNow()
 }
 
