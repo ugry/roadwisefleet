@@ -73,8 +73,13 @@ Custody:
 
 - **Triggers:** `workflow_dispatch` (with a `track` choice), tags `android-v*`,
   and PRs that touch `apps/android/**` or the workflow itself.
-- **Gate:** the build job runs only when `apps/android/gradlew` exists, so it is
-  a clean skip until A1 lands and can never redden CI before then.
+- **Gate:** a step-level check for `apps/android/gradlew` runs first; when the A1
+  scaffold is absent every build step is skipped, so it is a clean no-op until A1
+  lands and can never redden CI. The check must stay **step-level**:
+  `hashFiles()` needs the checked-out workspace, so a job-level `if` that calls it
+  makes the whole workflow file invalid ("Unrecognized function: 'hashFiles'")
+  and GitHub marks *every* push with a failed run. That defect shipped once on
+  board #109; the guard rejects it (§7).
 - **Signing:** the keystore is decoded from `ANDROID_KEYSTORE_BASE64` into the
   runner temp dir, consumed via AGP's injected-signing properties, and deleted
   in an `always()` step. When the four secrets are absent the job builds an
@@ -155,10 +160,11 @@ requires, for a 10-minute background location foreground service:
 - `--self-test` proves each rejection (a tracked keystore, a private key under
   an innocent filename, a `.gitignore` gap, an inline base64 blob, a signing
   value taken from `vars` instead of `secrets`, an ungated workflow, a missing
-  workflow).
+  workflow, and a **job-level `if` calling `hashFiles()`** — the invalid-workflow
+  defect from board #109).
 - Repo mode is the CI gate: no signing material by name or content, `.gitignore`
-  coverage, and a gated / least-privilege / secrets-only release workflow whose
-  secret names match this file.
+  coverage, and a gated / least-privilege / secrets-only release workflow with no
+  job-level `hashFiles()` `if`, whose secret names match this file.
 
 CI job `android-release-check` in `ci.yml` (self-test + repo check).
 
