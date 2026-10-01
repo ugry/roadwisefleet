@@ -10,8 +10,8 @@ flowchart TD
     %% ================= STAGE 0 — ACTIVATION =================
     subgraph ACT["STAGE 0 — Getting the driver in (invite by the fleet)"]
         I1["Invite arrives: SMS / email link<br/>from the fleet"]:::entry
-        I2["Open link → phone number OTP"]:::act
-        I3["Create password (or phone-only login)"]:::act
+        I2["First login: password or phone OTP"]:::act
+        I3["Device key bound in the Android Keystore;<br/>later logins are passwordless (challenge → sign)"]:::act
         I4["Profile: name, photo, language<br/>(EN / DE / PL / TR / …)"]:::act
         I5["Upload documents: ID · driving licence ·<br/>CPC · medical · ADR (optional)"]:::act
         I6{"Fleet verifies the documents"}:::dec
@@ -35,31 +35,33 @@ flowchart TD
     end
 
     %% ================= TRIPS =================
-    subgraph TRIPS["① Trips — one thumb, big buttons"]
-        T1["Current trip card: route, cargo,<br/>pickup / delivery, ETA, checkpoints"]:::act
+    subgraph TRIPS["① Trips — the phase console (one current assignment)"]
+        T1["Current assignment card: route, cargo,<br/>pickup / delivery, ETA, checkpoints<br/>(exactly one active assignment per driver)"]:::act
         T2["Required-documents badge<br/>(eCMR · POD · customs)"]:::act
         T2 --> DOCS
-        T3{"Next legal status?"}:::dec
-        S_ACC["Accept assignment"]:::act
-        S_ENR["En route to pickup"]:::act
-        S_ARR["Arrived at pickup<br/>(geofence auto-detects)"]:::act
-        S_LOA["Loaded — confirm with photo / CMR"]:::act
-        S_DEP["Departed → In transit"]:::act
-        S_DLV["Arrived at delivery"]:::act
-        S_DEL["Delivered — irreversible, confirm dialog"]:::warn
-        S_POD["Capture POD → trip moves to POD_UPLOADED"]:::ok
+        T3{"Next legal phase?"}:::dec
+        S_ACC["ASSIGNED — Accept assignment"]:::act
+        S_START["START TRIP → EN_ROUTE<br/>tracking = true (button on the card)"]:::ok
+        S_ARR["AT PICKUP — arrived<br/>(geofence auto-detects or driver taps)"]:::act
+        S_LOA["LOADED — confirm with photo / CMR"]:::act
+        S_DEP["IN TRANSIT — depart"]:::act
+        S_DLV["AT DELIVERY — arrived"]:::act
+        S_DEL["DELIVERED — irreversible, confirm dialog<br/>tracking = false"]:::warn
+        S_POD["POD UPLOADED — capture POD"]:::ok
         T1 --> T3
-        T3 --> S_ACC --> S_ENR --> S_ARR --> S_LOA --> S_DEP --> S_DLV --> S_DEL --> S_POD
+        T3 --> S_ACC --> S_START --> S_ARR --> S_LOA --> S_DEP --> S_DLV --> S_DEL --> S_POD
         T4["Detention timer: starts at shipper geofence,<br/>stops on load — feeds the accessorial claim"]:::money
         T5["Checkpoints: navigate · mark arrival · report problem"]:::act
         T6["Return-load offers for the way back<br/>(accept / decline / ask question)"]:::act
         T7["Trip history + earnings per trip"]:::act
         T8["Offline: taps queue locally,<br/>sync when signal returns"]:::warn
+        T9["Background tracking: 10-minute samples ONLY while<br/>tracking = true; batched upload, stops at DELIVERED"]:::warn
         T1 --> T4
         T1 --> T5
         T1 --> T6
         T1 --> T7
         T1 --> T8
+        T1 --> T9
     end
     M1 --> T1
 

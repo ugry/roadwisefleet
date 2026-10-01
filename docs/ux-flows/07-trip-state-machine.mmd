@@ -13,7 +13,7 @@ flowchart TD
         S4["OFFERS IN<br/>fleets / solo drivers bid"]:::pre
         S5["AWARDED<br/>counterparty chosen; Trip created"]:::pre
         S6["ASSIGNED<br/>driver + truck picked; offer sent"]:::pre
-        S7["ACCEPTED BY DRIVER<br/>trip is now owned"]:::pre
+        S7["ACCEPTED BY DRIVER<br/>trip owned; one active assignment per driver"]:::pre
         S1 -->|"customer submits / WhatsApp / API"| S2
         S2 -->|"FM: send to marketplace"| S3
         S3 -->|"supply responds"| S4
@@ -23,18 +23,18 @@ flowchart TD
         S6 -->|"driver taps Accept"| S7
     end
 
-    subgraph EX["EXECUTION — the truck moves"]
-        E1["EN ROUTE TO PICKUP<br/>driver driving; shipper tracking live"]:::exec
-        E2["ARRIVED AT PICKUP<br/>geofence detect or driver taps"]:::exec
+    subgraph EX["EXECUTION — the truck moves (driver phase console)"]
+        E1["EN_ROUTE<br/>Start Trip sets Trip.tracking = true<br/>shipper tracking live; 10-min samples"]:::exec
+        E2["AT_PICKUP<br/>geofence detect or driver taps"]:::exec
         E3["LOADED<br/>photo / CMR check; detention timer stops"]:::exec
-        E4["IN TRANSIT<br/>rest-time rules apply; ETA streams"]:::exec
-        E5["ARRIVED AT DELIVERY<br/>geofence detect or driver taps"]:::exec
-        E6["DELIVERED<br/>driver confirms — irreversible"]:::exec
-        E7["POD UPLOADED<br/>photo + e-signature"]:::done
+        E4["IN_TRANSIT<br/>rest-time rules apply; ETA streams"]:::exec
+        E5["AT_DELIVERY<br/>geofence detect or driver taps"]:::exec
+        E6["DELIVERED<br/>driver confirms — irreversible;<br/>Trip.tracking = false (location stops)"]:::exec
+        E7["POD_UPLOADED<br/>photo + e-signature"]:::done
         E8["DOCS COMPLETE<br/>eCMR / customs / invoice source"]:::done
         E1 --> E2 --> E3 --> E4 --> E5 --> E6 --> E7 --> E8
     end
-    S7 -->|"driver departs"| E1
+    S7 -->|"driver taps Start Trip → tracking = true"| E1
 
     subgraph FIN["FINANCIAL CLOSE"]
         F1["INVOICED<br/>built from POD + accessorials"]:::post
@@ -72,4 +72,4 @@ flowchart TD
     A6 -->|"released"| E5
     A7 -->|"settled"| F4
 
-    RULES["WHO CAN MOVE WHAT<br/>customer: cancel before pickup · change request · award<br/>FM/dispatcher: assign · reassign · cancel · enter statuses for off-platform drivers<br/>driver: accept · arrival · load · depart · deliver · POD (nothing else)<br/>system: geofence arrivals · delays · expiry · payment release on POD"]:::dec
+    RULES["WHO CAN MOVE WHAT<br/>customer: cancel before pickup · change request · award<br/>FM/dispatcher: assign · reassign · cancel · enter statuses for off-platform drivers<br/>driver: accept · start trip (ASSIGNED → EN_ROUTE, sets Trip.tracking = true) · arrival · load · depart · deliver · POD (nothing else)<br/>system: geofence arrivals · delays · expiry · payment release on POD · tracking auto-off at DELIVERED<br/>tracking: on only between EN_ROUTE and AT_DELIVERY (battery-gated) · one active assignment per driver"]:::dec

@@ -2,39 +2,72 @@ flowchart LR
     classDef root fill:#212529,stroke:#000,color:#fff
     classDef menu fill:#f8f9fa,stroke:#868e96,color:#000
     classDef new fill:#b2f2bb,stroke:#2b8a3e,color:#000,stroke-width:2px
+    classDef paid fill:#ffe8cc,stroke:#e8590c,color:#000
     classDef off fill:#f1f3f5,stroke:#adb5bd,color:#000,stroke-dasharray:4 3
 
-    subgraph CUSTOMER["CUSTOMER / SMALL FIRM — portal + WhatsApp (registered)"]
+    subgraph SIGNUP["SIGN-UP — pick one of three account types (owner 2026-10-01)"]
+        direction TB
+        G0["Register"]:::root
+        G1["As a customer<br/>free"]:::new
+        G2["As a fleet<br/>EUR 20/mo after 1-mo trial"]:::paid
+        G3["As a solo truck driver<br/>free"]:::new
+        G0 --> G1
+        G0 --> G2
+        G0 --> G3
+    end
+
+    subgraph CUSTOMER["CUSTOMER / SMALL FIRM — portal + WhatsApp (free)"]
         C0["Customer"]:::root
         C1["Book a load<br/>fleet / solo / auto-match / own carrier / contract"]:::menu
         C2["Shipments<br/>track / share link / change"]:::menu
         C3["Documents<br/>POD / eCMR / invoice"]:::menu
         C4["Payments<br/>invoice OR escrow 3%"]:::menu
         C5["My carriers"]:::menu
-        C6["Reviews (sampled)"]:::new
+        C6["Reviews (sampled, 1/10)"]:::new
         C7["Account"]:::menu
+        C0 --> C1
+        C0 --> C2
+        C0 --> C3
+        C0 --> C4
+        C0 --> C5
+        C0 --> C6
+        C0 --> C7
     end
 
-    subgraph FLEET["FLEET MANAGER — web app (registered)"]
+    subgraph FLEET["FLEET MANAGER — web app (EUR 20/mo, 1-mo trial)"]
         F0["Fleet Manager"]:::root
         F1["Dashboard / Dispatch / Trips"]:::menu
-        F2["Drivers / Vehicles / Customers"]:::menu
-        F3["Compliance / Finance / Analytics"]:::menu
-        F4["HAULING MARKET<br/>marketplace"]:::new
-        F5["Billing and Plan<br/>trial, EUR 20/mo"]:::new
-        F6["Settings<br/>roles / rates / API / i18n"]:::menu
+        F2["Drivers — CREATE / invite their accounts"]:::new
+        F3["Vehicles / Customers"]:::menu
+        F4["Compliance / Finance / Analytics"]:::menu
+        F5["HAULING MARKET<br/>(was Connect)"]:::new
+        F6["Billing and Plan<br/>trial, EUR 20/mo"]:::paid
+        F7["Settings<br/>roles / rates / API / i18n"]:::menu
+        F0 --> F1
+        F0 --> F2
+        F0 --> F3
+        F0 --> F4
+        F0 --> F5
+        F0 --> F6
+        F0 --> F7
     end
 
-    subgraph DRIVER["EMPLOYED DRIVER — app (invited)"]
+    subgraph DRIVER["FLEET-EMPLOYED DRIVER — app (invited by the fleet)"]
         D0["Driver"]:::root
-        D1["Trips"]:::menu
+        D1["Trips + Start Trip<br/>phase console"]:::new
         D2["Documents"]:::menu
         D3["Money"]:::menu
         D4["Messages"]:::menu
         D5["More + SOS"]:::menu
+        D6["NO Hauling Market feed,<br/>no billing (fleet owns work)"]:::off
+        D0 --> D1
+        D0 --> D2
+        D0 --> D3
+        D0 --> D4
+        D0 --> D5
     end
 
-    subgraph SOLO["SOLO DRIVER — app (registered)"]
+    subgraph SOLO["SOLO DRIVER — app (self-registered, free)"]
         S0["Solo Driver"]:::root
         S1["Loads<br/>Hauling Market feed"]:::new
         S2["My truck<br/>availability beacon"]:::menu
@@ -43,34 +76,16 @@ flowchart LR
         S5["Community"]:::menu
         S6["Verification check marks<br/>ID / Licence / Registration"]:::new
         S7["Reviews (two-way, 1/10)"]:::new
+        S8["Billing: FREE"]:::paid
+        S0 --> S1
+        S0 --> S2
+        S0 --> S3
+        S0 --> S4
+        S0 --> S5
+        S0 --> S6
+        S0 --> S7
     end
 
     subgraph LINK["NO-LOGIN LINK — unregistered party"]
         L0["Read-only<br/>tracking / POD / invoice / pay-link"]:::off
     end
-
-    C0 --> C1
-    C0 --> C2
-    C0 --> C3
-    C0 --> C4
-    C0 --> C5
-    C0 --> C6
-    C0 --> C7
-    F0 --> F1
-    F0 --> F2
-    F0 --> F3
-    F0 --> F4
-    F0 --> F5
-    F0 --> F6
-    D0 --> D1
-    D0 --> D2
-    D0 --> D3
-    D0 --> D4
-    D0 --> D5
-    S0 --> S1
-    S0 --> S2
-    S0 --> S3
-    S0 --> S4
-    S0 --> S5
-    S0 --> S6
-    S0 --> S7
