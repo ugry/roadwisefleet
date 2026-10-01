@@ -58,4 +58,10 @@ export const env = {
   // per 15 minutes. Raise the window/max only with a real shared limiter.
   REGISTER_RATE_LIMIT_MAX: Number(process.env.REGISTER_RATE_LIMIT_MAX || 10),
   REGISTER_RATE_LIMIT_WINDOW_SECONDS: Number(process.env.REGISTER_RATE_LIMIT_WINDOW_SECONDS || 15 * 60),
+  // Passwordless Android device auth (board task #104, AND1-A2). `challenge`
+  // and `verify` are public but always rate-limited per real client IP; the
+  // nonce TTL is short so a leaked nonce is useless almost immediately.
+  DEVICE_CHALLENGE_TTL_SECONDS: Number(process.env.DEVICE_CHALLENGE_TTL_SECONDS || 120),
+  DEVICE_AUTH_RATE_LIMIT_MAX: Number(process.env.DEVICE_AUTH_RATE_LIMIT_MAX || 30),
+  DEVICE_AUTH_RATE_LIMIT_WINDOW_SECONDS: Number(process.env.DEVICE_AUTH_RATE_LIMIT_WINDOW_SECONDS || 60),
 };

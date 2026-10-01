@@ -2,6 +2,8 @@ package com.elilaltd.roadwisefleet.driver.di
 
 import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.elilaltd.roadwisefleet.core.auth.DeviceAuth
+import com.elilaltd.roadwisefleet.core.auth.DeviceKeyMaterial
 import com.elilaltd.roadwisefleet.core.data.local.RoadwiseDatabase
 import com.elilaltd.roadwisefleet.core.data.remote.ApiClient
 import com.elilaltd.roadwisefleet.core.data.repo.TripRepository
@@ -9,6 +11,7 @@ import com.elilaltd.roadwisefleet.core.data.sync.ConnectivityObserver
 import com.elilaltd.roadwisefleet.core.data.sync.SyncEngine
 import com.elilaltd.roadwisefleet.core.i18n.LocaleController
 import com.elilaltd.roadwisefleet.driver.BuildConfig
+import com.elilaltd.roadwisefleet.driver.auth.KeystoreDeviceKeyMaterial
 import com.elilaltd.roadwisefleet.driver.push.PushRegistrar
 import com.elilaltd.roadwisefleet.driver.session.SessionStore
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +37,10 @@ class AppContainer(context: Context) {
     )
     val database = RoadwiseDatabase.get(appContext)
     val api = ApiClient(BuildConfig.API_BASE_URL) { session.token }
+    // Passwordless device auth (board #104, AND1-A2): the Keystore-backed
+    // keypair and the challenge -> sign -> verify orchestration.
+    val deviceKeys: DeviceKeyMaterial = KeystoreDeviceKeyMaterial()
+    val deviceAuth = DeviceAuth(api, deviceKeys)
     val connectivity = ConnectivityObserver(appContext)
     val repository = TripRepository(api, database.tripDao(), database.outboxDao())
     val syncEngine = SyncEngine(api, database.outboxDao(), connectivity, scope)
