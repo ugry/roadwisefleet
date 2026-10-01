@@ -14,8 +14,8 @@
  *     against the load's order, declines the open rival and returns notices for
  *     both sides — and the whole state is recoverable by a plain re-read;
  *   - a declined offer does not close the load;
- *   - the auto-match toggle is refused with the owner gate until the owner
- *     answers (#73 q6), while the limits still save;
+ *   - the auto-match toggle enables immediately (the owner answered #73 q6 with
+ *     "no limits") and the limits persist across a refresh;
  *   - tenant isolation: another customer gets a flat 404 on the load.
  *
  * The fixture lives in DEDICATED orgs (`qa-offer-*`) and is removed in `after`,
@@ -282,16 +282,19 @@ if (!ready) {
     assert.equal(decline.statusCode, 404, decline.payload);
   });
 
-  test('the auto-match toggle is refused with the owner gate, but the limits save', async () => {
-    const refused = await app.inject({
+  test('the auto-match toggle enables immediately now the owner answered (q6), and the limits persist', async () => {
+    const enabled = await app.inject({
       method: 'PUT',
       url: '/api/customer/auto-match',
       headers: bearer(shipper),
       payload: { enabled: true, maxPriceEur: 1200, minRating: 4 },
     });
-    assert.equal(refused.statusCode, 403, refused.payload);
-    assert.equal(refused.json().error, 'auto_match_pending_owner');
-    assert.equal(refused.json().ownerGate, 'UXF-OWN1 (#73 q6)');
+    assert.equal(enabled.statusCode, 200, enabled.payload);
+    assert.equal(enabled.json().rules.enabled, true, 'enabling is accepted, not refused');
+    assert.equal(enabled.json().rules.maxPriceEur, 1200, 'the customer filter persists');
+    assert.equal(enabled.json().rules.minRating, 4);
+    assert.equal(enabled.json().entitlement.allowed, true);
+    assert.equal(enabled.json().entitlement.active, true, 'no platform cap: an enabled rule is live');
 
     const saved = await app.inject({
       method: 'PUT',
@@ -303,6 +306,7 @@ if (!ready) {
     assert.equal(saved.json().rules.maxPriceEur, 1200);
     assert.equal(saved.json().rules.minRating, 4);
     assert.equal(saved.json().rules.enabled, false);
+    assert.equal(saved.json().entitlement.active, false);
 
     const read = await app.inject({ method: 'GET', url: '/api/customer/auto-match', headers: bearer(shipper) });
     assert.equal(read.json().rules.maxPriceEur, 1200, 'the limits survive a refresh');

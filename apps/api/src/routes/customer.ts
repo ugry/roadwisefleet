@@ -782,7 +782,7 @@ export async function customerRoutes(app: FastifyInstance) {
     return reply.send({ offer: market.offerCard(updated) });
   });
 
-  /** The auto-match rules screen's read. Enabling is gated on the owner. */
+  /** The auto-match rules screen's read: the stored rules + their live entitlement. */
   app.get('/customer/auto-match', { preHandler: auth }, async (req, reply) => {
     const resolved = await resolveCustomer(req);
     if (!resolved.ok) return reply.code(resolved.status).send({ error: resolved.error });
@@ -790,9 +790,10 @@ export async function customerRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Save the rules. `enabled: true` is refused with the owner gate until
-   * `marketplace.js#AUTO_MATCH_OWNER_APPROVED` flips (the owner's #73 q6
-   * answer); the limits are still stored, so the screen survives a refresh.
+   * Save the rules. The owner answered the matching limits on 2026-10-01 (#73
+   * q6: "no limits"), so an `enabled: true` rule is accepted and live at once.
+   * The entitlement guard stays as a defensive assertion — it can only fire if
+   * `marketplace.js#AUTO_MATCH_OWNER_APPROVED` is flipped back to `false`.
    */
   app.put('/customer/auto-match', { preHandler: auth }, async (req, reply) => {
     const resolved = await resolveCustomer(req);

@@ -31,8 +31,9 @@ import * as solo from '../../../../solo/lib/solo-core.js';
  *
  * The load feed, the load detail, the beacon and the offer endpoints are the
  * MARKETPLACE's (`/api/marketplace/*`, board #76) — reused, not re-implemented.
- * The only thing this file adds to that path is the bid gate: an unverified solo
- * driver may browse but not bid (`routes/marketplace.ts` applies `solo.canBid`).
+ * Board #96 (owner #73 q5): verification is OPTIONAL — an unverified solo driver
+ * may browse AND bid, so no `verification_required` refusal is applied on that
+ * path; the papers are a trust signal surfaced as per-type check marks.
  *
  * Security model (designed in, not tested in):
  *   - a solo login holds the `solo` role and a `SoloDriverProfile`; its personal

@@ -220,10 +220,13 @@ function loadView() {
   if (!detail) return `<p class="muted">${esc(t('solo.load.gone'))}</p>`;
   const load = detail.load;
   const bidGate = state.driver && state.driver.verification ? state.driver.verification.status : 'NONE';
-  const mayBid = bidGate === 'VERIFIED';
-  const gate = mayBid
-    ? ''
-    : `<p class="alert error" role="status">${esc(t(bidGate === 'PENDING' ? 'solo.bid.pending' : 'solo.bid.unverified'))}</p>`;
+  // Owner #73 q5: verification is optional, so bidding never depends on it.
+  const mayBid = CORE.canBid({ verificationStatus: bidGate }).allowed;
+  const gate = !mayBid
+    ? `<p class="alert error" role="status">${esc(t(bidGate === 'PENDING' ? 'solo.bid.pending' : 'solo.bid.unverified'))}</p>`
+    : bidGate === 'VERIFIED'
+      ? ''
+      : `<p class="muted" role="status">${esc(t('solo.bid.optional'))}</p>`;
   const offers = (detail.offers || []).length
     ? `<ul class="list">${detail.offers
         .map(
@@ -303,10 +306,26 @@ function beaconView() {
     ${beacons}`;
 }
 
+/**
+ * One trust check mark for a paper. The mark is truthful by construction
+ * (`verificationState().badges`): a supplied paper shows its review state, an
+ * absent one shows no check. `title`/`aria-label` name the state in words so the
+ * mark is not colour-only.
+ */
+function badgeHtml(badge) {
+  const label = t('solo.verify.' + badge.docType);
+  const markText = badge.mark === 'verified' ? '✓' : badge.mark === 'pending' ? '⋯' : '✕';
+  const stateText = t('solo.verify.badge.' + badge.mark);
+  const body = badge.mark === 'missing' ? '—' : markText;
+  return `<span class="badge ${esc(badge.mark)}" title="${esc(label + ' — ' + stateText)}" aria-label="${esc(label + ' — ' + stateText)}">${body} ${esc(label)}</span>`;
+}
+
 function verifyView() {
-  const verification = (state.verification && state.verification.verification) || { papers: [], missing: [], status: 'NONE' };
-  const gate = (state.verification && state.verification.bidGate) || { allowed: false };
+  const verification = (state.verification && state.verification.verification) || { papers: [], missing: [], status: 'NONE', badges: [] };
   const docs = (state.verification && state.verification.documents) || [];
+  // Only SUPPLIED papers render a mark (owner #73 q5: no papers → no check
+  // marks); the papers list below still names every missing required paper.
+  const badges = (verification.badges || []).filter((b) => b.supplied).map(badgeHtml).join(' ');
   const papers = verification.papers
     .map(
       (p) => `<li class="card"><div class="card-head"><strong>${esc(t('solo.verify.' + p.docType))}</strong>
@@ -321,11 +340,13 @@ function verifyView() {
         )
         .join('')}</ul>`
     : '';
+  const verified = verification.status === 'VERIFIED';
   return `
     ${flashHtml('verify')}
     <h2>${esc(t('solo.verify.title'))}</h2>
     <p class="muted">${esc(t('solo.verify.state'))}: <span class="pill">${esc(t(CORE.statusKey(verification.status)))}</span></p>
-    <p class="alert ${gate.allowed ? 'success' : 'error'}" role="status">${esc(t(gate.allowed ? 'solo.verify.canBid' : 'solo.verify.cannotBid'))}</p>
+    <p class="alert ${verified ? 'success' : ''}" role="status">${esc(t(verified ? 'solo.verify.canBid' : 'solo.verify.optional'))}</p>
+    ${badges ? `<p class="badges" role="group" aria-label="${esc(t('solo.verify.badges'))}">${badges}</p>` : ''}
     <ul class="list">${papers}</ul>
     <form id="verifyForm" enctype="multipart/form-data">
       <label>${esc(t('solo.verify.docType'))}<select name="docType">
@@ -781,8 +802,10 @@ $('panel').addEventListener('submit', (event) => {
       });
     },
     bidForm: () => {
-      // Defence in depth: the button is disabled while unverified, but the
-      // handler must not send either — the server would (correctly) 403.
+      // Defence in depth: the shared rule is applied in the handler too, so a
+      // programmatic submit cannot bypass what the button shows. With owner
+      // #73 q5 (verification optional) it allows every solo driver; the check
+      // stays, so re-arming the rule re-arms the handler with it.
       const status = state.driver && state.driver.verification ? state.driver.verification.status : 'NONE';
       if (!CORE.canBid({ verificationStatus: status }).allowed) {
         flash('load', t(status === 'PENDING' ? 'solo.bid.pending' : 'solo.bid.unverified'));

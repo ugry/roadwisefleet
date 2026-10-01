@@ -37,8 +37,10 @@ export function statusForError(error) {
     case 'forbidden':
     case 'own_load':
     case 'no_org':
-    // Solo driver Connect MVP (board task #77): a token without a driver profile
-    // is not a solo driver, and an unverified solo driver may not bid.
+    // Solo driver Connect MVP (board tasks #77/#96): a token without a driver
+    // profile is not a solo driver. `verification_required` is kept mapped for
+    // the re-armable strict rule (solo-core `canBid` with `enforce`); production
+    // ships verification optional, so the offer path never returns it.
     case 'not_a_solo_driver':
     case 'verification_required':
       return 403;

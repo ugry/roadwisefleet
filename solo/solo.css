@@ -254,6 +254,52 @@ button.secondary,
   color: var(--ink-soft);
 }
 
+/* Document trust check marks (board #96). Colour is never the only signal: the
+ * mark glyph and the title/aria-label name the state, and missing papers are
+ * muted rather than shown as a verified badge. */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+
+.badge.verified {
+  background: var(--ok-tint);
+  border-color: var(--ok);
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.badge.pending {
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.badge.rejected {
+  background: var(--danger-tint);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.badge.missing {
+  border-style: dashed;
+  color: var(--ink-soft);
+}
+
 .wallet {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
