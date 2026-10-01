@@ -10,9 +10,13 @@
  *      somebody else's credential (404 for an unknown id);
  *   3. verify with the device's signature returns a session token for the SAME
  *      driver and stores only the public key;
- *   4. the challenge is single-use (a replay is 401 `challenge_used`) and a
- *      wrong signature is 401 `invalid_signature`;
- *   5. revoke invalidates the device — the next challenge is 403.
+ *   4. the challenge is single-use (a replay is 401 `challenge_used`, and
+ *      concurrent verifies of one challenge mint at most one token) and a wrong
+ *      signature is 401 `invalid_signature`;
+ *   5. revoke invalidates the device — the next challenge is 403, a same-org
+ *      admin may revoke, and an admin in ANOTHER org may not (cross-org 403);
+ *   6. the role table is global, so a cross-org admin holds `user:manage` yet
+ *      still cannot revoke.
  *
  * The fixture lives in its **own org** (`qa-device-org`), never the seeded pilot
  * org, so it cannot race the concurrent pilot-org suites; it is removed in the
@@ -38,9 +42,14 @@ const { env } = await import('../src/env.js');
 const { prisma } = await import('../src/db.js');
 
 const ORG_ID = 'qa-device-org';
+/** A second org for the cross-org revoke case. */
+const ORG_B_ID = 'qa-device-org-b';
 const DRIVER = 'qa-device-driver';
 const OTHER = 'qa-device-other';
-const USER_IDS = [DRIVER, OTHER];
+const OWNER_A = 'qa-device-owner-a';
+const OWNER_B = 'qa-device-owner-b';
+const USER_IDS = [DRIVER, OTHER, OWNER_A, OWNER_B];
+const ORG_IDS = [ORG_ID, ORG_B_ID];
 
 const P256 = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const PUBLIC_KEY = P256.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
@@ -48,8 +57,8 @@ const PUBLIC_KEY = P256.publicKey.export({ type: 'spki', format: 'der' }).toStri
 let dbReachable = false;
 let app: any;
 
-function token(sub: string, role: string, name: string): string {
-  return signToken({ sub, org: ORG_ID, role, name }, env.AUTH_SECRET);
+function token(sub: string, role: string, name: string, org: string = ORG_ID): string {
+  return signToken({ sub, org, role, name }, env.AUTH_SECRET);
 }
 const driverToken = () => token(DRIVER, 'driver', 'QA Device Driver');
 
@@ -61,9 +70,9 @@ async function removeFixture(): Promise<void> {
   try {
     await prisma.deviceChallenge.deleteMany({ where: { credential: { driverId: { in: USER_IDS } } } });
     await prisma.deviceCredential.deleteMany({ where: { driverId: { in: USER_IDS } } });
-    await prisma.auditLog.deleteMany({ where: { orgId: ORG_ID } });
+    await prisma.auditLog.deleteMany({ where: { orgId: { in: ORG_IDS } } });
     await prisma.user.deleteMany({ where: { id: { in: USER_IDS } } });
-    await prisma.org.deleteMany({ where: { id: ORG_ID } });
+    await prisma.org.deleteMany({ where: { id: { in: ORG_IDS } } });
   } catch {
     /* best-effort cleanup: never fail the suite on teardown */
   }
@@ -74,8 +83,11 @@ before(async () => {
     await prisma.org.findFirst({ where: { id: 'pilot-org' } });
     await removeFixture();
     await prisma.org.create({ data: { id: ORG_ID, name: 'QA Device Org', locale: 'en', dataRegion: 'eu', plan: 'free' } });
+    await prisma.org.create({ data: { id: ORG_B_ID, name: 'QA Device Org B', locale: 'en', dataRegion: 'eu', plan: 'free' } });
     await prisma.user.create({ data: { id: DRIVER, orgId: ORG_ID, roleId: 'driver', name: 'QA Device Driver', lang: 'en' } });
     await prisma.user.create({ data: { id: OTHER, orgId: ORG_ID, roleId: 'driver', name: 'QA Device Other', lang: 'en' } });
+    await prisma.user.create({ data: { id: OWNER_A, orgId: ORG_ID, roleId: 'owner', name: 'QA Device Owner A', lang: 'en' } });
+    await prisma.user.create({ data: { id: OWNER_B, orgId: ORG_B_ID, roleId: 'owner', name: 'QA Device Owner B', lang: 'en' } });
     app = buildServer();
     await app.ready();
     dbReachable = true;
@@ -212,4 +224,79 @@ test("a driver cannot revoke another driver's credential", async (t) => {
   const res = await post('/api/auth/device/revoke', { credentialId }, token(OTHER, 'driver', 'QA Device Other'));
   assert.equal(res.statusCode, 403);
   assert.equal(res.json().error, 'forbidden');
+});
+
+test('a same-org admin may revoke a device', async (t) => {
+  if (!dbReachable) return t.diagnostic('database not reachable here — assertions skipped');
+
+  // The org check must not break the legitimate admin path.
+  const credentialId = await register();
+  const res = await post('/api/auth/device/revoke', { credentialId }, token(OWNER_A, 'owner', 'QA Device Owner A'));
+  assert.equal(res.statusCode, 200, res.body);
+  const row = await prisma.deviceCredential.findUnique({ where: { id: credentialId } });
+  assert.ok(row?.revokedAt, 'the admin revocation is persisted');
+});
+
+test('an admin in ANOTHER org cannot revoke a device', async (t) => {
+  if (!dbReachable) return t.diagnostic('database not reachable here — assertions skipped');
+
+  // `owner` is a GLOBAL role with `user:manage`, so the permission check alone
+  // would have allowed this. Proving the role grant here keeps the test
+  // non-vacuous: only the org check can refuse the request.
+  const ownerRole = await prisma.role.findUnique({ where: { id: 'owner' } });
+  assert.ok(
+    Array.isArray(ownerRole?.permissions) && ownerRole.permissions.includes('user:manage'),
+    'the owner role really has user:manage',
+  );
+
+  const credentialId = await register();
+  const res = await post(
+    '/api/auth/device/revoke',
+    { credentialId },
+    token(OWNER_B, 'owner', 'QA Device Owner B', ORG_B_ID),
+  );
+  assert.equal(res.statusCode, 403, res.body);
+  assert.equal(res.json().error, 'forbidden');
+
+  // The device is untouched: its own driver can still complete a login.
+  const challenge = await post('/api/auth/device/challenge', { credentialId });
+  assert.equal(challenge.statusCode, 200, challenge.body);
+  const { challengeId, nonce } = challenge.json() as { challengeId: string; nonce: string };
+  const verify = await post('/api/auth/device/verify', { challengeId, signature: signNonce(nonce) });
+  assert.equal(verify.statusCode, 200, 'the cross-org refusal must not revoke the credential');
+});
+
+test('concurrent verifies of one challenge mint at most one token', async (t) => {
+  if (!dbReachable) return t.diagnostic('database not reachable here — assertions skipped');
+
+  const credentialId = await register();
+  const challenge = await post('/api/auth/device/challenge', { credentialId });
+  assert.equal(challenge.statusCode, 200, challenge.body);
+  const { challengeId, nonce } = challenge.json() as { challengeId: string; nonce: string };
+  const signature = signNonce(nonce);
+
+  // Five simultaneous verifies of the SAME valid (challengeId, signature) over
+  // a REAL socket, so the handlers genuinely interleave. `app.inject` services
+  // requests one at a time (which is why the plain replay test cannot catch the
+  // race); before the conditional burn every one of these could pass the
+  // pre-check and mint a token.
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const addr = app.server.address();
+  if (!addr || typeof addr === 'string') throw new Error('server is not listening on a port');
+  const url = `http://127.0.0.1:${addr.port}/api/auth/device/verify`;
+  const responses = await Promise.all(
+    Array.from({ length: 5 }, () =>
+      fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ challengeId, signature }),
+      }),
+    ),
+  );
+  const statuses = responses.map((r) => r.status);
+  const bodies = (await Promise.all(responses.map((r) => r.json()))) as Array<{ error?: string }>;
+  const minted = statuses.filter((s) => s === 200).length;
+  const used = bodies.filter((b, i) => statuses[i] === 401 && b.error === 'challenge_used').length;
+  assert.equal(minted, 1, `exactly one verify may mint a token, got ${minted}`);
+  assert.equal(used, 4, 'every loser is refused as an already-used challenge');
 });

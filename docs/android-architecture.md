@@ -214,7 +214,7 @@ the session store; A2 removes the password from the later logins, not the token.
 | POST | `/api/auth/device/register` | bearer (driver) | bind this device's SPKI public key; stores public key only |
 | POST | `/api/auth/device/challenge` | public | issue a single-use nonce (`ES256`, TTL 120 s, per-IP rate-limited) |
 | POST | `/api/auth/device/verify` | public | signature over the nonce -> the same session token shape as a password login |
-| POST | `/api/auth/device/revoke` | bearer (owner or `user:manage`/`trip:*`) | lost-phone / logout revoke |
+| POST | `/api/auth/device/revoke` | bearer (the credential's driver, or a **same-org** `user:manage`/`trip:*`) | lost-phone / logout revoke |
 
 The device signs the **UTF-8 bytes of the nonce string** and sends a detached
 DER ECDSA signature (`SHA256withECDSA`); the server verifies with
@@ -222,7 +222,8 @@ DER ECDSA signature (`SHA256withECDSA`); the server verifies with
 `publicKey` (base64 SPKI), `algorithm`, `deviceLabel`, `createdAt`,
 `lastUsedAt`, `revokedAt` — never a private key and never a token.
 `DeviceChallenge` is single-use (`usedAt`) with a short expiry, so a replayed
-nonce can never open a second session.
+nonce can never open a second session; the burn is a **conditional** (`usedAt:
+null`) update, so concurrent verifies of one challenge mint exactly one token.
 
 **Threat notes**
 
@@ -234,6 +235,17 @@ nonce can never open a second session.
 - *Key extraction:* the private key is generated in the Keystore and used
   through `Signature.initSign`; no private bytes ever enter the process heap or
   logs (StrongBox when the SoC has it, TEE otherwise).
+- *Curve:* only P-256 (`prime256v1`) keys are accepted — ES256 does not mean
+  "any EC curve", so P-384/secp256k1 keys are refused at registration and never
+  verify.
+- *Cross-org:* roles are global (`Role.id` = owner/dispatcher/...), so `revoke`
+  additionally requires the credential's driver to share the caller's non-null
+  org; an admin in org A can never revoke a device in org B.
+- *No account lockout on `verify` (deliberate):* unlike `/auth/login`, `verify`
+  does not enforce `user.lockedUntil`. A password is guessable and needs that
+  lockout; the device private key is not, and locking a phone out of its own key
+  would strand the legitimate owner — the lost-phone remedy is revoking the
+  credential, not locking the account.
 - *No enumeration / no probing:* `challenge` and `verify` are rate-limited per
   real client IP, and `verify` returns a flat `invalid_signature`.
 - *Lost phone:* `revoke` sets `revokedAt`; a revoked credential is refused at

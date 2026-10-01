@@ -126,18 +126,29 @@ export async function deviceAuthRoutes(app: FastifyInstance) {
     });
     if (!ok) return reply.code(401).send({ error: 'invalid_signature' });
 
+    // Deliberate: unlike `/auth/login`, this path does NOT enforce
+    // `user.lockedUntil`. A password is guessable and needs that lockout; the
+    // device private key is not guessable, and locking a phone out of its own
+    // key would strand the legitimate owner. The lost-phone remedy is revoking
+    // the credential, not locking the account.
     const user = await prisma.user.findUnique({
       where: { id: challenge.credential.driverId },
       include: { org: { select: { locale: true } } },
     });
     if (!user) return reply.code(401).send({ error: 'invalid_signature' });
 
-    // Single-use: burn the challenge and stamp the credential in one transaction.
+    // Single-use, atomically. The pre-check above is only the fast path: two
+    // concurrent verifies of the same (challengeId, signature) can both pass
+    // it. Burn the challenge only while it is still unused — exactly one caller
+    // wins that conditional update and mints a token; a lost race is treated as
+    // an already-used challenge.
     const now = new Date();
-    await prisma.$transaction([
-      prisma.deviceChallenge.update({ where: { id: challenge.id }, data: { usedAt: now } }),
-      prisma.deviceCredential.update({ where: { id: challenge.credential.id }, data: { lastUsedAt: now } }),
-    ]);
+    const burned = await prisma.deviceChallenge.updateMany({
+      where: { id: challenge.id, usedAt: null },
+      data: { usedAt: now },
+    });
+    if (burned.count !== 1) return reply.code(401).send({ error: 'challenge_used' });
+    await prisma.deviceCredential.update({ where: { id: challenge.credential.id }, data: { lastUsedAt: now } });
 
     const token = signToken(
       { sub: user.id, org: user.orgId, role: user.roleId, name: user.name },
@@ -173,6 +184,19 @@ export async function deviceAuthRoutes(app: FastifyInstance) {
     const credential = await prisma.deviceCredential.findUnique({ where: { id: credentialId } });
     if (!credential) return reply.code(404).send({ error: 'credential_not_found' });
     if (credential.driverId !== user.id) {
+      // Roles are global (`Role.id` = owner/dispatcher/...), so the permission
+      // check alone would let an admin in org A revoke a device in org B if
+      // they know the credential id. Cross-org is never-allowed in this API:
+      // require the credential's driver to share the caller's non-null org
+      // first, then check the permission.
+      if (!user.orgId) return reply.code(403).send({ error: 'forbidden' });
+      const credentialDriver = await prisma.user.findUnique({
+        where: { id: credential.driverId },
+        select: { orgId: true },
+      });
+      if (!credentialDriver || credentialDriver.orgId !== user.orgId) {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
       const permissions = await loadRolePermissions(prisma, user.roleId);
       if (!hasPermission(permissions, 'user:manage') && !hasPermission(permissions, 'trip:*')) {
         return reply.code(403).send({ error: 'forbidden' });

@@ -67,8 +67,19 @@ function decodeBase64(value) {
 }
 
 /**
- * Parse a base64 SPKI public key and require it to be an EC key. Returns the
- * canonical (standard base64) form to store, or `null` when invalid.
+ * True only for an EC key on the P-256 curve. The declared algorithm is ES256,
+ * which means exactly secp256r1/prime256v1 — P-384 and secp256k1 are EC too, so
+ * the key-type check alone would accept a curve the contract does not.
+ * @param {import('node:crypto').KeyObject} key
+ * @returns {boolean}
+ */
+function isP256(key) {
+  return key.asymmetricKeyType === 'ec' && key.asymmetricKeyDetails?.namedCurve === 'prime256v1';
+}
+
+/**
+ * Parse a base64 SPKI public key and require it to be a P-256 EC key. Returns
+ * the canonical (standard base64) form to store, or `null` when invalid.
  * @param {unknown} value
  * @returns {string | null}
  */
@@ -77,7 +88,7 @@ export function normalizePublicKey(value) {
   if (!der) return null;
   try {
     const key = createPublicKey({ key: der, format: 'der', type: 'spki' });
-    if (key.asymmetricKeyType !== 'ec') return null;
+    if (!isP256(key)) return null;
     return der.toString('base64');
   } catch {
     return null;
@@ -170,6 +181,8 @@ export function verifyDeviceSignature(args = {}) {
   } catch {
     return false;
   }
+  // ES256 is P-256 only; a stored P-384/secp256k1 key must never verify.
+  if (!isP256(key)) return false;
   try {
     // ES256 = ECDSA P-256 / SHA-256, DER-encoded signature. `crypto.verify`
     // performs the check against the key material; the code never compares

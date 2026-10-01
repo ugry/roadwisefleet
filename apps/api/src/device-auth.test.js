@@ -46,6 +46,16 @@ test('normalizePublicKey rejects non-key input', () => {
   assert.equal(normalizePublicKey(ed), null, 'only EC keys are device credentials');
 });
 
+test('normalizePublicKey pins ES256 to the P-256 curve', () => {
+  // ES256 is P-256 exactly: other EC curves must be refused even though they
+  // are valid EC keys.
+  for (const namedCurve of ['P-384', 'secp256k1']) {
+    const key = generateKeyPairSync('ec', { namedCurve });
+    const spki = key.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    assert.equal(normalizePublicKey(spki), null, `${namedCurve} is not ES256`);
+  }
+});
+
 test('normalizeRegistration applies the ES256 default and trims the label', () => {
   const ok = normalizeRegistration({ publicKey: SPKI_B64, deviceLabel: '  Pixel 8  ' });
   assert.deepEqual(ok, { ok: true, value: { algorithm: DEVICE_ALGORITHM, publicKey: SPKI_B64, deviceLabel: 'Pixel 8' } });
@@ -124,6 +134,16 @@ test('verifyDeviceSignature accepts the matching key/signature and rejects every
   ]) {
     assert.equal(verifyDeviceSignature(bad), false);
   }
+});
+
+test('verifyDeviceSignature refuses a non-P-256 EC key even with a matching signature', () => {
+  // Without the curve pin this would verify: `crypto.verify` honours the key's
+  // own curve, so a P-384 signature over the nonce would pass.
+  const p384 = generateKeyPairSync('ec', { namedCurve: 'P-384' });
+  const nonce = Buffer.from(randomBytes(32)).toString('base64');
+  const spki = p384.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+  const signature = cryptoSign('sha256', Buffer.from(nonce, 'utf8'), p384.privateKey).toString('base64');
+  assert.equal(verifyDeviceSignature({ publicKey: spki, nonce, signature }), false);
 });
 
 test('algorithmSupported accepts only ES256', () => {
