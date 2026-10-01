@@ -190,12 +190,17 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/register` | — (public) | self-service fleet-owner signup (board task #86): `name`, `email`, `password` (min 8, optional `company`); creates the `Org` + an `owner` `User` and returns `201 { token, user }` — the same session shape as login. Rate-limited per client IP (`429 rate_limited` + `retry-after`, default 10 per 15 min); `409 email_taken`; `400` with `field` + `messageKey` from the shared rules |
 | `POST /api/auth/login` | — | email + password login for registered or pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
+| `POST /api/auth/device/register` | bearer | bind an EC P-256 device public key (base64 SPKI) to the caller (board task #104); stores the public key only. `400 invalid_public_key` / `unsupported_algorithm` |
+| `POST /api/auth/device/challenge` | — (public) | issue a single-use nonce for a credential: `{ challengeId, nonce, algorithm, expiresAt }`; per-IP rate-limited; `404 credential_not_found`, `403 credential_revoked` |
+| `POST /api/auth/device/verify` | — (public) | verify the detached ECDSA signature over the nonce and return the same `{ token, user }` shape as login; `401 challenge_used` / `challenge_expired` / `invalid_signature`, `403 credential_revoked` |
+| `POST /api/auth/device/revoke` | bearer | revoke a device (lost phone / logout); the credential's driver or an admin (`user:manage`/`trip:*`); idempotent |
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); **a caller without `trip:*` (a driver) is narrowed to their own trips — a client-supplied `driverId` cannot widen it** (board task #68); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required); the optional `plannedAt` (ISO-8601) records the promised delivery time on the order in the same transaction (board task #66) |
-| `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66), in the same transaction as the status event; rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403` |
-| `POST /api/trips/:id/assign` | bearer, `trip:*` (owner/dispatcher) | assign or reassign the trip's driver (`driverId` required). The change keeps the trip's status and is recorded as a status event naming the acting user (board task #36). `403` for a driver, `409 trip_closed` on a terminal trip, `409 already_assigned` for the current driver, `409 driver_unavailable` for a suspended/locked (or non-driver) assignee, `400 driver_not_found` for an unknown one |
+| `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66) and clears `Trip.tracking`, while the `EN_ROUTE` move (Start Trip) sets `Trip.tracking = true` — both in the same transaction as the status event (board task #105); rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403`, and a move that would double-book the driver with `409 driver_busy` |
+| `POST /api/trips/:id/start` | bearer, `trip:status` + **assigned driver only** | Start Trip (board task #105): the driver's current-assignment action that moves `ASSIGNED → EN_ROUTE` **and** turns live GPS tracking on (`Trip.tracking = true`, `Trip.trackingStartedAt = now`) in one transaction with the status event. A non-assigned driver (or an owner/dispatcher token) is `403`; any status other than `ASSIGNED` is `400 invalid_transition`; unknown/foreign-org trip is `404` |
+| `POST /api/trips/:id/assign` | bearer, `trip:*` (owner/dispatcher) | assign or reassign the trip's driver (`driverId` required). The change keeps the trip's status and is recorded as a status event naming the acting user (board task #36). `403` for a driver, `409 trip_closed` on a terminal trip, `409 already_assigned` for the current driver, `409 driver_unavailable` for a suspended/locked (or non-driver) assignee, `409 driver_busy` when the assignee already has an active trip (board task #105), `400 driver_not_found` for an unknown one |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
 | `GET /api/reference` | bearer, `trip:create` | every create-trip option list in one call (orders, drivers, trucks, customers) |
 | `GET /api/orders` | bearer, `trip:create` | org orders with the customer name folded in |
@@ -688,6 +693,7 @@ than one that says why:
 | Terminal trip (`SETTLED`/`CANCELLED`) | `409 trip_closed` |
 | The driver already on the trip | `409 already_assigned` |
 | Locked/suspended driver, or a non-driver user | `409 driver_unavailable` |
+| The driver already has an active trip (#105) | `409 driver_busy` |
 | Unknown user in the org | `400 driver_not_found` |
 
 "Suspended/unavailable" is the schema's lock state (`User.lockedUntil` in the
@@ -705,6 +711,53 @@ driver is refused on the trip and no longer sees it, the new driver does) plus
 the timeline actor; `scratch/verify-trips-view.js` section 7 drives the real
 `app.js` (control rendered, current driver preselected, exact body POSTed,
 detail re-fetched, reassignment named on the timeline).
+
+### Driver phases & Start Trip (board task #105, AND1-A3)
+The driver walks the trip through explicit phases on the current-assignment
+card, and **Start Trip** is the moment live tracking begins. The lifecycle is
+now:
+
+```
+DRAFT → ASSIGNED → EN_ROUTE → AT_PICKUP → LOADED → IN_TRANSIT
+      → AT_DELIVERY → DELIVERED → POD_UPLOADED → INVOICED → SETTLED
+```
+
+`EN_ROUTE`, `AT_PICKUP` and `AT_DELIVERY` extend the one state machine in
+`src/trip-status.js` — the pre-existing jump edges (`ASSIGNED → LOADED`,
+`IN_TRANSIT → DELIVERED`) are kept so dispatcher flows and trips dispatched
+before the phases existed keep working. `CANCELLED` is still reachable only from
+`DRAFT`/`ASSIGNED`.
+
+- **Start Trip** is the dedicated `POST /api/trips/:id/start`: assigned driver
+  only, legal only from `ASSIGNED`. It moves the trip to `EN_ROUTE` and sets
+  `Trip.tracking = true` + `Trip.trackingStartedAt`, in the same transaction as
+  the status event. The `EN_ROUTE` transition is the *only* one that turns
+  tracking on, and `DELIVERED` is the only one that turns it off — so the flag
+  can never disagree with the status. The migration
+  `20261001183000_add_trip_tracking` adds the two columns (additive: one
+  defaulted boolean, one nullable timestamp).
+- **Exactly one active assignment per driver.** The statuses
+  `ASSIGNED, EN_ROUTE, AT_PICKUP, LOADED, IN_TRANSIT, AT_DELIVERY` are "in
+  flight"; a transition into one of them, or an `assign`, for a driver who
+  already has another in-flight trip is refused with `409 driver_busy`
+  (`driverHasActiveTrip` in `trips-core.js`). A trip that is `DRAFT` (nothing
+  started) or `DELIVERED`+ (only back-office work left) does not occupy the
+  driver.
+- **App.** The Android shell (`apps/android`) mirrors the phases in
+  `core/.../TripStatus.kt` and `TripsScreen` renders the next driver phase as
+  the primary button, with **Start Trip** prominent for an `ASSIGNED` trip and
+  queued through the dedicated endpoint (`OutboxKind.START`) so it works
+  offline-first like every other write.
+
+Pure logic: `src/trip-status.js` (`TRANSITIONS`, `DRIVER_PHASES`,
+`ACTIVE_ASSIGNMENT_STATUSES`, `START_TRIP_STATUS`, `isActiveAssignment`) and
+`src/trips-core.js#startTrip` / `#driverHasActiveTrip`. Tests:
+`src/trip-status.test.js`, `src/trips-core.test.js`,
+`src/trip-assignment.test.js` in the no-install CI job; `test/trip-phases.test.ts`
+(`pnpm test:router`) drives the real route against the DB (assigned driver 200 +
+persisted tracking, non-assigned driver 403, illegal move 400, double-booking
+409). The Android mirror is pinned by `TripCoreTest.kt` and the locale parity
+guard `apps/android/tools/check-locales.mjs`.
 
 ### Documents UI (board task #37, FAv1-F6)
 The trip-detail screen now carries the documents panel the API already backed
@@ -1294,6 +1347,36 @@ Public entry point: a visitor registers a fleet and is signed in immediately.
 - **Out of scope, stated honestly.** No email verification and no password reset:
   the domain cannot send mail yet, so email verification stays gated on the owner's
   task #29.
+
+## Passwordless device auth — board task #104 (owner direction 2026-10-01)
+- **What it is.** After the first Android login (password or phone OTP) the app
+  generates an **EC P-256 keypair in the Android Keystore** and registers the
+  SPKI public key. Later logins are `POST /api/auth/device/challenge` -> sign
+  the nonce on-device -> `POST /api/auth/device/verify` -> session token. The
+  private key never leaves the device; the server stores public keys only.
+- **Core.** `src/device-auth.js` (dependency-free, `node:crypto`): SPKI
+  validation (`normalizePublicKey` — EC keys only), single-use/short-TTL
+  challenges (`createChallenge`, `challengeUsable`), and detached ECDSA
+  verification (`verifyDeviceSignature`, DER, `SHA256withECDSA`). The device
+  signs the UTF-8 bytes of the nonce string.
+- **Persistence.** `DeviceCredential` (driverId, publicKey, algorithm,
+  deviceLabel, createdAt, lastUsedAt, revokedAt) + `DeviceChallenge` (nonce,
+  expiresAt, usedAt). Additive migration `20261001170000_add_device_credentials`
+  — two new tables, no existing column is changed.
+- **Security.** Challenge/verify are public (that is the point) but rate-limited
+  per real client IP; a challenge is one-shot and short-lived; `revoke` (driver
+  or `user:manage`/`trip:*`) refuses every later challenge/verify. Threat notes,
+  the Keystore fallback and the lost-phone revoke path: `docs/android-architecture.md` §9a.
+- **Client.** `core/.../auth/DeviceAuth.kt` (challenge -> sign -> verify) over
+  the `DeviceKeyMaterial` seam; `driver/auth/KeystoreDeviceKeyMaterial.kt` is the
+  Android Keystore (StrongBox when available, TEE otherwise) implementation.
+- **Tests.** `src/device-auth.test.js` (pure: key validation, RNG/clock-injected
+  challenges, signature accept/reject) and `test/device-auth.test.ts`
+  (DB-backed: register -> challenge -> verify -> token, single-use replay,
+  wrong signature, revoke, cross-driver revoke refusal).
+- **Not live yet.** Wiring the flow into the app's login screen + an emulator
+  end-to-end run is the remaining A2 slice; this PR lands the backend contract,
+  the client library and the threat model.
 
 ## Deliberately missing (until the right phase)
 - email verification and password reset (email is not live — registration itself

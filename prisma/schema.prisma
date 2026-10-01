@@ -88,6 +88,11 @@ model User {
   soloProfile  SoloDriverProfile?
   soloDocs     SoloVerificationDoc[]
   soloSearches SoloSavedSearch[]
+
+  // Passwordless device auth (board task #104, AND1-A2). Relation field only:
+  // no scalar column on `User`, so every existing read keeps working whether or
+  // not the device-credential migration has been applied yet.
+  deviceCredentials DeviceCredential[]
 }
 
 // A login that may act for a customer account (board task #74).
@@ -250,6 +255,11 @@ model Trip {
   trackLinkVersion   Int       @default(0)
   trackLinkIssuedAt  DateTime?
   trackLinkExpiresAt DateTime?
+  // Live GPS tracking (board task #105, AND1-A3): Start Trip (ASSIGNED →
+  // EN_ROUTE) sets `tracking` true and stamps `trackingStartedAt`; DELIVERED
+  // clears it. Default false so every pre-existing trip keeps its behaviour.
+  tracking          Boolean   @default(false)
+  trackingStartedAt DateTime?
   createdAt          DateTime  @default(now())
 
   documents    Document[]
@@ -754,4 +764,50 @@ model ReviewSampling {
   updatedAt           DateTime  @updatedAt
 
   @@unique([participantType, participantId])
+}
+
+// === Passwordless Android device auth (board task #104, AND1-A2) ===
+//
+// Owner direction: the first Android login (password or phone OTP) binds the
+// device to the driver by registering an EC P-256 public key; every later login
+// is challenge -> on-device signature -> verify -> session token. The private
+// key is generated in the Android Keystore and NEVER leaves the device, so this
+// table stores public keys only.
+//
+// Purely additive tables: no existing model gains a scalar column (only the
+// `User.deviceCredentials` relation field, which changes no query), so the
+// running pilot is unaffected whether or not this migration is applied yet.
+
+model DeviceCredential {
+  id          String    @id @default(cuid())
+  // The driver account this device is bound to. `User` so a solo driver or a
+  // fleet-employed driver both work without a second identity table.
+  driverId    String
+  driver      User      @relation(fields: [driverId], references: [id])
+  // base64 (standard, no wrap) of the DER-encoded SPKI public key. Never a
+  // private key and never a session token.
+  publicKey   String
+  algorithm   String    @default("ES256") // only ES256 (ECDSA P-256 / SHA-256) is accepted
+  deviceLabel String? // human label ("Pixel 8"), untrusted display data only
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime? // set by the lost-phone revoke path; a revoked key can never verify
+
+  challenges DeviceChallenge[]
+
+  @@index([driverId])
+}
+
+// A single-use, short-TTL nonce. The server issues it, the device signs it, and
+// `usedAt` makes replay impossible; `expiresAt` bounds a leaked nonce's life.
+model DeviceChallenge {
+  id           String           @id @default(cuid())
+  credentialId String
+  credential   DeviceCredential @relation(fields: [credentialId], references: [id])
+  nonce        String           @unique // base64 of 32 random bytes
+  expiresAt    DateTime
+  usedAt       DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([credentialId])
 }

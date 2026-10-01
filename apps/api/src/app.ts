@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { deviceAuthRoutes } from './routes/device-auth.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { tripRoutes } from './routes/trips.js';
 import { dashboardRoutes } from './routes/dashboard.js';
@@ -35,6 +36,9 @@ export function buildServer() {
 
   app.register(healthRoutes);
   app.register(authRoutes, { prefix: '/api' });
+  // Passwordless Android device auth (board task #104, AND1-A2): public
+  // challenge/verify plus the authenticated register/revoke.
+  app.register(deviceAuthRoutes, { prefix: '/api' });
   app.register(waitlistRoutes, { prefix: '/api' });
   app.register(tripRoutes, { prefix: '/api' });
   app.register(dashboardRoutes, { prefix: '/api' });

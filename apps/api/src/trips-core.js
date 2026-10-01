@@ -21,7 +21,13 @@
  */
 
 import { canCreateTrip, canTransitionTrip } from './auth/permissions.js';
-import { canTransition, isTripStatus } from './trip-status.js';
+import {
+  ACTIVE_ASSIGNMENT_STATUSES,
+  canTransition,
+  isActiveAssignment,
+  isTripStatus,
+  START_TRIP_STATUS,
+} from './trip-status.js';
 import { hasPodDocument } from './documents.js';
 import { buildTripWhere } from './trip-filters.js';
 import { publicUserSelect } from './user-payload.js';
@@ -152,6 +158,28 @@ export async function createTrip(prisma, { orgId, body, actor }) {
 }
 
 /**
+ * True when `driverId` already has a trip in an *active assignment* status
+ * (board task #105: "exactly one active assignment per driver"). `excludeTripId`
+ * lets a transition or reassignment on the trip the driver is already on ignore
+ * itself. A missing driver id is never busy.
+ * @param {TripsClient} prisma
+ * @param {{ orgId: string, driverId?: string | null, excludeTripId?: string | null }} args
+ * @returns {Promise<boolean>}
+ */
+export async function driverHasActiveTrip(prisma, { orgId, driverId, excludeTripId }) {
+  if (!driverId) return false;
+  const other = await prisma.trip.findFirst({
+    where: {
+      orgId,
+      driverId,
+      status: { in: ACTIVE_ASSIGNMENT_STATUSES },
+      ...(excludeTripId ? { id: { not: excludeTripId } } : {}),
+    },
+  });
+  return Boolean(other);
+}
+
+/**
  * Persist a status change, enforcing RBAC (the actor must hold `trip:*` or be
  * the trip's assigned driver with `trip:status`), the state machine, and
  * recording a StatusEvent in the same transaction.
@@ -188,14 +216,37 @@ export async function transitionTrip(prisma, { orgId, tripId, to, actor, now }) 
     return { ok: false, error: 'pod_required' };
   }
 
-  /** @type {{ status: string, deliveredAt?: Date }} */
+  // Board task #105: exactly one active assignment per driver. Moving a trip
+  // *into* an active phase would double-book its driver, so it is refused with
+  // 409 `driver_busy` (the trip the driver is already on is excluded).
+  if (isActiveAssignment(target) && current.driverId) {
+    const busy = await driverHasActiveTrip(prisma, {
+      orgId,
+      driverId: current.driverId,
+      excludeTripId: tripId,
+    });
+    if (busy) return { ok: false, error: 'driver_busy' };
+  }
+
+  /** @type {{ status: string, deliveredAt?: Date, tracking?: boolean, trackingStartedAt?: Date }} */
   const updateData = { status: target };
   // Board task #66: the moment a trip becomes DELIVERED is the actual delivery
   // time the on-time KPI reads (`deliveredAt`). Written in the same transaction
   // as the status event, so the timeline and the KPI can never disagree. The
   // `now` argument exists for deterministic tests; production always uses the
   // wall clock.
-  if (target === 'DELIVERED') updateData.deliveredAt = toDate(now);
+  if (target === 'DELIVERED') {
+    updateData.deliveredAt = toDate(now);
+    // Board task #105: the delivery ends live tracking. `tracking` is only ever
+    // set by the Start Trip transition (EN_ROUTE) and cleared here.
+    updateData.tracking = false;
+  }
+  // Board task #105: Start Trip (ASSIGNED → EN_ROUTE) is the one transition
+  // that turns GPS tracking on; the instant is kept for the driver timeline.
+  if (target === START_TRIP_STATUS) {
+    updateData.tracking = true;
+    updateData.trackingStartedAt = toDate(now);
+  }
 
   const [trip] = await prisma.$transaction([
     prisma.trip.update({ where: { id: tripId }, data: updateData }),
@@ -210,6 +261,40 @@ export async function transitionTrip(prisma, { orgId, tripId, to, actor, now }) 
     }),
   ]);
   return { ok: true, trip };
+}
+
+/**
+ * Start Trip (board task #105, AND1-A3): the driver's current-assignment button
+ * that puts the trip EN_ROUTE **and** turns live GPS tracking on.
+ *
+ * Deliberately narrower than `transitionTrip`: only the trip's own assigned
+ * driver may start it (a non-assigned driver gets 403, never a leak of the
+ * trip's existence through a different error), and it is legal only from
+ * ASSIGNED. Everything else is refused as an illegal transition so the caller
+ * can show the same "not from here" message as any other bad move.
+ *
+ * The flag itself is written by the EN_ROUTE transition in `transitionTrip`
+ * (one place owns it), so a dispatcher moving the same edge through
+ * `POST /trips/:id/status` gets identical data.
+ * @param {TripsClient} prisma
+ * @param {{ orgId: string, tripId: string, actor?: { userId?: string | null, permissions?: unknown }, now?: Date|string|number }} args
+ * @returns {Promise<
+ *   { ok: true, trip: any } |
+ *   { ok: false, error: 'forbidden' } |
+ *   { ok: false, error: 'not_found' } |
+ *   { ok: false, error: 'invalid_transition', from: string, to: string }
+ * >}
+ */
+export async function startTrip(prisma, { orgId, tripId, actor, now }) {
+  const current = await prisma.trip.findFirst({ where: { id: tripId, orgId } });
+  if (!current) return { ok: false, error: 'not_found' };
+  // Assigned driver only: an owner/dispatcher token is not the driver and a
+  // different driver must not be able to start somebody else's trip.
+  if (!actor?.userId || actor.userId !== current.driverId) return { ok: false, error: 'forbidden' };
+  if (current.status !== 'ASSIGNED') {
+    return { ok: false, error: 'invalid_transition', from: current.status, to: START_TRIP_STATUS };
+  }
+  return transitionTrip(prisma, { orgId, tripId, to: START_TRIP_STATUS, actor, now });
 }
 
 /**

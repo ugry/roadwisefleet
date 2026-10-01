@@ -4,7 +4,7 @@ import { prisma } from '../db.js';
 import { requireAuth } from '../auth/guard.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
-import { createTrip, listDriverTrips, listOrgTrips, transitionTrip } from '../trips-core.js';
+import { createTrip, listDriverTrips, listOrgTrips, startTrip, transitionTrip } from '../trips-core.js';
 import { assignDriver } from '../trip-assignment.js';
 import { getTripDetail } from '../trip-detail.js';
 import { tripReadScope } from '../trip-visibility.js';
@@ -150,6 +150,30 @@ export async function tripRoutes(app: FastifyInstance) {
       } catch (err) {
         req.log?.warn?.({ err }, 'review sampling failed');
       }
+    }
+    return reply.send({ trip: result.trip });
+  });
+
+  // Start Trip (board task #105, AND1-A3): the driver's current-assignment
+  // action that moves ASSIGNED → EN_ROUTE and turns live GPS tracking on. Only
+  // the trip's own assigned driver may call it; a non-assigned driver gets 403.
+  // A move from any other status is a 400 `invalid_transition`, so the client
+  // can explain "not from here" exactly as for POST /status.
+  app.post('/trips/:id/start', { preHandler: auth }, async (req, reply) => {
+    const user = req.user;
+    if (!user?.orgId) return reply.code(403).send({ error: 'no_org' });
+    const { id } = req.params as { id: string };
+    const permissions = await loadRolePermissions(prisma, user.roleId);
+    const result = await startTrip(prisma, {
+      orgId: user.orgId,
+      tripId: id,
+      actor: { userId: user.id, permissions },
+    });
+    if (!result.ok) {
+      if (result.error === 'invalid_transition') {
+        return reply.code(400).send({ error: 'invalid_transition', from: result.from, to: result.to });
+      }
+      return reply.code(statusForError(result.error)).send({ error: result.error });
     }
     return reply.send({ trip: result.trip });
   });

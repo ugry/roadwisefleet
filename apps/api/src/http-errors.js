@@ -50,6 +50,9 @@ export function statusForError(error) {
     case 'trip_closed':
     case 'already_assigned':
     case 'driver_unavailable':
+    // Board task #105 (AND1-A3): exactly one active assignment per driver — the
+    // driver already has a trip in flight.
+    case 'driver_busy':
     case 'load_awarded':
     case 'load_closed':
     case 'load_expired':
@@ -64,7 +67,14 @@ export function statusForError(error) {
     case 'offer_not_found':
     // Review prompt unknown, or not addressed to the caller.
     case 'prompt_not_found':
+    // Passwordless device auth (board task #104): an unknown credential or
+    // challenge is a 404; a revoked credential is a flat 403 (it exists, but
+    // can never open a session).
+    case 'credential_not_found':
+    case 'challenge_not_found':
       return 404;
+    case 'credential_revoked':
+      return 403;
     default:
       return 400;
   }

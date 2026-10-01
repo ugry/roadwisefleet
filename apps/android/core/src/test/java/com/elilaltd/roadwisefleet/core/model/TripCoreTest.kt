@@ -17,12 +17,36 @@ class TripCoreTest {
     @Test
     fun `the transition table matches the pilot`() {
         assertEquals(listOf("ASSIGNED", "CANCELLED"), TripStatus.nextLegalStatuses("DRAFT"))
-        assertEquals(listOf("LOADED", "CANCELLED"), TripStatus.nextLegalStatuses("ASSIGNED"))
+        assertEquals(listOf("EN_ROUTE", "LOADED", "CANCELLED"), TripStatus.nextLegalStatuses("ASSIGNED"))
+        assertEquals(listOf("AT_PICKUP"), TripStatus.nextLegalStatuses("EN_ROUTE"))
+        assertEquals(listOf("LOADED"), TripStatus.nextLegalStatuses("AT_PICKUP"))
         assertEquals(listOf("IN_TRANSIT"), TripStatus.nextLegalStatuses("LOADED"))
-        assertEquals(listOf("DELIVERED"), TripStatus.nextLegalStatuses("IN_TRANSIT"))
+        assertEquals(listOf("AT_DELIVERY", "DELIVERED"), TripStatus.nextLegalStatuses("IN_TRANSIT"))
+        assertEquals(listOf("DELIVERED"), TripStatus.nextLegalStatuses("AT_DELIVERY"))
         assertEquals(listOf("POD_UPLOADED"), TripStatus.nextLegalStatuses("DELIVERED"))
         assertEquals(listOf("INVOICED"), TripStatus.nextLegalStatuses("POD_UPLOADED"))
         assertEquals(listOf("SETTLED"), TripStatus.nextLegalStatuses("INVOICED"))
+    }
+
+    @Test
+    fun `the primary phase is the next driver phase, not the cancel escape hatch`() {
+        assertEquals("EN_ROUTE", TripStatus.nextPhase("ASSIGNED"))
+        assertEquals("AT_PICKUP", TripStatus.nextPhase("EN_ROUTE"))
+        assertEquals("LOADED", TripStatus.nextPhase("AT_PICKUP"))
+        assertEquals("IN_TRANSIT", TripStatus.nextPhase("LOADED"))
+        assertEquals("AT_DELIVERY", TripStatus.nextPhase("IN_TRANSIT"))
+        assertEquals("DELIVERED", TripStatus.nextPhase("AT_DELIVERY"))
+        assertEquals(null, TripStatus.nextPhase("SETTLED"))
+    }
+
+    @Test
+    fun `only an in-flight phase counts as an active assignment`() {
+        assertTrue(TripStatus.isActiveAssignment("ASSIGNED"))
+        assertTrue(TripStatus.isActiveAssignment("EN_ROUTE"))
+        assertTrue(TripStatus.isActiveAssignment("AT_DELIVERY"))
+        assertFalse(TripStatus.isActiveAssignment("DRAFT"))
+        assertFalse(TripStatus.isActiveAssignment("DELIVERED"))
+        assertFalse(TripStatus.isActiveAssignment("SETTLED"))
     }
 
     @Test

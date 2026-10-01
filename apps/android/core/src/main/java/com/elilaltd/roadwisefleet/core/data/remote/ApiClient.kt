@@ -1,5 +1,8 @@
 package com.elilaltd.roadwisefleet.core.data.remote
 
+import com.elilaltd.roadwisefleet.core.model.DeviceChallenge
+import com.elilaltd.roadwisefleet.core.model.DeviceRegistration
+import com.elilaltd.roadwisefleet.core.model.DeviceSession
 import com.elilaltd.roadwisefleet.core.model.Trip
 import com.elilaltd.roadwisefleet.core.model.TripDocument
 import kotlinx.coroutines.Dispatchers
@@ -38,11 +41,71 @@ class ApiClient(
     suspend fun postStatus(tripId: String, to: String): ApiResult<Unit> =
         request("POST", "/api/trips/$tripId/status", JSONObject().put("status", to).toString()).map { }
 
+    /**
+     * Start Trip (board #105): the dedicated driver action that moves
+     * ASSIGNED → EN_ROUTE and turns live GPS tracking on. Distinct from
+     * [postStatus] on purpose — only this endpoint flips the tracking flag.
+     */
+    suspend fun startTrip(tripId: String): ApiResult<Unit> =
+        request("POST", "/api/trips/$tripId/start", "{}").map { }
+
     suspend fun postDocument(tripId: String, payloadJson: String): ApiResult<Unit> =
         request("POST", "/api/trips/$tripId/documents", payloadJson).map { }
 
     suspend fun postSos(payloadJson: String): ApiResult<Unit> =
         request("POST", "/api/driver/sos", payloadJson).map { }
+
+    // --- passwordless device auth (board #104, AND1-A2) ---------------------
+
+    /**
+     * Bind this device's public key to the signed-in driver (first login). The
+     * caller passes the base64 SPKI public key from the Keystore — never a
+     * private key.
+     */
+    suspend fun registerDevice(
+        publicKeyBase64: String,
+        algorithm: String,
+        deviceLabel: String?,
+    ): ApiResult<DeviceRegistration> {
+        val body = JSONObject()
+            .put("publicKey", publicKeyBase64)
+            .put("algorithm", algorithm)
+            .put("deviceLabel", deviceLabel ?: JSONObject.NULL)
+        return request("POST", "/api/auth/device/register", body.toString()).map { response ->
+            val credential = JSONObject(response).getJSONObject("credential")
+            DeviceRegistration(
+                credentialId = credential.getString("id"),
+                algorithm = credential.optString("algorithm", algorithm),
+                deviceLabel = credential.nullableString("deviceLabel"),
+            )
+        }
+    }
+
+    /** Ask for a single-use nonce to sign (no password). */
+    suspend fun deviceChallenge(credentialId: String): ApiResult<DeviceChallenge> {
+        val body = JSONObject().put("credentialId", credentialId)
+        return request("POST", "/api/auth/device/challenge", body.toString()).map { response ->
+            val json = JSONObject(response)
+            DeviceChallenge(
+                challengeId = json.getString("challengeId"),
+                nonce = json.getString("nonce"),
+                algorithm = json.optString("algorithm", "ES256"),
+            )
+        }
+    }
+
+    /** Exchange a signature over the nonce for a session token. */
+    suspend fun deviceVerify(challengeId: String, signatureBase64: String): ApiResult<DeviceSession> {
+        val body = JSONObject().put("challengeId", challengeId).put("signature", signatureBase64)
+        return request("POST", "/api/auth/device/verify", body.toString()).map { response ->
+            val json = JSONObject(response)
+            DeviceSession(
+                token = json.getString("token"),
+                userId = json.getJSONObject("user").getString("id"),
+                deviceCredentialId = json.getJSONObject("user").nullableString("deviceCredentialId"),
+            )
+        }
+    }
 
     private suspend fun request(method: String, path: String, body: String?): ApiResult<String> =
         withContext(Dispatchers.IO) {
