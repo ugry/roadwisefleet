@@ -533,6 +533,7 @@ export function orderSummary(order) {
       ? {
           id: trip.id,
           status: trip.status || null,
+          tracking: trip.tracking === true,
           deliveredAt: trip.deliveredAt || null
         }
       : null

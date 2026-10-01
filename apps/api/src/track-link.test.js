@@ -122,6 +122,8 @@ test('the public payload is PII-free and maps the timeline', () => {
   const trip = {
     id: 'trip-1',
     status: 'IN_TRANSIT',
+    // Board task #107: the public payload carries whether tracking is live.
+    tracking: true,
     rateEur: { toNumber: () => 1800 },
     driverId: 'user-9',
     driver: { id: 'user-9', name: 'Greta', phone: '+49 170 000' },
@@ -145,6 +147,7 @@ test('the public payload is PII-free and maps the timeline', () => {
   ]);
   assert.deepEqual(shaped.lastKnownPosition, { at: '2026-09-21T12:00:00.000Z', lat: 52.3759, lng: 9.732 });
   assert.equal(shaped.eta, null);
+  assert.equal(shaped.tracking, true);
   assert.deepEqual(shaped.pod, { available: true });
   assert.deepEqual(Object.keys(shaped).sort(), [
     'eta',
@@ -153,6 +156,7 @@ test('the public payload is PII-free and maps the timeline', () => {
     'route',
     'status',
     'statusTimeline',
+    'tracking',
   ]);
   // Belt and braces: the serialised payload contains no PII at all.
   const json = JSON.stringify(shaped);

@@ -316,3 +316,19 @@ dl.detail dd { margin: 0; text-align: right; font-weight: 600; }
 .review-prompt .star.is-selected { background: var(--primary); border-color: var(--primary); color: #fff; }
 .review-prompt textarea { width: 100%; margin-bottom: 12px; }
 .review-prompt .review-msg { margin-top: 8px; }
+
+/* Live tracking panel (board task #107, AND1-A5). */
+.live-state { font-weight: 600; margin: 8px 0; }
+.live-state.live { color: var(--primary); }
+.live-state.not_started, .live-state.completed, .live-state.cancelled { color: var(--muted); }
+.live-milestones { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 8px 0 12px; }
+.live-milestones .lm {
+  border: 1px solid var(--border, #ccc);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.live-milestones .lm.done { border-color: var(--primary); color: inherit; }
+.live-milestones .lm.current { border-color: var(--primary); background: var(--primary); color: #fff; }
+.live-position { font-variant-numeric: tabular-nums; margin: 4px 0 12px; }

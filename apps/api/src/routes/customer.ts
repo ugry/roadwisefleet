@@ -138,6 +138,9 @@ const ADDRESS_SELECT = {
 const TRIP_SELECT = {
   id: true,
   status: true,
+  // Board task #107: the shipment detail needs the live flag to show the
+  // tracking surface (or "not started yet") without leaking anything else.
+  tracking: true,
   deliveredAt: true,
   trackLinkVersion: true,
   trackLinkIssuedAt: true,

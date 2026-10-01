@@ -237,6 +237,7 @@ test('the customer read model never exposes a fleet internal', () => {
       {
         id: 'trip-1',
         status: 'DRAFT',
+        tracking: true,
         deliveredAt: null,
         driver: { name: 'Driver One', phone: '+49 1' },
         truck: { plate: 'RW-001' },
@@ -256,7 +257,8 @@ test('the customer read model never exposes a fleet internal', () => {
     'supplyChoice',
     'trip'
   ]);
-  assert.deepEqual(Object.keys(summary.trip).sort(), ['deliveredAt', 'id', 'status']);
+  assert.deepEqual(Object.keys(summary.trip).sort(), ['deliveredAt', 'id', 'status', 'tracking']);
+  assert.equal(summary.trip.tracking, true);
   assert.equal(JSON.stringify(summary).includes('Driver One'), false);
   assert.equal(JSON.stringify(summary).includes('RW-001'), false);
   assert.equal(JSON.stringify(summary).includes('1450'), false);

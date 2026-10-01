@@ -41,6 +41,10 @@
   var DOC = win && win.RoadwiseDocuments ? win.RoadwiseDocuments : {};
   // The pure tracking-link view model (board task #39, F8), loaded before this one.
   var TRACK = win && win.RoadwiseTracking ? win.RoadwiseTracking : {};
+  // The pure live-tracking view model (board task #107, AND1-A5), loaded before
+  // this one and shared with the customer portal, so the two live surfaces
+  // cannot disagree about phases or the "not started yet" state.
+  var LIVE = win && win.RoadwiseLiveTracking ? win.RoadwiseLiveTracking : {};
   // The shared document rules / checklist owner (board task #4), loaded before
   // this one from `/pilot/lib/driver-core.js`. The documents UI never restates
   // the POD gate — it asks this module.
@@ -188,6 +192,7 @@
   function renderPanel(route) {
     var outlet = el('outlet');
     if (!outlet) return null;
+    stopLiveStream();
     var panel = APP.panelFor(route, T);
     var token = ++renderToken;
     if (route && route.view === 'trips') {
@@ -534,6 +539,7 @@
       '<dt>' + esc(T('trips.createdAt')) + '</dt><dd>' + esc(fmtDate(trip.createdAt)) + '</dd>' +
       '</dl>';
 
+    html += livePanelHtml(trip);
     html += assignBoxHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.timeline')) + '</h2>' + timelineHtml(trip.statusEvents || []);
     html += documentsPanelHtml(trip);
@@ -886,6 +892,109 @@
     });
   }
 
+  /* ----------------------------------------------- live tracking (A5) --- */
+
+  /**
+   * The fleet-manager live tracking panel (board task #107, AND1-A5).
+   *
+   * Owner direction: tracking is available for the fleet manager on the trip's
+   * CURRENT (tracking = true) cargo only. The state, the phase milestones and
+   * the position reduction all come from `/app/lib/live-tracking.js` — the SAME
+   * module the customer portal loads — so the two surfaces cannot disagree.
+   *
+   * Only a live trip opens the stream: `GET /api/trips/:id/stream` is scoped
+   * server-side (org + trip read scope), and the client reads it with `fetch`
+   * rather than `EventSource` because `EventSource` cannot send the bearer
+   * token. A historical (delivered/cancelled) trip shows its final milestones
+   * and no stream.
+   */
+  var liveStream = null;
+
+  /** Abort the previous trip's stream before a new panel renders. */
+  function stopLiveStream() {
+    if (liveStream && liveStream.controller && liveStream.controller.abort) {
+      try {
+        liveStream.controller.abort();
+      } catch (err) {
+        /* already closed */
+      }
+    }
+    liveStream = null;
+  }
+
+  function liveMilestonesHtml(status) {
+    var rows = LIVE.milestoneRows ? LIVE.milestoneRows(status) : [];
+    var items = rows.map(function (row) {
+      return '<li class="lm ' + esc(row.state) + '">' + esc(T(row.key)) + '</li>';
+    }).join('');
+    return '<ol class="live-milestones">' + items + '</ol>';
+  }
+
+  function livePanelHtml(trip) {
+    if (!LIVE.liveState) return '';
+    var state = LIVE.liveState({ tracking: trip && trip.tracking, status: trip && trip.status });
+    var hintKey = state === 'live' ? 'live.waiting' : (state === 'not_started' ? 'live.notStarted.hint' : 'live.history.hint');
+    var html = '<h2 class="section-title">' + esc(T('live.title')) + '</h2>';
+    html += '<p class="live-state ' + esc(state) + '" id="liveState">' + esc(T(LIVE.stateKey(state))) + '</p>';
+    html += '<p class="muted live-eta">' + esc(T('live.etaUnknown')) + '</p>';
+    html += liveMilestonesHtml(trip && trip.status);
+    html += '<p class="live-position" id="livePosition">' + esc(T(hintKey)) + '</p>';
+    return html;
+  }
+
+  /** Repaint the last-known position from the reduced live state. */
+  function renderLivePosition(outlet, state) {
+    var node = outlet.querySelector ? outlet.querySelector('#livePosition') : null;
+    if (!node) return;
+    var pos = state && state.lastPosition ? state.lastPosition : null;
+    if (!pos) return;
+    node.textContent = T('live.position', {
+      lat: pos.lat,
+      lng: pos.lng,
+      at: pos.at ? fmtDate(pos.at) : '—'
+    });
+  }
+
+  function loadLiveTrackingControl(outlet, trip) {
+    if (!LIVE.liveState || !LIVE.streamPathForTrip) return;
+    var state = LIVE.liveState({ tracking: trip && trip.tracking, status: trip && trip.status });
+    if (state !== 'live') return;
+    if (typeof fetch !== 'function' || typeof AbortController !== 'function') return;
+
+    var live = { lastPosition: null, updatedAt: null };
+    var controller = new AbortController();
+    liveStream = { controller: controller };
+    fetch(LIVE.streamPathForTrip(trip.id), {
+      headers: { authorization: 'Bearer ' + session.token, accept: 'text/event-stream' },
+      signal: controller.signal
+    }).then(function (res) {
+      if (!res.ok || !res.body || typeof res.body.getReader !== 'function') throw new Error('stream unavailable');
+      var reader = res.body.getReader();
+      var decoder = typeof TextDecoder === 'function' ? new TextDecoder() : null;
+      var buffer = '';
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) return undefined;
+          buffer += decoder ? decoder.decode(chunk.value, { stream: true }) : String(chunk.value);
+          var parsed = LIVE.parseSseChunk(buffer, '');
+          buffer = parsed.rest;
+          for (var i = 0; i < parsed.events.length; i++) {
+            if (parsed.events[i].event === 'gps') {
+              live = LIVE.applyPoint(live, parsed.events[i].data);
+              renderLivePosition(outlet, live);
+            }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function () {
+      if (liveStream && liveStream.controller === controller) liveStream = null;
+      var node = outlet.querySelector ? outlet.querySelector('#livePosition') : null;
+      if (node) node.textContent = T('live.unavailable');
+    });
+  }
+
   function renderTripDetail(outlet, route_, token, flash) {
     var id = route_ && route_.params ? route_.params.id : '';
     outlet.innerHTML =
@@ -915,6 +1024,7 @@
       loadAssignControl(outlet, route_, trip);
       loadDocumentsControl(outlet, route_, trip, flash);
       loadTrackingControl(outlet, trip);
+      loadLiveTrackingControl(outlet, trip);
     });
   }
 
