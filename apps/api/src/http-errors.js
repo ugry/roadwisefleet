@@ -62,6 +62,10 @@ export function statusForError(error) {
     // Review system (board task #98): a second review for the same action is a
     // conflict, not a rewrite — reviews are immutable.
     case 'already_reviewed':
+    // GPS ingest (board task #106, AND1-A4): a point for a trip whose tracking
+    // has stopped is refused (the request is well-formed but the trip is not
+    // accepting samples) rather than silently written or resurrected.
+    case 'tracking_off':
       return 409;
     case 'load_not_found':
     case 'offer_not_found':

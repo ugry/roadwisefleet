@@ -39,6 +39,7 @@ import { publicUserSelect } from './user-payload.js';
  * @property {any} user
  * @property {any} truck
  * @property {any} statusEvent
+ * @property {any} gpsPing
  * @property {(ops: any[]) => Promise<any[]>} $transaction
  */
 
@@ -295,6 +296,53 @@ export async function startTrip(prisma, { orgId, tripId, actor, now }) {
     return { ok: false, error: 'invalid_transition', from: current.status, to: START_TRIP_STATUS };
   }
   return transitionTrip(prisma, { orgId, tripId, to: START_TRIP_STATUS, actor, now });
+}
+
+/**
+ * GPS ingest (board task #106, AND1-A4). The driver app uploads a batch of
+ * sampled points; this persists them and returns what the realtime channel
+ * should fan out.
+ *
+ * Rules, enforced here next to the tenancy check:
+ *   - the trip must exist in the caller's org (else 404 — never a cross-org
+ *     leak);
+ *   - the caller must be the trip's **assigned driver** (else 403). An
+ *     owner/dispatcher token is not the driver, and a different driver must not
+ *     be able to spoof another trip's position;
+ *   - the trip must have `tracking = true` (else 409 `tracking_off`): sampling
+ *     only happens during an active trip, and a point that arrives after
+ *     DELIVERED must not resurrect tracking;
+ *   - the insert is idempotent: `(tripId, clientId)` is unique and the write
+ *     uses `skipDuplicates`, so a batch replayed after a dropped connection is
+ *     a no-op rather than a duplicate or a 500 (rule R28).
+ *
+ * The points are assumed already validated by `gps-ingest.js#parseGpsBatch`.
+ * @param {TripsClient} prisma
+ * @param {{ orgId: string, tripId: string, driverId?: string | null, points: Array<{ clientId: string, lat: number, lng: number, at: Date, accuracyM?: number | null }> }} args
+ * @returns {Promise<
+ *   { ok: true, accepted: number, received: number, points: Array<{ clientId: string, lat: number, lng: number, at: Date, accuracyM: number | null }> } |
+ *   { ok: false, error: 'forbidden' | 'not_found' | 'tracking_off' }
+ * >}
+ */
+export async function ingestGpsPings(prisma, { orgId, tripId, driverId, points }) {
+  const trip = await prisma.trip.findFirst({
+    where: { id: tripId, orgId },
+    select: { id: true, driverId: true, tracking: true },
+  });
+  if (!trip) return { ok: false, error: 'not_found' };
+  if (!driverId || driverId !== trip.driverId) return { ok: false, error: 'forbidden' };
+  if (!trip.tracking) return { ok: false, error: 'tracking_off' };
+
+  const rows = points.map((p) => ({
+    tripId,
+    clientId: p.clientId,
+    at: p.at,
+    lat: p.lat,
+    lng: p.lng,
+    accuracyM: p.accuracyM ?? null,
+  }));
+  const result = await prisma.gpsPing.createMany({ data: rows, skipDuplicates: true });
+  return { ok: true, accepted: result?.count ?? 0, received: rows.length, points };
 }
 
 /**

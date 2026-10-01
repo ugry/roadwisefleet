@@ -7,6 +7,7 @@ import com.elilaltd.roadwisefleet.core.auth.DeviceKeyMaterial
 import com.elilaltd.roadwisefleet.core.data.local.RoadwiseDatabase
 import com.elilaltd.roadwisefleet.core.data.remote.ApiClient
 import com.elilaltd.roadwisefleet.core.data.repo.TripRepository
+import com.elilaltd.roadwisefleet.core.data.repo.TrackingRepository
 import com.elilaltd.roadwisefleet.core.data.sync.ConnectivityObserver
 import com.elilaltd.roadwisefleet.core.data.sync.SyncEngine
 import com.elilaltd.roadwisefleet.core.i18n.LocaleController
@@ -43,6 +44,8 @@ class AppContainer(context: Context) {
     val deviceAuth = DeviceAuth(api, deviceKeys)
     val connectivity = ConnectivityObserver(appContext)
     val repository = TripRepository(api, database.tripDao(), database.outboxDao())
+    // Board #106 (AND1-A4): the offline GPS queue, drained by GpsFlushWorker.
+    val trackingRepository = TrackingRepository(api, database.gpsPointDao())
     val syncEngine = SyncEngine(api, database.outboxDao(), connectivity, scope)
     val push = PushRegistrar(appContext)
 }

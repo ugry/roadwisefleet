@@ -201,6 +201,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/trips` | bearer, `trip:create` | create a `DRAFT` trip (`orderId` required); the optional `plannedAt` (ISO-8601) records the promised delivery time on the order in the same transaction (board task #66) |
 | `POST /api/trips/:id/status` | bearer, `trip:status` + assigned driver or `trip:*` | advance status; moving into `DELIVERED` also writes `Trip.deliveredAt` (board task #66) and clears `Trip.tracking`, while the `EN_ROUTE` move (Start Trip) sets `Trip.tracking = true` — both in the same transaction as the status event (board task #105); rejects illegal moves with `400 invalid_transition` (state machine §7), RBAC denials with `403`, and a move that would double-book the driver with `409 driver_busy` |
 | `POST /api/trips/:id/start` | bearer, `trip:status` + **assigned driver only** | Start Trip (board task #105): the driver's current-assignment action that moves `ASSIGNED → EN_ROUTE` **and** turns live GPS tracking on (`Trip.tracking = true`, `Trip.trackingStartedAt = now`) in one transaction with the status event. A non-assigned driver (or an owner/dispatcher token) is `403`; any status other than `ASSIGNED` is `400 invalid_transition`; unknown/foreign-org trip is `404` |
+| `POST /api/trips/:id/gps` | bearer, **assigned driver only** | upload a batch of sampled GPS points (board task #106): body `{ points: [{ id, lat, lng, at, accuracyM? }] }`, up to 200 points. Only while `Trip.tracking = true` (a stopped trip is `409 tracking_off`); the assigned driver's own trips only (`403` otherwise); malformed point → `400 invalid_gps` with a `detail` naming the field; the write is idempotent on `(tripId, id)` (`202 { accepted, received }`), so an offline queue replayed after a reconnect adds no duplicates. Every accepted point is fanned out on the realtime stream |
+| `GET /api/trips/:id/stream` | bearer, `trip:read` (scoped) | Server-Sent Events stream of one trip's GPS points (board task #106): `event: ready` on connect, then `event: gps` with `{ id, at, lat, lng, accuracyM }` per accepted point, `: keep-alive` comments while idle. Same read scope as `GET /api/trips/:id` — a driver follows only their own trip (another trip is `404`), an org-wide role any trip in its org |
 | `POST /api/trips/:id/assign` | bearer, `trip:*` (owner/dispatcher) | assign or reassign the trip's driver (`driverId` required). The change keeps the trip's status and is recorded as a status event naming the acting user (board task #36). `403` for a driver, `409 trip_closed` on a terminal trip, `409 already_assigned` for the current driver, `409 driver_unavailable` for a suspended/locked (or non-driver) assignee, `409 driver_busy` when the assignee already has an active trip (board task #105), `400 driver_not_found` for an unknown one |
 | `GET /api/driver/trips` | bearer, `trip:read` | live trip state for the logged-in driver |
 | `GET /api/reference` | bearer, `trip:create` | every create-trip option list in one call (orders, drivers, trucks, customers) |
@@ -215,6 +217,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/trips/:id/track-link` | bearer, `trip:*` | the trip's current link, recomputed byte-for-byte from the persisted mint parameters (`{ link }`, or `{ link: null }` when none is live); a foreign-org trip is `404` |
 | `DELETE /api/trips/:id/track-link` | bearer, `trip:*` | revoke this trip's link: bumps `Trip.trackLinkVersion`, so every token already handed out for this trip `404`s while other trips are untouched; `{ revoked: true, link: null }` |
 | `GET /api/track/:token` | — | public tracking payload — route, status, timeline, last known position, ETA placeholder, POD flag; **no PII**; invalid/expired/rotated/revoked token → `404 invalid_token` |
+| `GET /api/track/:token/stream` | — | public SSE stream of one trip's GPS points for the read-only share link (board task #106); the signed token is the capability, and an invalid/revoked/expired token is a flat `404` |
 | `GET /track/:token` | — | public tracking HTML page (self-contained, no build step) for the shared link; `x-robots-tag: noindex, nofollow` |
 | `GET /pilot/*` | — | pilot-only web surface from `<repo>/pilot` (same origin, no build step) |
 | `GET /app` | — | `302` to `/app/` (the Fleet Manager mount point) |
@@ -1406,9 +1409,36 @@ Public entry point: a visitor registers a fleet and is signed in immediately.
   end-to-end run is the remaining A2 slice; this PR lands the backend contract,
   the client library and the threat model.
 
+## Background location ingest & realtime — board task #106 (AND1-A4)
+- **What it is.** The Android tracking window (board #105's `Trip.tracking`) samples
+  a location every 10 minutes and uploads batches; the customer/FM surfaces read
+  them back in real time. Owner constraint: no battery drain — sampling runs only
+  while a trip is active (§9c of `docs/android-architecture.md`).
+- **Ingest core.** `src/gps-ingest.js` (dependency-free): `parseGpsBatch` bounds
+  the batch (200), validates every point (client id, lat/lng range, parseable
+  timestamp, a small future-skew allowance, optional accuracy) and collapses
+  duplicate ids within one request, so the insert cannot self-collide.
+- **Persistence.** `GpsPing.clientId` + `GpsPing.accuracyM`, unique on
+  `(tripId, clientId)`; migration `20261001194500_add_gps_point_id` (two nullable
+  columns + one index — additive). `createMany({ skipDuplicates: true })` makes a
+  replayed offline batch a no-op (rule R28).
+- **Realtime.** `src/gps-stream.js` is an in-process pub/sub hub keyed by trip id;
+  the ingest publishes every accepted point, and the SSE routes
+  (`GET /api/trips/:id/stream`, `GET /api/track/:token/stream`) subscribe.
+  Single-process by design (the pilot runs one API process) — the seam to replace
+  with a broker if the API scales out.
+- **Client.** `:core` `TrackingRepository` (Room `gps_points` queue + per-trip
+  batching, `409 tracking_off` stops tracking) and the pure `TrackingCore`
+  (cadence, validation, chunking). `:app` runs the
+  `LocationTrackingService`/`GpsFlushWorker`/`TrackingBootReceiver` trio.
+- **Tests.** `src/gps-ingest.test.js` + `src/gps-stream.test.js` (pure, no-install
+  CI job) and `test/gps-ingest.test.ts` (`pnpm test:router`, DB-backed: 403/409/400
+  paths, idempotent replay, and a REAL-socket SSE delivery for both the scoped
+  stream and the share link, including a revoked token).
+
 ## Deliberately missing (until the right phase)
 - email verification and password reset (email is not live — registration itself
   is live, board task #86) ·
 - server-side session revocation ·
-- GPS ingest pipeline (Redis stream → Timescale) · document presigned uploads ·
+- GPS fan-out beyond a single API process (Redis stream → Timescale) · document presigned uploads ·
 - WhatsApp bridge · payments (post-free-phase)

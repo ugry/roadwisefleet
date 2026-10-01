@@ -60,3 +60,29 @@ interface CaptureDao {
     @Query("SELECT COUNT(*) FROM pending_captures")
     suspend fun count(): Int
 }
+
+/**
+ * The GPS sample store (board #106, AND1-A4). `insert` IGNOREs on a duplicate
+ * client id, so a retried sample is a no-op; the flush reads the unsent rows
+ * oldest-first, uploads them in batches and purges what was accepted.
+ */
+@Dao
+interface GpsPointDao {
+    @Query("SELECT * FROM gps_points WHERE uploaded = 0 ORDER BY atEpochMs ASC")
+    suspend fun unsent(): List<GpsPointEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(point: GpsPointEntity)
+
+    @Query("UPDATE gps_points SET uploaded = 1 WHERE clientId IN (:ids)")
+    suspend fun markUploaded(ids: List<String>)
+
+    @Query("DELETE FROM gps_points WHERE uploaded = 1")
+    suspend fun purgeUploaded()
+
+    @Query("SELECT COUNT(*) FROM gps_points WHERE uploaded = 0")
+    suspend fun pendingCount(): Int
+
+    @Query("SELECT MAX(atEpochMs) FROM gps_points WHERE tripId = :tripId")
+    suspend fun lastSampleAt(tripId: String): Long?
+}
