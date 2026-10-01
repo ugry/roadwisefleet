@@ -200,7 +200,71 @@ background-location justification.
   `ACCESS_NETWORK_STATE` and `POST_NOTIFICATIONS`; location (A3/A4) and camera
   (A4) are added by the task that first uses them.
 
-## 9a. Driver phases and live tracking (A3, board #105)
+## 9a. Passwordless device auth (A2, #104)
+
+Owner direction: after the **first** Android login (password or phone OTP) the
+app generates an **EC P-256 keypair in the Android Keystore** and registers the
+public key; every later login is passwordless. A1's `SessionStore.token` stays
+the session store; A2 removes the password from the later logins, not the token.
+
+**Contract (server: `apps/api/src/device-auth.js` + `routes/device-auth.ts`)**
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/auth/device/register` | bearer (driver) | bind this device's SPKI public key; stores public key only |
+| POST | `/api/auth/device/challenge` | public | issue a single-use nonce (`ES256`, TTL 120 s, per-IP rate-limited) |
+| POST | `/api/auth/device/verify` | public | signature over the nonce -> the same session token shape as a password login |
+| POST | `/api/auth/device/revoke` | bearer (the credential's driver, or a **same-org** `user:manage`/`trip:*`) | lost-phone / logout revoke |
+
+The device signs the **UTF-8 bytes of the nonce string** and sends a detached
+DER ECDSA signature (`SHA256withECDSA`); the server verifies with
+`crypto.verify('sha256', …, { dsaEncoding: 'der' })`. `DeviceCredential` stores
+`publicKey` (base64 SPKI), `algorithm`, `deviceLabel`, `createdAt`,
+`lastUsedAt`, `revokedAt` — never a private key and never a token.
+`DeviceChallenge` is single-use (`usedAt`) with a short expiry, so a replayed
+nonce can never open a second session; the burn is a **conditional** (`usedAt:
+null`) update, so concurrent verifies of one challenge mint exactly one token.
+
+**Threat notes**
+
+- *Stolen server data:* only public keys and nonces are stored; they cannot be
+  used to sign, so the dump does not authenticate anyone.
+- *Replay:* `usedAt` + `expiresAt` make every challenge one-shot and short-lived.
+- *Wrong key:* verification fails unless the signature matches the registered
+  SPKI key — a second device's key cannot verify the first device's session.
+- *Key extraction:* the private key is generated in the Keystore and used
+  through `Signature.initSign`; no private bytes ever enter the process heap or
+  logs (StrongBox when the SoC has it, TEE otherwise).
+- *Curve:* only P-256 (`prime256v1`) keys are accepted — ES256 does not mean
+  "any EC curve", so P-384/secp256k1 keys are refused at registration and never
+  verify.
+- *Cross-org:* roles are global (`Role.id` = owner/dispatcher/...), so `revoke`
+  additionally requires the credential's driver to share the caller's non-null
+  org; an admin in org A can never revoke a device in org B.
+- *No account lockout on `verify` (deliberate):* unlike `/auth/login`, `verify`
+  does not enforce `user.lockedUntil`. A password is guessable and needs that
+  lockout; the device private key is not, and locking a phone out of its own key
+  would strand the legitimate owner — the lost-phone remedy is revoking the
+  credential, not locking the account.
+- *No enumeration / no probing:* `challenge` and `verify` are rate-limited per
+  real client IP, and `verify` returns a flat `invalid_signature`.
+- *Lost phone:* `revoke` sets `revokedAt`; a revoked credential is refused at
+  `challenge` (403) and at `verify` (403), and re-binding happens on the new
+  device after a password/OTP login.
+
+**Keystore fallback.** `KeystoreDeviceKeyMaterial` returns `null` when the
+Keystore is unavailable (device without a secure element, or a generation
+failure): `DeviceAuth.register/authenticate` then surface
+`DeviceAuth.KEYSTORE_UNAVAILABLE` and the UI must fall back to the ordinary
+password/OTP login. A device that cannot create a key is never locked out.
+
+**Lost-phone revoke path (operator).** The driver (or an owner/`user:manage`)
+calls `POST /api/auth/device/revoke { credentialId }`; it is idempotent, so the
+call can be retried. After revocation the next `challenge` for that credential
+is refused and the driver signs in on the replacement device with
+password/OTP, which registers a fresh credential.
+
+## 9b. Driver phases and live tracking (A3, board #105)
 
 A3 extends the one state machine with the driver-facing phases and makes
 **Start Trip** the gate that turns live GPS tracking on:
