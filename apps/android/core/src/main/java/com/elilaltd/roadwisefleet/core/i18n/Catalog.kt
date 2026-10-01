@@ -5,9 +5,9 @@ import org.json.JSONObject
 
 /**
  * Loads the pilot's locale catalogues (board task #6). The four files under
- * `assets/locales/` are byte-identical copies of `pilot/locales/*.json`, so a
- * key the app uses carries the pilot's translation; `tools/check-locales.mjs`
- * proves the copies have not drifted.
+ * `assets/locales/` are byte-identical copies of the pilot catalogues
+ * (`pilot/locales/<lang>.json`), so a key the app uses carries the pilot's
+ * translation; `tools/check-locales.mjs` proves the copies have not drifted.
  */
 object Catalog {
     val SUPPORTED = listOf("en", "de", "pl", "tr")
