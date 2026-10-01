@@ -1,0 +1,130 @@
+flowchart TB
+    classDef persona fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef surface fill:#d0ebff,stroke:#1864ab,color:#000
+    classDef core fill:#e5dbff,stroke:#5f3dc4,color:#000
+    classDef money fill:#d3f9d8,stroke:#2b8a3e,color:#000
+    classDef rule fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef new fill:#b2f2bb,stroke:#2b8a3e,color:#000,stroke-width:2px
+    classDef paid fill:#ffe8cc,stroke:#e8590c,color:#000
+    classDef off fill:#f1f3f5,stroke:#adb5bd,color:#000,stroke-dasharray:4 3
+    classDef and fill:#ffec99,stroke:#e8590c,color:#000
+
+    subgraph REG["REGISTRATION — the account type is chosen up front (owner 2026-10-01)"]
+        direction LR
+        R1["Register as CUSTOMER<br/>free"]:::new
+        R2["Register as FLEET<br/>manager creates the org;<br/>EUR 20/mo after 1-mo trial"]:::paid
+        R3["Register as SOLO<br/>TRUCK DRIVER<br/>self-service, free"]:::new
+        R4["Fleet manager creates /<br/>invites its drivers' accounts"]:::new
+        R5["Menus are shown by<br/>account type and role"]:::new
+        R1 --> R5
+        R2 --> R4 --> R5
+        R3 --> R5
+    end
+
+    subgraph PEOPLE["PERSONAS — every transacting user is registered (q3)"]
+        direction LR
+        CUS["Customer /<br/>small firm"]:::persona
+        FLM["Fleet<br/>Manager"]:::persona
+        DRV["Fleet-employed<br/>Driver"]:::persona
+        SOL["Solo<br/>Driver"]:::persona
+        GUE["Unregistered party<br/>read-only link only"]:::off
+    end
+
+    subgraph SURF["SURFACES"]
+        direction LR
+        CS["Customer portal<br/>+ WhatsApp"]:::surface
+        FS["Fleet web app"]:::surface
+        AND["ANDROID DRIVER APP<br/>fleet and solo share it"]:::and
+        LK["No-login link<br/>tracking / POD / invoice"]:::off
+    end
+
+    subgraph AUTH["ANDROID DEVICE AUTH — passwordless after the first login"]
+        direction LR
+        A1["First login<br/>password / phone OTP"]:::and
+        A2["Device keypair generated<br/>in Android Keystore"]:::and
+        A3["Public key registered<br/>backend binds device to driver"]:::and
+        A4["Later logins: server challenge<br/>device signs, verified<br/>NO password sent"]:::and
+        A1 --> A2 --> A3 --> A4
+    end
+
+    subgraph DIST["DISTRIBUTION (owner 2026-10-01)"]
+        direction LR
+        P1["Google Play<br/>INTERNAL TESTING"]:::paid
+        P2["Google Play<br/>PRODUCTION"]:::paid
+        P3["Signing key + Data Safety +<br/>background-location justification"]:::paid
+        P1 --> P2
+        P3 --> P1
+    end
+
+    subgraph GATE["TRACKING GATE — driver-driven"]
+        direction LR
+        G1["Current assignment card<br/>one active cargo per driver"]:::and
+        G2["Start Trip button<br/>only from ASSIGNED"]:::and
+        G3["Trip.tracking = true<br/>phase = EN_ROUTE"]:::and
+        G4["Location every 10 min ONLY while<br/>tracking = true; battery-conscious:<br/>no always-on service, batched,<br/>stops at DELIVERED"]:::and
+        G5["Realtime push to customer / FM<br/>CURRENT cargo only"]:::and
+        G1 --> G2 --> G3 --> G4 --> G5
+    end
+
+    subgraph BACK["SHARED BACKBONE — the information flow"]
+        direction TB
+        ORD["ORDER — demand<br/>route / cargo / dates / payment mode"]:::core
+        HM["HAULING MARKET<br/>beacons to loads, offers, award<br/>auto-match NO LIMITS (q6)"]:::core
+        TRIP["TRIP — one execution object<br/>+ phase + tracking (bool)<br/>fleet and solo share it"]:::core
+        EV["STATUS EVENT BUS<br/>fan-out to docs / money / trust / notices"]:::core
+        DOCS["DOCUMENTS<br/>eCMR / POD / CMR"]:::core
+        MNY["MONEY<br/>invoice or escrow 3%<br/>FREE: customers + solo drivers<br/>PAID: fleet EUR20/mo + 1mo trial"]:::money
+        TRU["TRUST<br/>optional ID/Licence/Registration<br/>two-sided reviews 1/10"]:::core
+        NOT["NOTIFICATIONS<br/>push / email / SMS / WhatsApp"]:::surface
+    end
+
+    subgraph RULES["Core rules (v4)"]
+        direction LR
+        X1["Register to transact;<br/>link = read-only (q3)"]:::rule
+        X2["Payment per award:<br/>invoice or escrow 3% (q1)"]:::rule
+        X3["Verification opt-in,<br/>never blocks bidding (q5)"]:::rule
+        X4["Tracking is off until<br/>the driver taps Start Trip"]:::rule
+        X5["A customer tracks only<br/>their own current cargo"]:::rule
+        X6["Passwordless logins use a<br/>device-bound key, not a password"]:::rule
+        X7["Free for customers and solo<br/>drivers; fleets pay (owner 10-01)"]:::rule
+        X8["Menus follow account type:<br/>fleet driver vs solo driver"]:::rule
+        X9["Battery: no always-on tracking;<br/>10 min only while a trip is active"]:::rule
+    end
+
+    CUS --> CS
+    FLM --> FS
+    DRV --> AND
+    SOL --> AND
+    GUE -.-> LK
+
+    AND --> AUTH
+    AUTH --> TRIP
+
+    CS --> ORD
+    FS --> ORD
+    ORD --> HM
+    HM -->|"award"| TRIP
+    CS -->|"own carrier /<br/>contract"| TRIP
+    FS -->|"own fleet"| TRIP
+
+    TRIP --> EV
+    TRIP --> GATE
+    EV --> DOCS
+    EV --> MNY
+    EV --> TRU
+    EV --> NOT
+
+    G5 --> CS
+    G5 --> FS
+    DOCS --> LK
+    MNY --> LK
+    NOT --> GUE
+    NOT --> CUS
+    NOT --> FLM
+    NOT --> SOL
+    NOT --> DRV
+    TRU --> HM
+    MNY --> HM
+
+    REG --> PEOPLE
+    DIST --> AND
