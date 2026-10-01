@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- :core library manifest. No components: the app module owns the Activity,
+     the FCM service and the permissions. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
