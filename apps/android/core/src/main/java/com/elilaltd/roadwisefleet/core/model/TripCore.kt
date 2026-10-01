@@ -113,7 +113,11 @@ object TripCore {
         val dropped = mutableListOf<SendResult>()
         val retried = mutableListOf<String>()
         for (item in items) {
-            val result = byId[item.id] ?: run { keep.add(item); continue }
+            val result = byId[item.id]
+            if (result == null) {
+                keep.add(item)
+                continue
+            }
             when {
                 result.ok -> sent.add(item.id)
                 classifyFailure(result.status) == FailureClass.DROP -> dropped.add(result)

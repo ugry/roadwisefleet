@@ -94,7 +94,7 @@ class ApiClient(
             customer = customer.nullableString("name"),
             truckPlate = truck.nullableString("plate"),
             rateEur = source.nullableDouble("rateEur"),
-            updatedAtEpochMs = parseEpochMs(source.opt("updatedAt")),
+            updatedAtEpochMs = parseEpochMs(source.opt("updatedAt")) ?: 0L,
             documents = (0 until (documents?.length() ?: 0)).mapNotNull { index ->
                 documents?.optJSONObject(index)?.let { doc ->
                     TripDocument(
