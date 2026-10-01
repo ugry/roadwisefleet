@@ -30,7 +30,7 @@
 <body>
 <header>
   <h1>RoadwiseFleet — UX Flows</h1>
-  <p>Actors, company types, entry points, the request catalogue and the v2 information flow + menus — the map to reason about permissions, cancellations and who may do what. Diagrams are SVG: zoom freely, click to open full size.</p>
+  <p>Actors, company types, entry points, the request catalogue, the v4 information flow, menus v3 and the Android driver flow — the map to reason about permissions, cancellations and who may do what. Diagrams are SVG: zoom freely, click to open full size.</p>
 </header>
 <nav>
   <a href="#company-types">1 · Company types &amp; actors</a>
@@ -39,8 +39,9 @@
   <a href="#customer">4 · Customer journey</a>
   <a href="#fleet">5 · Fleet manager flow</a>
   <a href="#driver">6 · Driver flow</a>
-  <a href="#info-flow">7 · Information flow v2</a>
-  <a href="#menus">8 · Menus v2</a>
+  <a href="#info-flow">7 · Information flow v4</a>
+  <a href="#menus">8 · Menus v3</a>
+  <a href="#android">9 · Android driver flow</a>
 </nav>
 <main>
 
@@ -83,15 +84,21 @@
   </section>
 
   <section id="info-flow">
-    <h2>7 · Information flow v2 <span>— the owner decisions of 2026-10-01 (#73)</span></h2>
-    <p class="cap">The master flow after the owner's product decisions: every transacting user is <strong>registered</strong> (no guest booking; share links are read-only), payment per award is carrier invoice <strong>or</strong> escrow 3%, verification is <strong>optional</strong> with ID / Licence / Registration check marks, reviews are sampled at ≤1 per 10 actions, auto-match has <strong>no limits</strong>, and the marketplace is named <strong>Hauling Market</strong>.</p>
-    <div class="frame"><a href="ux-flows/09-information-flow.svg" target="_blank"><img src="ux-flows/09-information-flow.svg" alt="Information flow v2"></a></div>
+    <h2>7 · Information flow v4 <span>— the Android-era master flow</span></h2>
+    <p class="cap">Registration by <strong>account type</strong> (customer / fleet / solo truck driver), <strong>free for customers and solo drivers</strong> (fleets pay EUR 20/mo after a 1-month trial), the driver surface on Android is the <strong>Android driver app</strong>, logins are <strong>device-bound and passwordless</strong> after the first one, and location is <strong>battery-gated</strong> — 10-minute samples only while <code>Trip.tracking = true</code>. Everything from v2 still holds: every transacting user is registered (share links are read-only), payment is carrier invoice <strong>or</strong> escrow 3%, verification is <strong>optional</strong> with ID / Licence / Registration check marks, reviews are sampled at ≤1 per 10 actions, and auto-match has <strong>no limits</strong>.</p>
+    <div class="frame"><a href="ux-flows/11-information-flow-v4.svg" target="_blank"><img src="ux-flows/11-information-flow-v4.svg" alt="Information flow v4"></a></div>
   </section>
 
   <section id="menus">
-    <h2>8 · Menus v2 <span>— menus keyed by account type</span></h2>
-    <p class="cap">Fleet manager (12 items, incl. <strong>Hauling Market</strong> and <strong>Billing and Plan</strong>), customer portal (Payments shows invoice OR escrow 3%, plus sampled <strong>Reviews</strong>), solo driver (Hauling Market feed, verification check marks, two-way reviews), the employed driver app, and the read-only unregistered-party link.</p>
-    <div class="frame"><a href="ux-flows/09-menus-v2.svg" target="_blank"><img src="ux-flows/09-menus-v2.svg" alt="Menus v2"></a></div>
+    <h2>8 · Menus v3 <span>— menus keyed by account type</span></h2>
+    <p class="cap">Sign-up is a three-way choice: customer (free), fleet (EUR 20/mo after trial) or solo truck driver (free). The <strong>fleet-employed driver</strong> (invited by the fleet) gets Trips + Start Trip (phase console), Documents, Money, Messages and More + SOS — <strong>no Hauling Market feed and no billing</strong>. The <strong>solo driver</strong> (self-registered, free) gets the Hauling Market feed, truck beacon, own customers, wallet, community, verification marks and two-way reviews. The customer portal and fleet-manager app keep their shape, plus the read-only link for an unregistered party.</p>
+    <div class="frame"><a href="ux-flows/08-menus-overview.svg" target="_blank"><img src="ux-flows/08-menus-overview.svg" alt="Menus v3"></a></div>
+  </section>
+
+  <section id="android">
+    <h2>9 · Android driver flow <span>— device binding, the phase console, background tracking</span></h2>
+    <p class="cap">First run binds the device: an EC keypair is generated in the <strong>Android Keystore</strong> and the public key is registered, so every later login is challenge → sign with <strong>no password sent</strong>. The driver walks the <strong>phase console</strong> on the current assignment (exactly one active cargo per driver): Accept → <strong>Start Trip</strong> (<code>tracking = true</code>) → AT_PICKUP → LOADED → IN_TRANSIT → AT_DELIVERY → DELIVERED → POD UPLOADED. Background samples run every 10 minutes <em>only</em> while tracking is on, queue offline and flush on reconnect; the customer / fleet manager see only their own current cargo.</p>
+    <div class="frame"><a href="ux-flows/10-android-driver-flow.svg" target="_blank"><img src="ux-flows/10-android-driver-flow.svg" alt="Android driver flow"></a></div>
   </section>
 
 </main>

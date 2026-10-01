@@ -18,7 +18,7 @@ flowchart TD
     subgraph SURFACES["Product surfaces"]
         S1["Customer portal + WhatsApp<br/>book · track · documents · pay"]:::surface
         S2["Fleet web app<br/>dispatch · trips · compliance · finance"]:::surface
-        S3["Driver app (Android / PWA)<br/>trips · documents · money · messages"]:::surface
+        S3["Android driver app (fleet + solo)<br/>phase console · documents · money · messages"]:::surface
         S4["HAULING MARKET<br/>loads ↔ trucks ↔ drivers"]:::new
         S5["No-login links<br/>tracking · POD · invoice (read-only)"]:::surface
     end
@@ -31,6 +31,7 @@ flowchart TD
         B5["Money ledger<br/>receivables · settlements · escrow"]:::core
         B6["Trust layer<br/>verification · ratings · credit"]:::core
         B7["Notifications<br/>push · WhatsApp · email · SMS"]:::surface
+        B8["Device auth<br/>device-bound keys · passwordless logins"]:::core
     end
 
     P1 --> S1
@@ -49,6 +50,7 @@ flowchart TD
     S3 --> BACKBONE
     S4 --> BACKBONE
     S5 --> B3
+    S3 --> B8
 
     B2 --> B3
     B3 --> B7
@@ -63,7 +65,9 @@ flowchart TD
         R4["Off-platform customers exist as<br/>lightweight records + share links"]:::infra
         R5["Any trip status change is an event —<br/>everyone sees the same truth"]:::infra
         R6["Verification is optional — never blocks bidding;<br/>ID / Licence / Registration check marks (q5)"]:::infra
+        R7["Android logins are device-bound —<br/>challenge → sign, no password after the first login"]:::infra
+        R8["Free for customers and solo drivers;<br/>fleets pay EUR 20/mo after a 1-month trial (X7)"]:::infra
     end
 
-    DEC["DECISIONS 2026-10-01 (#73):<br/>invoice + escrow 3% both · free handling between parties<br/>fleet EUR20/mo + 1mo trial (trial-end payment prompt) · registration mandatory (no guest booking)<br/>verification optional (ID/Licence/Registration check marks) · reviews random 1/10 two-sided<br/>auto-match no limits · marketplace renamed HAULING MARKET · browser-language selection"]:::new
+    DEC["DECISIONS 2026-10-01 (#73):<br/>invoice + escrow 3% both · free handling between parties<br/>fleet EUR20/mo + 1mo trial (trial-end payment prompt) · registration mandatory (no guest booking)<br/>verification optional (ID/Licence/Registration check marks) · reviews random 1/10 two-sided<br/>auto-match no limits · marketplace renamed HAULING MARKET · browser-language selection<br/>v4: three account types · free for customers + solo drivers · fleet pays<br/>Android driver app (fleet + solo) · device-bound passwordless login · battery-gated tracking"]:::new
     DEC -.-> RULES

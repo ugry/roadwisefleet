@@ -1,0 +1,59 @@
+flowchart TD
+    classDef entry fill:#e7f5ff,stroke:#1971c2,color:#000
+    classDef auth fill:#ffec99,stroke:#e8590c,color:#000
+    classDef phase fill:#d0ebff,stroke:#1971c2,color:#000
+    classDef gate fill:#b2f2bb,stroke:#2b8a3e,color:#000,stroke-width:2px
+    classDef live fill:#d3f9d8,stroke:#2b8a3e,color:#000
+    classDef warn fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef off fill:#f1f3f5,stroke:#adb5bd,color:#000,stroke-dasharray:4 3
+
+    subgraph AUTH["FIRST RUN — passwordless device binding (NEW)"]
+        I1["Install / open the Android app"]:::entry
+        I2["First login: password or phone OTP"]:::auth
+        I3["Generate EC keypair in<br/>Android Keystore"]:::auth
+        I4["Register public key with backend<br/>device label (attestation when available)"]:::auth
+        I5["Device bound to the driver account;<br/>private key never leaves the device"]:::auth
+        I6["Every later login: challenge then sign,<br/>verified server-side - NO password"]:::gate
+        I7["Logout / lost phone: revoke the key<br/>server-side, re-bind on the new device"]:::warn
+        I1 --> I2 --> I3 --> I4 --> I5 --> I6
+        I5 --> I7
+    end
+
+    subgraph HOME["HOME — one active assignment"]
+        H1["Trips tab: the CURRENT assignment only<br/>(history is read-only)"]:::phase
+        H2["Card: route, cargo, pickup / delivery,<br/>required docs, ETA"]:::phase
+        H3["Primary button depends on the phase"]:::phase
+    end
+
+    subgraph PHASES["TRIP PHASES — driver taps, backend validates the state machine"]
+        P1["ASSIGNED - Accept assignment"]:::phase
+        P2["START TRIP - EN_ROUTE<br/>tracking = true (button on the card)"]:::gate
+        P3["ARRIVED AT PICKUP"]:::phase
+        P4["LOADED (photo / CMR)"]:::phase
+        P5["IN TRANSIT (depart)"]:::phase
+        P6["ARRIVED AT DELIVERY"]:::phase
+        P7["DELIVERED (irreversible)"]:::warn
+        P8["POD UPLOADED"]:::phase
+        P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8
+    end
+
+    subgraph BG["BACKGROUND TRACKING — runs while tracking = true"]
+        B1["Foreground service + WorkManager<br/>sample every 10 minutes"]:::live
+        B2["Runs only for the active trip;<br/>stops at DELIVERED"]:::live
+        B3["Offline: queue locally,<br/>flush on reconnect"]:::live
+        B4["POST /trips/:id/gps - batched upload"]:::live
+        B5["Permissions + battery: fine location,<br/>notifications, boot-resume"]:::live
+        B1 --> B2 --> B3 --> B4 --> B5
+    end
+
+    subgraph VIEW["CUSTOMER / FLEET MANAGER LIVE VIEW"]
+        V1["Map, ETA, phase milestones<br/>in the portal and fleet app"]:::live
+        V2["Access = the customer on that<br/>cargo record only - no other cargo"]:::live
+        V3["Read-only per-trip link for<br/>an unregistered party (revocable)"]:::off
+        V1 --> V2
+        V1 --> V3
+    end
+
+    H1 --> H2 --> H3 --> P1
+    P2 --> BG
+    B4 --> VIEW
