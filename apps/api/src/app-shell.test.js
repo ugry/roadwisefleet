@@ -32,6 +32,7 @@ const readApp = (name) => readFileSync(join(appDir, name), 'utf8');
 const PAGE = readApp('index.html');
 const APP_JS = readApp('app.js');
 const CORE_JS = readApp('lib/app-core.js');
+const MENUS_JS = readApp('lib/menus.js');
 const SIGNUP_JS = readApp('lib/signup.js');
 const CSS = readApp('app.css');
 const CATALOGUE = JSON.parse(readApp('locales/en.json'));
@@ -45,6 +46,7 @@ test('the app root, prefix and file layout are what the docs claim', () => {
   assert.ok(existsSync(join(appDir, 'app.css')));
   assert.ok(existsSync(join(appDir, 'app.js')));
   assert.ok(existsSync(join(appDir, 'lib/app-core.js')));
+  assert.ok(existsSync(join(appDir, 'lib/menus.js')));
   assert.ok(existsSync(join(appDir, 'lib/signup.js')));
   assert.ok(existsSync(join(appDir, 'locales/en.json')));
 });
@@ -65,6 +67,9 @@ test('the shell loads the shared i18n core, its own core and app.js with absolut
   assert.match(PAGE, /<script src="\/pilot\/lib\/i18n-ui\.js"><\/script>/);
   // Board task #37 (F6): the documents UI reuses the driver core's checklist.
   assert.match(PAGE, /<script src="\/pilot\/lib\/driver-core\.js"><\/script>/);
+  // Board task #112: the menu configuration must load before app-core.js, which
+  // reads window.RoadwiseMenus to decide the navigation.
+  assert.match(PAGE, /<script src="\/app\/lib\/menus\.js"><\/script>\s*<script src="\/app\/lib\/app-core\.js"><\/script>/);
   assert.match(PAGE, /<script src="\/app\/lib\/app-core\.js"><\/script>/);
   // Board task #86: the signup rules are shared with the API endpoint.
   assert.match(PAGE, /<script src="\/app\/lib\/signup\.js"><\/script>/);
@@ -138,9 +143,10 @@ test('the layout covers both acceptance widths and no fixed pixel width breaks 3
 
 // --- the script -------------------------------------------------------------
 
-test('app.js and app-core.js are valid JavaScript', () => {
+test('app.js, app-core.js and menus.js are valid JavaScript', () => {
   assert.doesNotThrow(() => new Function(APP_JS));
   assert.doesNotThrow(() => new Function(CORE_JS));
+  assert.doesNotThrow(() => new Function(MENUS_JS));
 });
 
 test('the app keeps its session in sessionStorage, never in a cookie', () => {
@@ -166,7 +172,7 @@ test('app.js consumes the pure core rather than reimplementing the rules', () =>
 // --- the catalogue ----------------------------------------------------------
 
 test('the English catalogue covers every key the app can ask for', () => {
-  const sources = APP_JS + '\n' + CORE_JS + '\n' + SIGNUP_JS;
+  const sources = APP_JS + '\n' + CORE_JS + '\n' + SIGNUP_JS + '\n' + MENUS_JS;
   const namespaces = [
     'app.', 'brand.', 'common.', 'login.', 'signup.', 'nav.', 'overview.', 'role.', 'error.',
   ];
@@ -204,7 +210,7 @@ test('no catalogue value is empty, and the language hook is wired EN-first', () 
 // --- static serving ---------------------------------------------------------
 
 test('servable files resolve inside the app root', () => {
-  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'lib/signup.js', 'lib/documents.js', 'lib/driver.js', 'locales/en.json']) {
+  for (const rel of ['index.html', 'app.css', 'app.js', 'lib/app-core.js', 'lib/menus.js', 'lib/signup.js', 'lib/documents.js', 'lib/driver.js', 'locales/en.json']) {
     const file = resolveAppFile(rel);
     assert.ok(file, `${rel} should resolve`);
     assert.ok(String(file).startsWith(appDir));

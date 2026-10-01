@@ -37,15 +37,18 @@ test('a driver never sees dispatcher navigation', () => {
 
 test('dispatcher, accountant and owner get the navigation their capabilities allow', () => {
   const dispatcher = ROUTE_IDS('dispatcher');
-  assert.deepEqual(dispatcher, ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'reviews', 'fleet']);
-  for (const forbidden of ['finance', 'settings', 'my-trips']) {
+  assert.deepEqual(dispatcher, ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'reviews',
+    'drivers', 'vehicles', 'customers', 'compliance', 'market', 'fleet']);
+  for (const forbidden of ['finance', 'analytics', 'billing', 'settings', 'my-trips']) {
     assert.ok(!dispatcher.includes(forbidden), `dispatcher nav must not contain ${forbidden}`);
   }
   // An accountant has invoice:*/settlement:*/reports:read but not trip:read, so
   // the trips list is deliberately absent.
-  assert.deepEqual(ROUTE_IDS('accountant'), ['overview', 'finance']);
+  assert.deepEqual(ROUTE_IDS('accountant'), ['overview', 'finance', 'analytics']);
   const owner = ROUTE_IDS('owner');
-  for (const id of ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'reviews', 'finance', 'fleet', 'settings']) {
+  for (const id of ['overview', 'trips', 'dispatch', 'documents', 'tracking', 'reviews',
+    'drivers', 'vehicles', 'customers', 'compliance', 'finance', 'analytics', 'market',
+    'fleet', 'billing', 'settings']) {
     assert.ok(owner.includes(id), `owner nav must contain ${id}`);
   }
 });
