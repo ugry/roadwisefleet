@@ -93,7 +93,10 @@ award/decline notices — board task #78), the solo driver core (signup/truck va
 OTP gate, the verification state + per-paper trust marks and the `canBid` rule,
 which now ships open — board tasks #77/#96 — own-customer and
 quick-job validation, the saved-search filter and the wallet-lite read model)
-and the `/s/` static-serving rules, the self-service registration
+and the `/s/` static-serving rules, the two-sided review rules (the
+at-most-one-per-10 completed actions sampling cap and the random draw, the
+reveal rule, both directions and the read-only aggregate — board task #98), the
+self-service registration
 rules and their fixed-window rate limiter (board task #86 — the same validation
 the browser and `POST /api/auth/register` share), locale
 resolution and the pilot i18n catalogues) runs on the
@@ -250,6 +253,9 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/solo/customers` | bearer, `order:create` | add one |
 | `GET /api/solo/jobs` | bearer, `solo` | wallet-lite: jobs + `{ earnedEur, paidEur, outstandingEur }` from the existing `Trip.rateEur` + `Settlement` |
 | `POST /api/solo/jobs` | bearer, `order:create` | quick job: own customer (or a new name) → `Order` + `ASSIGNED` `Trip` in the driver's org |
+| `GET /api/reviews/prompts` | bearer | the caller's open two-sided review prompts (board task #98); a customer login acts as its `Customer`, an org user as its `Org` — the rater comes from the token, never the body |
+| `POST /api/reviews` | bearer | submit one immutable review (`promptId`, `rating` 1–5, optional `comment`); `201 { review }`, `409 already_reviewed`, `404 prompt_not_found` (not addressed to the caller) |
+| `GET /api/reviews/summary/:subjectType/:subjectId` | bearer | read-only aggregate (`count`, `average`, `pending`) for an `org` or `customer`; a rating is counted only once it is revealed (both sides reviewed, or the disclosure window passed) |
 | `GET /c` | — | `302` to `/c/` (the customer portal mount point) |
 | `GET /c/*` | — | customer portal from `<repo>/customer`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `x-robots-tag: noindex, nofollow` |
 | `GET /s` | — | `302` to `/s/` (the solo driver mount point) |
@@ -1210,6 +1216,49 @@ from here).
 (the papers upload and their state are complete, the approve action is a
 DB/operator step for now); the solo surface is English-only for now (the pilot
 i18n work is EN/DE/PL/TR for the driver PWA).
+
+## Two-sided reviews — board task #98 (owner decision #73 q3)
+
+The owner asked for *"feedback system works randomly, 1 review per 10 actions,
+find working strategies to satisfy both sides"*. The working strategy is: a
+completed delivery prompts at most one side per 10+ completed actions, chosen by
+a random draw; each side rates the other; a rating is only revealed once the
+counterpart had the same chance to review, or the disclosure window passed.
+
+- **Action.** One completed delivery — a trip that reaches `DELIVERED`. The
+  transition hook in `routes/trips.ts` calls `reviews.js#recordCompletedAction`
+  best-effort, so a sampling failure never fails the delivery.
+- **Sampling cap.** A per-participant counter (`ReviewSampling`) is incremented
+  on every completed action. A prompt is only *eligible* once MORE than
+  `REVIEW_MIN_ACTIONS` (10) actions have happened since the last one (the 10th
+  may not, the 11th may) and is then drawn at `REVIEW_SAMPLE_PROBABILITY`
+  (0.25). `sampleDecision` is pure and injected with the RNG, so both branches
+  are unit-tested.
+- **Two-sided.** Each side reviews the other: the customer rates the carrier
+  `Org`, the carrier `Org` rates the `Customer`. The customer side is only asked
+  when a portal login exists to answer (an unregistered customer has no review
+  surface). Prompts cross-reference `(actionType, actionId, raterType, raterId)`
+  uniquely.
+- **Abuse controls.** One review per participant per action (a unique key plus an
+  immutable create-only write path), no self-review, and a review is hidden until
+  both sides have reviewed or `REVIEW_DISCLOSE_DAYS` (14) have passed — so a
+  one-sided rating can never be used for retaliation (it is still counted once
+  the window lapses; `summarize` reports the hidden rows as `pending`).
+- **Aggregate.** `GET /api/reviews/summary/:subjectType/:subjectId` is read-only
+  and counts only revealed reviews; `average` is `null` until one is revealed.
+- **Surfaces.** Fleet Manager **Reviews** (`/app/reviews`) and the customer
+  portal **Reviews** (`/c/`) panel; both render the same prompt and submit
+  through the same endpoint. The solo driver surface is a follow-up (the API is
+  participant-generic).
+- **Tables (additive).** `ReviewPrompt`, `Review`, `ReviewSampling`; the
+  migration `20261001120000_add_reviews` creates three new tables and their
+  indexes only — no column, constraint or index on a pre-existing table is
+  touched. It was applied to the pilot DB before the merge so the DB-backed
+  suite could run (disclosed on the board/PR per the 2026-09-29 rule).
+- **Tests.** `node --test apps/api/src/` covers the pure rules (cap, reveal,
+  normalization, both directions with a fake client); `pnpm --filter
+  @roadwisefleet/api test:router` runs `test/reviews.test.ts` against the real
+  schema and routes.
 
 ## Self-service registration — board task #86 (owner directive 2026-09-30)
 

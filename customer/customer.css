@@ -298,3 +298,21 @@ dl.detail dd { margin: 0; text-align: right; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* Review prompt (board task #98): a sampled two-sided rating. */
+.review-prompt { margin: 0 0 16px; }
+.review-prompt .stars { display: flex; gap: 8px; margin: 8px 0 12px; }
+.review-prompt .star {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line, #d0d5dd);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.review-prompt .star.is-selected { background: var(--primary); border-color: var(--primary); color: #fff; }
+.review-prompt textarea { width: 100%; margin-bottom: 12px; }
+.review-prompt .review-msg { margin-top: 8px; }

@@ -56,9 +56,14 @@ export function statusForError(error) {
     case 'offer_closed':
     case 'offer_expired':
     case 'order_required':
+    // Review system (board task #98): a second review for the same action is a
+    // conflict, not a rewrite — reviews are immutable.
+    case 'already_reviewed':
       return 409;
     case 'load_not_found':
     case 'offer_not_found':
+    // Review prompt unknown, or not addressed to the caller.
+    case 'prompt_not_found':
       return 404;
     default:
       return 400;

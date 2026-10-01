@@ -687,3 +687,71 @@ model SoloSavedSearch {
 
   @@index([driverId])
 }
+
+// ---------------------------------------------------------------------------
+// Two-sided review / feedback system (board task #98, owner decision #73 q3).
+//
+// Additive-only, append-only log tables: no relation field and no scalar is
+// added to any existing model, so the running pilot is unaffected whether or
+// not this migration has been applied. The rules (random sampling, at most one
+// prompt per 10 completed actions, one review per participant per action,
+// no self-review, reveal only after both sides had the chance) live in
+// `apps/api/src/reviews.js` and are unit-tested with the native runner.
+// ---------------------------------------------------------------------------
+
+// A pending "rate this delivery" prompt created by the random sampler.
+model ReviewPrompt {
+  id         String @id @default(cuid())
+  actionType String // 'delivery' — a completed trip
+  actionId   String
+  // Who is asked to review, and about whom.
+  raterType   String // customer | org
+  raterId     String
+  subjectType String // org | customer
+  subjectId   String
+  // Denormalised, PII-free display context, so listing a prompt needs no joins.
+  actionRef        String?
+  counterpartyName String?
+  // A review stays hidden until the other side has reviewed, or this passes.
+  discloseAt  DateTime
+  submittedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([actionType, actionId, raterType, raterId])
+  @@index([raterType, raterId, submittedAt])
+  @@index([subjectType, subjectId])
+}
+
+// A submitted review. Immutable: there is no update path, and the unique key
+// makes a second review by the same participant for the same action impossible.
+model Review {
+  id          String   @id @default(cuid())
+  actionType  String
+  actionId    String
+  raterType   String
+  raterId     String
+  subjectType String
+  subjectId   String
+  rating      Int // 1..5
+  comment     String?
+  discloseAt  DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([actionType, actionId, raterType, raterId])
+  @@index([subjectType, subjectId])
+  @@index([actionId])
+}
+
+// Per-participant sampling state: completed actions since the last prompt. The
+// pure `sampleDecision` refuses a prompt until more than `REVIEW_MIN_ACTIONS`
+// have passed (the 10th may not prompt, the 11th may).
+model ReviewSampling {
+  id                  String    @id @default(cuid())
+  participantType     String // customer | org
+  participantId       String
+  actionsSinceRequest Int       @default(0)
+  lastRequestedAt     DateTime?
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([participantType, participantId])
+}

@@ -16,6 +16,7 @@ import { customerRoutes } from './routes/customer.js';
 import { marketplaceRoutes } from './routes/marketplace.js';
 import { soloAppRoutes } from './routes/solo-app.js';
 import { soloRoutes } from './routes/solo.js';
+import { reviewRoutes } from './routes/reviews.js';
 import { serverOptions } from './server-options.js';
 
 // <repo>/pilot, resolved from this file (apps/api/src/app.ts → repo root).
@@ -52,6 +53,9 @@ export function buildServer() {
   // feed/beacon/offer paths stay the marketplace's; verification is optional
   // (board #96) and only surfaces as per-paper check marks.
   app.register(soloRoutes, { prefix: '/api' });
+
+  // Two-sided review / feedback API (board task #98, owner decision #73 q3).
+  app.register(reviewRoutes, { prefix: '/api' });
 
   // Public customer tracking page: root path `/track/:token` (no auth, not
   // under /pilot/), so a shared link reads like a customer-facing URL.
