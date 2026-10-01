@@ -81,6 +81,11 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    // Board #106 (AND1-A4): FusedLocation sampling in the foreground tracking
+    // service, and WorkManager for the batched flush/retry of the offline queue.
+    implementation(libs.play.services.location)
+    implementation(libs.androidx.work.runtime.ktx)
+
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
 

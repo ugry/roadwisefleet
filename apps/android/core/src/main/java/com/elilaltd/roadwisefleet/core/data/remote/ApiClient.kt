@@ -52,6 +52,15 @@ class ApiClient(
     suspend fun postDocument(tripId: String, payloadJson: String): ApiResult<Unit> =
         request("POST", "/api/trips/$tripId/documents", payloadJson).map { }
 
+    /**
+     * Board #106 (AND1-A4): upload one batch of sampled GPS points while the
+     * trip is tracking. `batchJson` is `{ "points": [...] }`, already assembled
+     * by the tracking repository; the server dedupes on the client point id, so
+     * a replayed batch is safe.
+     */
+    suspend fun postGps(tripId: String, batchJson: String): ApiResult<Unit> =
+        request("POST", "/api/trips/$tripId/gps", batchJson).map { }
+
     suspend fun postSos(payloadJson: String): ApiResult<Unit> =
         request("POST", "/api/driver/sos", payloadJson).map { }
 
@@ -158,6 +167,9 @@ class ApiClient(
             truckPlate = truck.nullableString("plate"),
             rateEur = source.nullableDouble("rateEur"),
             updatedAtEpochMs = parseEpochMs(source.opt("updatedAt")) ?: 0L,
+            // Board #106: the driver app starts/stops the tracking service from
+            // this flag (set by Start Trip server-side, cleared at DELIVERED).
+            tracking = source.optBoolean("tracking", false),
             documents = (0 until (documents?.length() ?: 0)).mapNotNull { index ->
                 documents?.optJSONObject(index)?.let { doc ->
                     TripDocument(

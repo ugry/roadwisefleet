@@ -12,6 +12,8 @@ data class Trip(
     val rateEur: Double?,
     val updatedAtEpochMs: Long,
     val documents: List<TripDocument> = emptyList(),
+    /** Board #106: live tracking is on only between Start Trip and DELIVERED. */
+    val tracking: Boolean = false,
 ) {
     val routeLabel: String
         get() = listOfNotNull(origin, destination).joinToString(" → ").ifBlank { id }
