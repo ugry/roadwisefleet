@@ -50,6 +50,9 @@ export function statusForError(error) {
     case 'trip_closed':
     case 'already_assigned':
     case 'driver_unavailable':
+    // Board task #105 (AND1-A3): exactly one active assignment per driver — the
+    // driver already has a trip in flight.
+    case 'driver_busy':
     case 'load_awarded':
     case 'load_closed':
     case 'load_expired':

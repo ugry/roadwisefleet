@@ -52,6 +52,26 @@ class TripRepository(
         )
     }
 
+    /**
+     * Queue Start Trip (board #105): the dedicated action that moves the trip
+     * ASSIGNED → EN_ROUTE and turns live GPS tracking on. `POST
+     * /api/trips/:id/start` takes no body (the id is in the path), so the queue
+     * replays it like any other write.
+     */
+    suspend fun enqueueStart(tripId: String, nowMs: Long = System.currentTimeMillis()) {
+        outboxDao.insert(
+            OutboxEntity(
+                id = UUID.randomUUID().toString(),
+                kind = OutboxKind.START,
+                tripId = tripId,
+                payloadJson = "{}",
+                createdAtEpochMs = nowMs,
+                attempts = 0,
+                lastError = null,
+            ),
+        )
+    }
+
     suspend fun enqueueDocument(
         tripId: String,
         docType: String,

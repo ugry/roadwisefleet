@@ -264,6 +264,33 @@ call can be retried. After revocation the next `challenge` for that credential
 is refused and the driver signs in on the replacement device with
 password/OTP, which registers a fresh credential.
 
+## 9b. Driver phases and live tracking (A3, board #105)
+
+A3 extends the one state machine with the driver-facing phases and makes
+**Start Trip** the gate that turns live GPS tracking on:
+
+```
+ASSIGNED → EN_ROUTE (Start Trip) → AT_PICKUP → LOADED → IN_TRANSIT
+         → AT_DELIVERY → DELIVERED → POD_UPLOADED
+```
+
+- `:core` mirrors the phases in `model/TripStatus.kt` (`TRANSITIONS`,
+  `START_TRIP_STATUS`, `ACTIVE_ASSIGNMENT_STATUSES`, `nextPhase`). The server
+  machine in `apps/api/src/trip-status.js` stays authoritative and
+  `TripCoreTest` pins the two.
+- The trips screen renders the next driver phase as the **primary** action
+  (filled button) and the remaining legal moves (the legacy jump, the
+  `CANCELLED` escape hatch) as secondary buttons. For an `ASSIGNED` trip the
+  primary action is **Start Trip**.
+- Start Trip is not a generic status change: it is queued as `OutboxKind.START`
+  and replayed against the dedicated `POST /api/trips/:id/start`, which sets
+  `Trip.tracking = true` and stamps `trackingStartedAt` server-side. The app
+  never invents the boolean; `DELIVERED` clears it on the server.
+- The API refuses to double-book a driver (`409 driver_busy`); the app surfaces
+  that as a rejected queue item like any other permanent (`4xx`) failure.
+
+A4 (GPS upload) reads the `tracking` gate rather than inventing its own.
+
 ## 10. CI-first development (why there is no local build here)
 
 The estate has no usable local Android toolchain: `dl.google.com/android/

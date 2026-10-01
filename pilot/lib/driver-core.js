@@ -33,9 +33,12 @@
   /** Mirror of `apps/api/src/trip-status.js` §7 — UI convenience only. */
   var TRANSITIONS = {
     DRAFT: ['ASSIGNED', 'CANCELLED'],
-    ASSIGNED: ['LOADED', 'CANCELLED'],
+    ASSIGNED: ['EN_ROUTE', 'LOADED', 'CANCELLED'],
+    EN_ROUTE: ['AT_PICKUP'],
+    AT_PICKUP: ['LOADED'],
     LOADED: ['IN_TRANSIT'],
-    IN_TRANSIT: ['DELIVERED'],
+    IN_TRANSIT: ['AT_DELIVERY', 'DELIVERED'],
+    AT_DELIVERY: ['DELIVERED'],
     DELIVERED: ['POD_UPLOADED'],
     POD_UPLOADED: ['INVOICED'],
     INVOICED: ['SETTLED'],

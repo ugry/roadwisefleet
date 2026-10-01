@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   createTrip,
+  driverHasActiveTrip,
   listDriverTrips,
   listOrgTrips,
   normalizeCreateTripInput,
+  startTrip,
   transitionTrip,
 } from './trips-core.js';
 
@@ -39,6 +41,13 @@ function makeFakePrisma() {
         if (v?.orgId !== 'org1' || !state.orders.some((o) => o.id === row.id && o.orgId === 'org1')) {
           return false;
         }
+        continue;
+      }
+      // Prisma filter operators the core uses (board task #105): `in` for the
+      // status set and `not` to exclude the trip being moved.
+      if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+        if ('in' in v && !v.in.includes(row[k])) return false;
+        if ('not' in v && row[k] === v.not) return false;
         continue;
       }
       if (row[k] !== v) return false;
@@ -371,4 +380,129 @@ test('an actor with no permissions is denied by default', async () => {
     await transitionTrip(prisma, { orgId: 'org1', tripId: created.trip.id, to: 'ASSIGNED' }),
     { ok: false, error: 'forbidden' },
   );
+});
+
+// --- board task #105 (AND1-A3): driver phases + the tracking gate -----------
+
+test('startTrip moves ASSIGNED → EN_ROUTE, turns tracking on and records the event', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+  await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: OWNER });
+
+  const when = new Date('2026-10-01T09:00:00.000Z');
+  const started = await startTrip(prisma, { orgId: 'org1', tripId: id, actor: DRIVER1, now: when });
+  assert.equal(started.ok, true);
+  assert.equal(started.trip.status, 'EN_ROUTE');
+  assert.equal(started.trip.tracking, true, 'Start Trip turns tracking on');
+  assert.equal(started.trip.trackingStartedAt.getTime(), when.getTime());
+
+  const row = await prisma.trip.findFirst({ where: { id } });
+  assert.equal(row.tracking, true, 'the flag is persisted, not just returned');
+  assert.equal(row.trackingStartedAt.getTime(), when.getTime());
+  assert.deepEqual(prisma.state.events.at(-1), {
+    tripId: id,
+    fromStatus: 'ASSIGNED',
+    toStatus: 'EN_ROUTE',
+    actorId: 'd1',
+  });
+});
+
+test('startTrip is assigned-driver only and legal only from ASSIGNED', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+
+  // Still DRAFT: the assigned driver cannot start it yet.
+  assert.deepEqual(await startTrip(prisma, { orgId: 'org1', tripId: id, actor: DRIVER1 }), {
+    ok: false,
+    error: 'invalid_transition',
+    from: 'DRAFT',
+    to: 'EN_ROUTE',
+  });
+  assert.deepEqual(await startTrip(prisma, { orgId: 'org1', tripId: 'ghost', actor: DRIVER1 }), {
+    ok: false,
+    error: 'not_found',
+  });
+
+  await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: OWNER });
+
+  // A different driver and an owner/dispatcher token are both refused: Start
+  // Trip belongs to the assigned driver alone.
+  assert.deepEqual(await startTrip(prisma, { orgId: 'org1', tripId: id, actor: DRIVER2 }), {
+    ok: false,
+    error: 'forbidden',
+  });
+  assert.deepEqual(await startTrip(prisma, { orgId: 'org1', tripId: id, actor: OWNER }), {
+    ok: false,
+    error: 'forbidden',
+  });
+  assert.equal((await prisma.trip.findFirst({ where: { id } })).tracking, undefined, 'nothing was written');
+});
+
+test('DELIVERED clears tracking; every other transition leaves it', async () => {
+  const prisma = makeFakePrisma();
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+  await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'ASSIGNED', actor: OWNER });
+  await startTrip(prisma, { orgId: 'org1', tripId: id, actor: DRIVER1 });
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'AT_PICKUP', actor: OWNER })).trip.tracking,
+    true,
+  );
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'LOADED', actor: OWNER })).trip.tracking,
+    true,
+  );
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'IN_TRANSIT', actor: OWNER })).trip.tracking,
+    true,
+  );
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'AT_DELIVERY', actor: OWNER })).trip.tracking,
+    true,
+  );
+  const delivered = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'DELIVERED', actor: OWNER });
+  assert.equal(delivered.trip.tracking, false, 'delivery ends tracking');
+});
+
+test('a driver cannot be double-booked across active assignments', async () => {
+  const prisma = makeFakePrisma();
+  const first = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: first.trip.id, to: 'ASSIGNED', actor: OWNER })).ok,
+    true,
+  );
+
+  const second = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const busy = await transitionTrip(prisma, { orgId: 'org1', tripId: second.trip.id, to: 'ASSIGNED', actor: OWNER });
+  assert.deepEqual(busy, { ok: false, error: 'driver_busy' });
+  assert.equal((await prisma.trip.findFirst({ where: { id: second.trip.id } })).status, 'DRAFT');
+
+  assert.equal(await driverHasActiveTrip(prisma, { orgId: 'org1', driverId: 'd1' }), true);
+  assert.equal(
+    await driverHasActiveTrip(prisma, { orgId: 'org1', driverId: 'd1', excludeTripId: first.trip.id }),
+    false,
+  );
+  assert.equal(await driverHasActiveTrip(prisma, { orgId: 'org1', driverId: null }), false);
 });
