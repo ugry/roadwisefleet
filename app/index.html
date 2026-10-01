@@ -131,6 +131,9 @@
 <!-- The shared driver core owns the document checklist / POD-gate rules
      (board task #4); the documents UI reuses it instead of restating them. -->
 <script src="/pilot/lib/driver-core.js"></script>
+<!-- The one menu configuration keyed by account type + role (board task #112).
+     It must load before app-core.js, which reads window.RoadwiseMenus. -->
+<script src="/app/lib/menus.js"></script>
 <script src="/app/lib/app-core.js"></script>
 <!-- The signup rules (board task #86), shared with the API endpoint so the form
      and the server agree by construction. -->
