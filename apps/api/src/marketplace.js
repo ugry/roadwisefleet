@@ -96,24 +96,31 @@ export const CANCELLATION_TERMS = Object.freeze(['standard', 'flexible', 'strict
 export const DEFAULT_CANCELLATION_TERMS = 'standard';
 
 /**
- * The owner gate the auto-match toggle waits on (diagram 01: the engine may only
- * auto-award once the owner has answered the matching limits). Exported so the
- * UI, the route and the tests name the same gate.
+ * The owner question the auto-match toggle originally waited on (diagram 01:
+ * the engine may only auto-award once the owner has answered the matching
+ * limits). Kept as the label for that historical gate, not a live restriction.
  */
 export const AUTO_MATCH_OWNER_GATE = 'UXF-OWN1 (#73 q6)';
 
 /** Auto-match rule bounds (`minRating` is the fleet app's 0–5 star scale). */
 export const AUTO_MATCH_MAX_RATING = 5;
-/** The refusal code when the rules ask to be enabled before the owner answered. */
+/**
+ * The historical refusal code for an `enabled: true` rule while the owner gate
+ * was closed. The owner answered on 2026-10-01 (#73 q6: **"no limits"**), so the
+ * live route no longer produces it; the constant is kept so a legacy client (or
+ * a stored error string) still maps the same code.
+ */
 export const AUTO_MATCH_PENDING_OWNER = 'auto_match_pending_owner';
 
 /**
- * The owner's answer switch (#73 q6). `false` until the owner fixes the matching
- * limits; flipping it to `true` is the ONLY change needed to let a stored
- * `enabled` rule take effect. It lives here (not in the route) so the gate, the
- * UI and the tests read the same value.
+ * The owner's answer to the matching limits (#73 q6, 2026-10-01): **"no
+ * limits"**. The gate is open — a stored `enabled` rule takes effect with no
+ * platform-imposed cap and no first-time-pairing block. The customer's own
+ * `maxPriceEur` / `minRating` filters keep working and stay configurable ("no
+ * limits" is not "ignore the customer's filters"). It lives here (not in the
+ * route) so the gate, the UI and the tests read one value.
  */
-export const AUTO_MATCH_OWNER_APPROVED = false;
+export const AUTO_MATCH_OWNER_APPROVED = true;
 
 /** Free-text cap, so a pasted document cannot reach the database. */
 export const MARKETPLACE_TEXT_MAX = 500;
@@ -741,8 +748,8 @@ export function carrierOutcomeNotifications(offers) {
 
 /**
  * The rules a customer's auto-match screen edits (diagram 01: "set max price
- * and min rating"). Stored on the customer profile as JSON; `enabled` is a
- * request, never an effect — see `autoMatchEntitlement`.
+ * and min rating"). Stored on the customer profile as JSON; `enabled` is live
+ * as soon as the owner gate is open — see `autoMatchEntitlement`.
  * @returns {{ enabled: boolean, maxPriceEur: number|null, minRating: number|null }}
  */
 export function autoMatchDefaults() {
@@ -769,10 +776,11 @@ export function normalizeAutoMatch(body) {
 }
 
 /**
- * May these rules take effect? The owner's #73 q6 answer fixes the matching
- * limits, so an `enabled: true` is refused with a reason until the gate opens
- * — the same honest-refusal shape as the escrow answer. A gated rule set is
- * still stored, so the screen survives a refresh.
+ * May these rules take effect? The owner answered the matching limits on
+ * 2026-10-01 (#73 q6: "no limits"), so `AUTO_MATCH_OWNER_APPROVED` is `true` and
+ * an `enabled: true` rule is live immediately — no cap, no first-time-pairing
+ * block. The `ownerApproved` option still lets a caller (or a test) pin either
+ * state, so the mechanism that shipped the gate stays verifiable.
  * @param {{ enabled?: boolean }|null|undefined} rules
  * @param {{ ownerApproved?: boolean }} [options]
  * @returns {{ allowed: boolean, active: boolean, error?: string, ownerGate?: string }}
