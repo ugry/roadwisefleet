@@ -85,6 +85,42 @@ test('accountTypeForUser recovers the type from the persisted role + org', () =>
   assert.equal(accountTypes.accountTypeForUser(null), null);
 });
 
+test('homeFor sends each account type to its own surface', () => {
+  // Board task #111 review: a customer and a solo driver are NOT Fleet Manager
+  // users, so signup must not drop them into /app/.
+  assert.equal(accountTypes.homeFor('customer').path, '/c/');
+  assert.equal(accountTypes.homeFor('fleet').path, '/app/');
+  assert.equal(accountTypes.homeFor('solo_driver').path, '/s/');
+  // Unknown types resolve to null: the caller must refuse, never guess a surface.
+  assert.equal(accountTypes.homeFor('admin'), null);
+  assert.equal(accountTypes.homeFor(null), null);
+  // Fresh object each call: a caller mutating one cannot corrupt the catalogue.
+  const first = accountTypes.homeFor('customer');
+  first.path = '/mutated';
+  assert.equal(accountTypes.homeFor('customer').path, '/c/');
+});
+
+test('the home session keys match the constants each surface reads (drift guard)', () => {
+  const app = readFileSync(resolve(here, '../../../app/app.js'), 'utf8');
+  const appCore = readFileSync(resolve(here, '../../../app/lib/app-core.js'), 'utf8');
+  const customer = readFileSync(resolve(here, '../../../customer/customer.js'), 'utf8');
+  const solo = readFileSync(resolve(here, '../../../solo/solo.js'), 'utf8');
+  const readKey = (source, name) => new RegExp(name + " = '([^']+)'").exec(source)[1];
+
+  assert.equal(accountTypes.homeFor('fleet').tokenKey, readKey(appCore, 'TOKEN_KEY'));
+  assert.equal(accountTypes.homeFor('fleet').userKey, readKey(appCore, 'USER_KEY'));
+  assert.equal(accountTypes.homeFor('customer').tokenKey, readKey(customer, 'TOKEN_KEY'));
+  assert.equal(accountTypes.homeFor('customer').userKey, readKey(customer, 'USER_KEY'));
+  assert.equal(accountTypes.homeFor('solo_driver').tokenKey, readKey(solo, 'TOKEN_KEY'));
+  assert.equal(accountTypes.homeFor('solo_driver').userKey, readKey(solo, 'USER_KEY'));
+
+  // The signup success path routes on the CHOSEN TYPE through the catalogue and
+  // hands the session to the target surface before navigating (board #111).
+  assert.match(app, /ACCOUNT_TYPES\.homeFor\(res\.data\.accountType\)/);
+  assert.match(app, /handOffSession\(home, session\.token, session\.user\)/);
+  assert.match(app, /location\.replace\(home\.path\)/);
+});
+
 test('the shared signup rules carry and validate the chosen account type', () => {
   const base = { name: 'Ada', email: 'ada@example.com', password: 'password1' };
 

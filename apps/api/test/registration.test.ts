@@ -174,6 +174,9 @@ if (!reachable) {
     assert.equal(data.user.roleId, 'customer');
     assert.equal(data.user.orgId, null, 'a customer token never carries a fleet org');
     assert.ok(data.user.customer && data.user.customer.id, 'the response links the customer record');
+    // Same locale contract as the solo/fleet branches (board #111 review).
+    assert.equal(data.user.locale, 'en');
+    assert.ok(Array.isArray(data.user.locales));
     createdUserIds.push(data.user.id);
     createdCustomerIds.push(data.user.customer.id);
 
@@ -182,6 +185,12 @@ if (!reachable) {
     assert.equal(row?.orgId, null);
     const link = await prisma.customerAccount.findUnique({ where: { userId: data.user.id } });
     assert.equal(link?.customerId, data.user.customer.id, 'the login ↔ customer link exists');
+    // The registration is audited like the solo/fleet branches (board #111 review):
+    // the customer has no org, so the entry is filed in the host carrier org.
+    const audit = await prisma.auditLog.findFirst({
+      where: { actorId: data.user.id, action: 'auth.register' },
+    });
+    assert.ok(audit, 'the customer registration writes the register audit row');
 
     const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: customerEmail, password } });
     assert.equal(login.statusCode, 200, login.payload);

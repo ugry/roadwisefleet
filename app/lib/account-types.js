@@ -145,6 +145,40 @@
     return null;
   }
 
+  /**
+   * Where each account type belongs after registration, plus the same-origin
+   * sessionStorage keys THAT surface reads its session from.
+   *
+   * Board task #111 review: a customer / solo driver is NOT a Fleet Manager
+   * user, so `/app/` cannot render their shell. The signup form (`/app/signup`)
+   * must send each type to its own surface (`/c/`, `/s/`, `/app/`). Because the
+   * three surfaces are the same origin but keep separate sessions, the token is
+   * handed over through the target surface's own keys before navigating.
+   *
+   * `tokenKey`/`userKey` mirror the constants in `customer/customer.js`
+   * (`rwf.customer.*`), `solo/solo.js` (`rwf.solo.*`) and `app/lib/app-core.js`
+   * (`rwf.app.*`); a drift guard in `apps/api/src/account-types.test.js` fails
+   * if any of them is renamed.
+   */
+  var HOME = {
+    customer: { path: '/c/', tokenKey: 'rwf.customer.token', userKey: 'rwf.customer.user' },
+    fleet: { path: '/app/', tokenKey: 'rwf.app.token', userKey: 'rwf.app.user' },
+    solo_driver: { path: '/s/', tokenKey: 'rwf.solo.token', userKey: 'rwf.solo.user' },
+  };
+
+  /**
+   * The landing surface for an account type, or `null` for an unknown type (a
+   * caller must not guess). Never returns a fresh mutable object reference to
+   * callers that could mutate the catalogue.
+   * @param {unknown} id
+   * @returns {{ path: string, tokenKey: string, userKey: string }|null}
+   */
+  function homeFor(id) {
+    var entry = isAccountType(id) ? HOME[id] : null;
+    if (!entry) return null;
+    return { path: entry.path, tokenKey: entry.tokenKey, userKey: entry.userKey };
+  }
+
   return {
     ACCOUNT_TYPES: ACCOUNT_TYPES,
     DEFAULT_ACCOUNT_TYPE: DEFAULT_ACCOUNT_TYPE,
@@ -155,5 +189,6 @@
     isFree: isFree,
     normalize: normalize,
     accountTypeForUser: accountTypeForUser,
+    homeFor: homeFor,
   };
 });

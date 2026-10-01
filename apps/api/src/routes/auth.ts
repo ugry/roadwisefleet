@@ -129,11 +129,18 @@ export async function authRoutes(app: FastifyInstance) {
             notifyPrefs: value.notifyPrefs,
           }),
         );
+        // Same audit trail as the solo/fleet branches (board #111 review): the
+        // customer's `User` has no org, so the entry is filed in the host
+        // carrier org. A failure to record it never fails the signup.
+        await prisma.auditLog
+          .create({ data: { orgId: created.hostOrgId, actorId: created.userId, action: REGISTER_AUDIT_ACTION } })
+          .catch(() => undefined);
         const token = signToken(
           { sub: created.userId, org: null, role: customerCore.CUSTOMER_ROLE, name },
           env.AUTH_SECRET,
           { ttlSeconds: env.TOKEN_TTL_SECONDS },
         );
+        const customerLocale = localePayload({ orgLocale: 'en', userLang: null });
         return reply.code(201).send({
           accountType: 'customer',
           token,
@@ -143,6 +150,9 @@ export async function authRoutes(app: FastifyInstance) {
             roleId: customerCore.CUSTOMER_ROLE,
             email,
             orgId: null,
+            locale: customerLocale.locale,
+            lang: customerLocale.lang,
+            locales: customerLocale.supported,
             customer: { id: created.customerId, name: created.customerName, orgId: hostOrg.id },
           },
         });

@@ -37,6 +37,9 @@
   // The shared signup validation (board task #86), loaded before this one and
   // also imported by `POST /api/auth/register`, so the form and the server agree.
   var SIGNUP = win && win.RoadwiseSignup ? win.RoadwiseSignup : {};
+  // The account-type catalogue (board task #111), loaded before this one: it is
+  // the single source of the type → surface mapping used after registration.
+  var ACCOUNT_TYPES = win && win.RoadwiseAccountTypes ? win.RoadwiseAccountTypes : {};
   // The pure documents view model (board task #37, F6), loaded before this one.
   var DOC = win && win.RoadwiseDocuments ? win.RoadwiseDocuments : {};
   // The pure tracking-link view model (board task #39, F8), loaded before this one.
@@ -130,6 +133,29 @@
     if (!store) return;
     store.removeItem(APP.TOKEN_KEY);
     store.removeItem(APP.USER_KEY);
+  }
+
+  /**
+   * Hand a freshly created session to ANOTHER same-origin pilot surface (board
+   * task #111 review). A customer (`/c/`) and a solo driver (`/s/`) each keep
+   * their own sessionStorage pair, so a signup on `/app/signup` writes that
+   * surface's keys before navigating to it — same tab, same origin, so the
+   * handover survives the navigation. Best-effort: a locked-down WebView that
+   * blocks storage still reaches the surface, which then shows its sign-in.
+   * @param {{ tokenKey: string, userKey: string }} home
+   * @param {string} token
+   * @param {unknown} user
+   */
+  function handOffSession(home, token, user) {
+    if (!home) return;
+    var store = storage();
+    if (!store) return;
+    try {
+      if (token) store.setItem(home.tokenKey, token);
+      if (user) store.setItem(home.userKey, JSON.stringify(user));
+    } catch (err) {
+      /* storage unavailable: the target surface will ask the person to sign in */
+    }
   }
 
   /** Push or replace the URL without leaving the page (SPA routing). */
@@ -2758,6 +2784,21 @@
       session = { token: res.data.token, user: res.data.user || null };
       writeSession(session.token, session.user);
       if (i18n && typeof i18n.setUser === 'function') i18n.setUser(res.data.user || {});
+      // Land by the CHOSEN account type, not by the role (board #111 review):
+      // `ROLE_HOME` has no `customer`/`solo` key, so a customer or solo driver
+      // used to end up in the Fleet Manager shell with a token that cannot load
+      // it. The catalogue owns the type → surface mapping.
+      var home = typeof ACCOUNT_TYPES.homeFor === 'function'
+        ? ACCOUNT_TYPES.homeFor(res.data.accountType)
+        : null;
+      if (home && home.path !== APP.HOME_PATH) {
+        // A different same-origin surface (/c/ or /s/): hand the session over
+        // and navigate for real — /app/ cannot render that shell.
+        handOffSession(home, session.token, session.user);
+        pendingPath = null;
+        if (typeof location !== 'undefined' && location.replace) location.replace(home.path);
+        return { ok: true, status: res.status, user: session.user };
+      }
       var role = session.user && session.user.roleId;
       var target = APP.ROLE_HOME[role] || APP.HOME_PATH;
       pendingPath = null;
