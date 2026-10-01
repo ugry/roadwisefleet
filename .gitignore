@@ -11,6 +11,16 @@ var/
 .env.*
 .credentials*
 
+# Android release signing / Play / FCM material — never commit (board #109).
+# The release workflow takes all of these from GitHub secrets; see
+# infra/android-release.md. google-services.json (client config) is allowed.
+*.jks
+*.keystore
+*.p12
+key.properties
+keystore.properties
+service-account*.json
+
 # Editor/OS noise
 .idea/
 .vscode/
