@@ -13,7 +13,20 @@ ownership: [`docs/android-architecture.md`](../../docs/android-architecture.md).
 | Module  | What lives here |
 | ------- | --------------- |
 | `:app`  | Application, navigation, the 5-tab one-thumb shell, SOS, FCM wiring, manual DI container. |
-| `:core` | UI-free: trip-status mirror, capture rules, outbox planner, Room store, sync engine, API client, i18n catalogues. |
+| `:core` | UI-free: trip-status mirror, capture rules, outbox planner, Room store, sync engine, API client, tracking queue (A4), i18n catalogues. |
+
+## Background tracking (A4, board #106)
+
+Sampling runs **only while a trip's `tracking` flag is true** (set by Start Trip,
+cleared at DELIVERED): `TrackingScheduler` starts `LocationTrackingService` — a
+`foregroundServiceType="location"` service with a 10-minute
+`PRIORITY_BALANCED_POWER_ACCURACY` request — and stops it when the flag is off.
+`GpsFlushWorker` (WorkManager) drains the Room `gps_points` queue in batches;
+`TrackingBootReceiver` resumes an active trip after a reboot.
+`TrackingCore` (pure) holds the cadence, validation and batching rules, so the
+JVM unit tests pin them without a device. API side: `POST /api/trips/:id/gps`
+plus the SSE streams. Trade-offs and the battery note:
+[`docs/android-architecture.md`](../../docs/android-architecture.md) §9c.
 
 ## Build
 

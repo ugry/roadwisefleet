@@ -4,11 +4,13 @@ import { prisma } from '../db.js';
 import { requireAuth } from '../auth/guard.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
-import { createTrip, listDriverTrips, listOrgTrips, startTrip, transitionTrip } from '../trips-core.js';
+import { createTrip, ingestGpsPings, listDriverTrips, listOrgTrips, startTrip, transitionTrip } from '../trips-core.js';
 import { assignDriver } from '../trip-assignment.js';
 import { getTripDetail } from '../trip-detail.js';
-import { tripReadScope } from '../trip-visibility.js';
+import { canReadTrip, tripReadScope } from '../trip-visibility.js';
 import { parseTripFilters, serializeTripFilters } from '../trip-filters.js';
+import { gpsStreamPayload, parseGpsBatch } from '../gps-ingest.js';
+import { openGpsStream } from '../gps-sse.js';
 import { trackingSummary } from '../track-link.js';
 import { recordCompletedAction } from '../reviews.js';
 import { stripCredentialFields } from '../user-payload.js';
@@ -176,6 +178,63 @@ export async function tripRoutes(app: FastifyInstance) {
       return reply.code(statusForError(result.error)).send({ error: result.error });
     }
     return reply.send({ trip: result.trip });
+  });
+
+  // GPS ingest (board task #106, AND1-A4). The driver app batches the points it
+  // sampled while the trip is tracking and uploads them here; `tracking_off` is
+  // a 409 so a late/duplicate batch cannot resurrect a delivered trip. The
+  // write is idempotent on the client id, and every accepted point is fanned
+  // out on the realtime channel below.
+  app.post('/trips/:id/gps', { preHandler: auth }, async (req, reply) => {
+    const user = req.user;
+    if (!user?.orgId) return reply.code(403).send({ error: 'no_org' });
+    const { id } = req.params as { id: string };
+    const parsed = parseGpsBatch(req.body);
+    if (!parsed.ok) {
+      return reply.code(400).send({ error: parsed.error, detail: parsed.detail });
+    }
+    const result = await ingestGpsPings(prisma, {
+      orgId: user.orgId,
+      tripId: id,
+      driverId: user.id,
+      points: parsed.points,
+    });
+    if (!result.ok) {
+      return reply.code(statusForError(result.error)).send({ error: result.error });
+    }
+    const hub = (app as any).gpsHub;
+    for (const point of result.points) {
+      hub.publish(id, gpsStreamPayload(point));
+    }
+    return reply.code(202).send({ accepted: result.accepted, received: result.received });
+  });
+
+  // Realtime GPS stream (board task #106, AND1-A4). Same read scope as
+  // `GET /trips/:id`: a driver may follow only their own trip and reads another
+  // trip as 404; an org-wide role follows any trip in its org. Server-Sent
+  // Events, so a customer/FM surface gets a new point within seconds without
+  // polling.
+  app.get('/trips/:id/stream', { preHandler: auth }, async (req, reply) => {
+    const user = req.user;
+    if (!user?.orgId) return reply.code(403).send({ error: 'no_org' });
+    const permissions = await loadRolePermissions(prisma, user.roleId);
+    if (!hasPermission(permissions, 'trip:read')) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+    const { id } = req.params as { id: string };
+    const scope = tripReadScope({ granted: permissions, userId: user.id });
+    if (!scope.orgWide && !scope.driverId) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+    const trip = await prisma.trip.findFirst({
+      where: { id, orgId: user.orgId },
+      select: { id: true, driverId: true },
+    });
+    if (!trip) return reply.code(404).send({ error: 'not_found' });
+    if (!canReadTrip({ granted: permissions, userId: user.id, tripDriverId: trip.driverId })) {
+      return reply.code(404).send({ error: 'not_found' });
+    }
+    openGpsStream(app, req, reply, id);
   });
 
   // Driver assignment / reassignment (board task #36, F5). Owners and

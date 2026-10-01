@@ -5,9 +5,21 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- A3 (#105) adds ACCESS_FINE/COARSE_LOCATION for tracking and A4 (#106)
-         adds CAMERA for POD capture; A1 requests neither, so the scaffold asks
-         for no permission it does not use. -->
+    <!-- Board #106 (AND1-A4): the tracking window runs only while a trip is
+         active. FINE is the fix, BACKGROUND covers the moments the app is
+         backgrounded mid-trip, and the FOREGROUND_SERVICE_LOCATION declaration
+         is required from API 34 for a location-typed foreground service.
+         RECEIVE_BOOT_COMPLETED resumes an active trip after a reboot. The
+         tracking service is never always-on. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Camera is added by the POD capture work (A4 follow-up); A1's scaffold
+         still asks for no permission it does not use. -->
 
     <application
         android:name=".RoadwiseApp"
@@ -33,5 +45,22 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- Board #106 (AND1-A4): foreground location sampling, alive only for
+             the active-trip window (started by Start Trip, stopped at DELIVERED
+             or when the server reports tracking off). -->
+        <service
+            android:name=".tracking.LocationTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <receiver
+            android:name=".tracking.TrackingBootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

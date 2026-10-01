@@ -5,6 +5,7 @@ import { requireAuth } from '../auth/guard.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
 import { trackPageHtml } from '../track-page.js';
+import { openGpsStream } from '../gps-sse.js';
 import {
   TRACK_LINK_PERMISSION,
   loadTrackedTrip,
@@ -158,6 +159,24 @@ export async function trackRoutes(app: FastifyInstance) {
       },
     });
     return reply.send({ revoked: true, link: null });
+  });
+
+  // Realtime GPS stream for the read-only share link (board task #106,
+  // AND1-A4). The signed token is the capability: a valid, unrevoked token for
+  // one trip streams that trip's points only. An invalid/revoked/expired token
+  // is a flat 404, exactly like the JSON payload above — no existence leak.
+  app.get('/track/:token/stream', async (req, reply) => {
+    const { token } = req.params as { token: string };
+    const verified = verifyTrackLink(token, trackOptions());
+    if (!verified) return reply.code(404).send({ error: 'invalid_token' });
+    const result = await loadTrackedTrip(prisma, {
+      tripId: verified.tripId,
+      version: verified.version,
+    });
+    if (!result.ok) {
+      return reply.code(statusForError(result.error)).send({ error: 'invalid_token' });
+    }
+    openGpsStream(app, req, reply, verified.tripId);
   });
 
   // Public JSON payload for the tracking page. Invalid/expired/rotated/revoked

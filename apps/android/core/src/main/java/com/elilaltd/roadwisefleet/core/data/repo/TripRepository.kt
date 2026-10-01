@@ -130,6 +130,7 @@ class TripRepository(
         rateEur = entity.rateEur,
         updatedAtEpochMs = entity.updatedAtEpochMs,
         documents = parseDocuments(entity.documentsJson),
+        tracking = entity.tracking,
     )
 
     private fun toEntity(trip: Trip): TripEntity = TripEntity(
@@ -143,6 +144,7 @@ class TripRepository(
         rateEur = trip.rateEur,
         updatedAtEpochMs = trip.updatedAtEpochMs,
         documentsJson = documentsToJson(trip.documents),
+        tracking = trip.tracking,
     )
 
     private fun toItem(entity: OutboxEntity): OutboxItem = OutboxItem(

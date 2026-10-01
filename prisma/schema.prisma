@@ -361,6 +361,16 @@ model GpsPing {
   at     DateTime @default(now())
   lat    Decimal  @db.Decimal(9, 6)
   lng    Decimal  @db.Decimal(9, 6)
+  // Board task #106 (AND1-A4): the client-generated id for one sampled point.
+  // The driver app queues points offline and retries the batch on reconnect, so
+  // the same point can be POSTed more than once; `(tripId, clientId)` is unique
+  // and the ingest uses `createMany({ skipDuplicates: true })`, which makes the
+  // replay idempotent (rule R28). Nullable for rows written before this column
+  // existed; Postgres allows many NULLs under a unique index.
+  clientId String?
+  accuracyM Int?
+
+  @@unique([tripId, clientId])
 }
 
 model Expense {
