@@ -2693,6 +2693,7 @@
 
   /** The signup input id for a validation field, so an error can focus it. */
   var SIGNUP_FIELD_IDS = {
+    accountType: 'signupAccountType',
     name: 'signupName',
     company: 'signupCompany',
     email: 'signupEmail',
@@ -2725,8 +2726,11 @@
    * is validated first with the SAME rules the server imports, so an invalid
    * submit makes no request at all.
    */
-  function register(name, company, email, password) {
+  function register(name, company, email, password, accountType) {
     var body = {
+      // The chosen account type (board task #111); empty falls back to `fleet`
+      // in the shared rules, so a legacy form still registers a fleet.
+      accountType: accountType === undefined || accountType === null ? '' : String(accountType),
       name: String(name || '').trim(),
       company: String(company || '').trim(),
       email: String(email || '').trim(),
@@ -2793,11 +2797,19 @@
       signupForm.addEventListener('submit', function (ev) {
         if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
         hide('signupError');
+        var accountType = '';
+        if (typeof document !== 'undefined' && document.querySelectorAll) {
+          var choices = document.querySelectorAll('input[name="accountType"]');
+          for (var i = 0; i < choices.length; i++) {
+            if (choices[i].checked) { accountType = choices[i].value || ''; break; }
+          }
+        }
         register(
           (el('signupName') || {}).value || '',
           (el('signupCompany') || {}).value || '',
           (el('signupEmail') || {}).value || '',
-          (el('signupPassword') || {}).value || ''
+          (el('signupPassword') || {}).value || '',
+          accountType
         );
       });
     }

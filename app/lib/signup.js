@@ -28,6 +28,16 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
+  // The account-type catalogue (board task #111). In Node this file is CJS, so
+  // it can require the sibling module; in the browser `account-types.js` is
+  // loaded first as a classic script and exposes `window.RoadwiseAccountTypes`.
+  var accountTypes =
+    typeof module === 'object' && module.exports
+      ? require('./account-types.js')
+      : typeof globalThis !== 'undefined'
+        ? globalThis.RoadwiseAccountTypes
+        : null;
+
   /** The server must accept what the client accepts — keep these in sync. */
   var MIN_PASSWORD_LENGTH = 8;
   var MAX_PASSWORD_LENGTH = 200;
@@ -81,15 +91,28 @@
   /**
    * Validate a registration body and normalise it. Email is lower-cased (the
    * `User.email` unique index is the duplicate check), the password is never
-   * trimmed (spaces are legitimate characters in a password).
+   * trimmed (spaces are legitimate characters in a password). The account type
+   * (board task #111) is validated here too, so the form and the server agree;
+   * a missing type falls back to `fleet` for legacy clients.
    * @param {unknown} body
-   * @returns {{ ok: true, value: { name: string, company: string, email: string, password: string } } | { ok: false, error: string, field: string, messageKey: string, detail: string }}
+   * @returns {{ ok: true, value: { accountType: string, name: string, company: string, email: string, password: string } } | { ok: false, error: string, field: string, messageKey: string, detail: string }}
    */
   function validateRegistration(body) {
     if (!isObject(body)) {
       return fail('form', 'signup.error.formInvalid', 'body must be an object');
     }
     var b = /** @type {Record<string, any>} */ (body);
+
+    var accountTypeRaw = b.accountType;
+    if (
+      accountTypeRaw !== undefined &&
+      accountTypeRaw !== null &&
+      accountTypeRaw !== '' &&
+      !(accountTypes && accountTypes.isAccountType(accountTypeRaw))
+    ) {
+      return fail('accountType', 'signup.error.accountTypeInvalid', 'unknown account type');
+    }
+    var accountType = accountTypes ? accountTypes.normalize(accountTypeRaw) : 'fleet';
 
     var name = text(b.name, MAX_NAME_LENGTH);
     if (!name) return fail('name', 'signup.error.nameRequired', 'name is required');
@@ -113,6 +136,7 @@
     return {
       ok: true,
       value: {
+        accountType: accountType,
         name: name,
         company: text(b.company, MAX_COMPANY_LENGTH),
         email: email,

@@ -56,10 +56,28 @@
       <span class="brand" data-i18n="brand.name">RoadwiseFleet</span>
       <span class="tag" data-i18n="brand.appTag">Fleet Manager</span>
     </p>
-    <h1 data-i18n="signup.title">Create your fleet account</h1>
+    <h1 data-i18n="signup.title">Create your account</h1>
     <p class="lead" data-i18n="signup.lead"></p>
 
     <form id="signupForm" novalidate>
+      <fieldset class="field" id="signupAccountType" tabindex="-1">
+        <legend data-i18n="signup.accountType">Account type</legend>
+        <label class="choice">
+          <input type="radio" name="accountType" value="customer">
+          <span data-i18n="account.type.customer">Customer</span>
+          <small data-i18n="account.type.customerHint"></small>
+        </label>
+        <label class="choice">
+          <input type="radio" name="accountType" value="fleet" checked>
+          <span data-i18n="account.type.fleet">Fleet</span>
+          <small data-i18n="account.type.fleetHint"></small>
+        </label>
+        <label class="choice">
+          <input type="radio" name="accountType" value="solo_driver">
+          <span data-i18n="account.type.soloDriver">Solo truck driver</span>
+          <small data-i18n="account.type.soloDriverHint"></small>
+        </label>
+      </fieldset>
       <div class="field">
         <label for="signupName" data-i18n="signup.name">Your name</label>
         <input id="signupName" name="name" type="text" required autocomplete="name"
@@ -132,6 +150,9 @@
      (board task #4); the documents UI reuses it instead of restating them. -->
 <script src="/pilot/lib/driver-core.js"></script>
 <script src="/app/lib/app-core.js"></script>
+<!-- The account-type catalogue (board task #111), shared with the API so the
+     three-way signup choice and the server agree by construction. -->
+<script src="/app/lib/account-types.js"></script>
 <!-- The signup rules (board task #86), shared with the API endpoint so the form
      and the server agree by construction. -->
 <script src="/app/lib/signup.js"></script>

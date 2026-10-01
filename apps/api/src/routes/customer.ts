@@ -8,6 +8,7 @@ import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { publicTrackUrl, reconstructTrackLink, signTrackLink } from '../track-link.js';
 import { sweepExpired } from '../marketplace-sweep.js';
 import * as market from '../marketplace.js';
+import { createCustomerAccount } from '../registration-accounts.js';
 import * as customerCore from '../../../../customer/lib/customer-core.js';
 
 /*
@@ -184,47 +185,20 @@ export async function customerRoutes(app: FastifyInstance) {
     const passwordHash = hashPassword(password);
     let created: { customerId: string; userId: string; customerName: string };
     try {
-      created = await prisma.$transaction(async (tx) => {
-        // The `customer` Role row is created by the deploy path (migration
-        // 20260929230000_add_customer_role — the deployer only ever runs
-        // `migrate deploy`). Re-assert it here, idempotently, so a signup can
-        // never 500 with a Prisma P2003 (foreign key on `User.roleId`) if the
-        // row is missing; the review on 2026-09-29 measured exactly that on the
-        // deployed pilot. Fixed values, so an anonymous caller cannot influence
-        // the permission set.
-        await tx.role.upsert({
-          where: { id: customerCore.CUSTOMER_ROLE },
-          update: { permissions: [...customerCore.CUSTOMER_PERMISSIONS] },
-          create: { id: customerCore.CUSTOMER_ROLE, permissions: [...customerCore.CUSTOMER_PERMISSIONS] },
-        });
-        const customer = await tx.customer.create({
-          data: {
-            orgId: org.id,
-            name: company || name,
-            email,
-            lang: 'en',
-            profile: { create: { notifyPrefs } },
-          },
-        });
-        const user = await tx.user.create({
-          data: {
-            roleId: customerCore.CUSTOMER_ROLE,
-            name,
-            email,
-            phone,
-            // No fleet org on the token: a customer login must never reach an
-            // org-scoped route. The CustomerAccount link carries the carrier org.
-            orgId: null,
-            passwordHash,
-            lang: 'en',
-          },
-        });
-        // The login ↔ customer link lives here, not on `User`: no scalar column
-        // on a shared model, so the running pilot keeps working whether or not
-        // the portal migration has been applied yet.
-        await tx.customerAccount.create({ data: { userId: user.id, customerId: customer.id } });
-        return { customerId: customer.id, userId: user.id, customerName: customer.name };
-      });
+      // One creation path for every account type (board task #111): the shared
+      // helper re-asserts the `customer` role row idempotently with fixed
+      // values, so an anonymous caller can never influence the permission set.
+      created = await prisma.$transaction((tx) =>
+        createCustomerAccount(tx as any, {
+          hostOrgId: org.id,
+          name,
+          company,
+          email,
+          phone,
+          passwordHash,
+          notifyPrefs,
+        }),
+      );
     } catch (err) {
       if ((err as { code?: string }).code === 'P2002') {
         return reply.code(409).send({ error: 'email_taken' });

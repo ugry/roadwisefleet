@@ -7,10 +7,16 @@ import { signToken } from '../auth/tokens.js';
 import { localePayload } from '../i18n.js';
 import { createRateLimiter } from '../rate-limit.js';
 import { resolveClientIp } from '../client-ip.js';
-import { OWNER_PERMISSIONS, OWNER_ROLE, REGISTER_AUDIT_ACTION, defaultOrgName } from '../registration.js';
+import { OWNER_ROLE, REGISTER_AUDIT_ACTION } from '../registration.js';
+import { createCustomerAccount, createFleetAccount, createSoloAccount } from '../registration-accounts.js';
+// The account-type catalogue is shared with the browser (board task #111).
+import accountTypes from '../../../../app/lib/account-types.js';
 // The signup validation is shared with the browser. The file is UMD (a classic
 // script for the page), so it is imported as a CommonJS default export.
 import signupRules from '../../../../app/lib/signup.js';
+// Each account type reuses its own shared rule set (customer portal / solo).
+import * as customerCore from '../../../../customer/lib/customer-core.js';
+import * as solo from '../../../../solo/lib/solo-core.js';
 
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
@@ -44,9 +50,12 @@ const registrationLimiter = createRateLimiter({
 
 export async function authRoutes(app: FastifyInstance) {
   /**
-   * Self-service registration (board task #86): the public entry point. A new
-   * person registers a fleet — an `Org` plus an `owner` `User` — and is signed
-   * in immediately (the login response shape, so the app has one session path).
+   * Self-service registration (board task #86; three account types added by
+   * board task #111): the public entry point. The body carries the chosen
+   * `accountType` — `customer`, `fleet` or `solo_driver` — and the server
+   * creates the matching rows and derives the role from it (a client can never
+   * self-upgrade). A body without a type still registers a fleet, so the
+   * existing `/signup` path keeps working.
    *
    * Bounded per client IP before anything else happens: a refused request never
    * reaches validation or the database.
@@ -61,7 +70,32 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(429).send({ error: 'rate_limited', retryAfterSeconds: gate.retryAfterSeconds });
     }
 
-    const normalized = signupRules.validateRegistration(req.body ?? {});
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // The account type is chosen at the registration entry (board task #111). A
+    // legacy body without one registers a fleet, exactly as before.
+    const requested =
+      body.accountType === undefined || body.accountType === null || body.accountType === ''
+        ? accountTypes.DEFAULT_ACCOUNT_TYPE
+        : body.accountType;
+    if (!accountTypes.isAccountType(requested)) {
+      return reply.code(400).send({
+        error: 'invalid_input',
+        field: 'accountType',
+        messageKey: 'signup.error.accountTypeInvalid',
+        detail: 'unknown account type',
+      });
+    }
+    const accountType = requested as 'customer' | 'fleet' | 'solo_driver';
+
+    // Reuse each type's own shared rule set, so the server is never more
+    // permissive than the form. The role is derived SERVER-SIDE from the chosen
+    // type; a client-supplied `role`/`roleId` is ignored.
+    const normalized =
+      accountType === 'customer'
+        ? customerCore.validateSignup(body)
+        : accountType === 'solo_driver'
+          ? solo.validateSoloSignup(body)
+          : signupRules.validateRegistration(body);
     if (!normalized.ok) {
       return reply.code(400).send({
         error: normalized.error,
@@ -70,42 +104,114 @@ export async function authRoutes(app: FastifyInstance) {
         detail: normalized.detail,
       });
     }
-    const { name, company, email, password } = normalized.value;
-    const passwordHash = hashPassword(password);
+    const value = normalized.value as Record<string, any>;
+    const name = String(value.name);
+    const email = String(value.email);
+    const passwordHash = hashPassword(String(value.password));
 
-    let created: { userId: string; orgId: string; orgName: string };
     try {
-      created = await prisma.$transaction(async (tx) => {
-        // The `owner` Role row belongs to the seeded data, but the deploy path
-        // only ever runs `migrate deploy` (no seed), and a missing row would
-        // make the `User` insert fail on its `roleId` foreign key (Prisma
-        // P2003). Re-assert it idempotently with fixed values, exactly like the
-        // customer portal does for its role: an anonymous caller never
-        // influences the permission set.
-        await tx.role.upsert({
-          where: { id: OWNER_ROLE },
-          update: { permissions: [...OWNER_PERMISSIONS] },
-          create: { id: OWNER_ROLE, permissions: [...OWNER_PERMISSIONS] },
-        });
-        const org = await tx.org.create({
-          data: {
-            name: defaultOrgName({ name, company }),
-            locale: 'en',
-            dataRegion: 'eu',
-            plan: 'free',
-          },
-        });
-        const user = await tx.user.create({
-          data: {
-            roleId: OWNER_ROLE,
+      if (accountType === 'customer') {
+        // The pilot has one host carrier org; CUSTOMER_HOST_ORG_ID pins it in a
+        // multi-fleet deployment (same rule as POST /api/customer/signup).
+        const hostOrg = env.CUSTOMER_HOST_ORG_ID
+          ? await prisma.org.findUnique({ where: { id: env.CUSTOMER_HOST_ORG_ID } })
+          : await prisma.org.findFirst({ orderBy: { createdAt: 'asc' } });
+        if (!hostOrg) return reply.code(503).send({ error: 'no_carrier_org' });
+
+        const created = await prisma.$transaction((tx) =>
+          createCustomerAccount(tx as any, {
+            hostOrgId: hostOrg.id,
             name,
+            company: value.company,
             email,
-            orgId: org.id,
+            phone: value.phone,
             passwordHash,
-            lang: 'en',
+            notifyPrefs: value.notifyPrefs,
+          }),
+        );
+        const token = signToken(
+          { sub: created.userId, org: null, role: customerCore.CUSTOMER_ROLE, name },
+          env.AUTH_SECRET,
+          { ttlSeconds: env.TOKEN_TTL_SECONDS },
+        );
+        return reply.code(201).send({
+          accountType: 'customer',
+          token,
+          user: {
+            id: created.userId,
+            name,
+            roleId: customerCore.CUSTOMER_ROLE,
+            email,
+            orgId: null,
+            customer: { id: created.customerId, name: created.customerName, orgId: hostOrg.id },
           },
         });
-        return { userId: user.id, orgId: org.id, orgName: org.name };
+      }
+
+      if (accountType === 'solo_driver') {
+        const created = await prisma.$transaction((tx) =>
+          createSoloAccount(tx as any, {
+            name,
+            company: value.company,
+            email,
+            phone: value.phone,
+            passwordHash,
+            truck: value.truck,
+          }),
+        );
+        await prisma.auditLog
+          .create({ data: { orgId: created.orgId, actorId: created.userId, action: REGISTER_AUDIT_ACTION } })
+          .catch(() => undefined);
+        const token = signToken(
+          { sub: created.userId, org: created.orgId, role: solo.SOLO_ROLE, name },
+          env.AUTH_SECRET,
+          { ttlSeconds: env.TOKEN_TTL_SECONDS },
+        );
+        const locale = localePayload({ orgLocale: 'en', userLang: null });
+        return reply.code(201).send({
+          accountType: 'solo_driver',
+          token,
+          user: {
+            id: created.userId,
+            name,
+            roleId: solo.SOLO_ROLE,
+            email,
+            orgId: created.orgId,
+            locale: locale.locale,
+            lang: locale.lang,
+            locales: locale.supported,
+          },
+          driver: { id: created.profileId, verificationStatus: 'NONE', phoneVerifiedAt: null },
+        });
+      }
+
+      // fleet (the default): an `Org` plus its `owner` (fleet manager).
+      const created = await prisma.$transaction((tx) =>
+        createFleetAccount(tx as any, { name, company: value.company, email, passwordHash }),
+      );
+      // Same audit trail as a login; a failure to record it never fails the signup.
+      await prisma.auditLog
+        .create({ data: { orgId: created.orgId, actorId: created.userId, action: REGISTER_AUDIT_ACTION } })
+        .catch(() => undefined);
+      const token = signToken(
+        { sub: created.userId, org: created.orgId, role: OWNER_ROLE, name },
+        env.AUTH_SECRET,
+        { ttlSeconds: env.TOKEN_TTL_SECONDS },
+      );
+      const locale = localePayload({ orgLocale: 'en', userLang: null });
+      return reply.code(201).send({
+        accountType: 'fleet',
+        token,
+        user: {
+          id: created.userId,
+          name,
+          roleId: OWNER_ROLE,
+          orgId: created.orgId,
+          orgName: created.orgName,
+          locale: locale.locale,
+          lang: locale.lang,
+          locales: locale.supported,
+        },
       });
     } catch (err) {
       // `User.email` is unique: the same address cannot register twice.
@@ -114,31 +220,6 @@ export async function authRoutes(app: FastifyInstance) {
       }
       throw err;
     }
-
-    // Same audit trail as a login; a failure to record it never fails the signup.
-    await prisma.auditLog
-      .create({ data: { orgId: created.orgId, actorId: created.userId, action: REGISTER_AUDIT_ACTION } })
-      .catch(() => undefined);
-
-    const token = signToken(
-      { sub: created.userId, org: created.orgId, role: OWNER_ROLE, name },
-      env.AUTH_SECRET,
-      { ttlSeconds: env.TOKEN_TTL_SECONDS },
-    );
-    const locale = localePayload({ orgLocale: 'en', userLang: null });
-    return reply.code(201).send({
-      token,
-      user: {
-        id: created.userId,
-        name,
-        roleId: OWNER_ROLE,
-        orgId: created.orgId,
-        orgName: created.orgName,
-        locale: locale.locale,
-        lang: locale.lang,
-        locales: locale.supported,
-      },
-    });
   });
 
   app.post('/auth/login', async (req, reply) => {

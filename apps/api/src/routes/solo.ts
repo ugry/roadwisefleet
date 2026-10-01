@@ -9,6 +9,7 @@ import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
 import { stripCredentialFields } from '../user-payload.js';
 import { decodeBase64Upload, resolveWithin, writeDocumentFile } from '../documents.js';
+import { createSoloAccount } from '../registration-accounts.js';
 import * as solo from '../../../../solo/lib/solo-core.js';
 
 /*
@@ -170,45 +171,12 @@ export async function soloRoutes(app: FastifyInstance) {
 
     let created: { orgId: string; userId: string; profileId: string };
     try {
-      created = await prisma.$transaction(async (tx) => {
-        // The `solo` Role row is created by the deploy path (migration
-        // 20260930120000_add_solo_driver). Re-assert it here, idempotently, so a
-        // signup can never 500 with a Prisma P2003 (foreign key on User.roleId)
-        // if the row is missing; fixed values, so an anonymous caller cannot
-        // influence the permission set.
-        await tx.role.upsert({
-          where: { id: solo.SOLO_ROLE },
-          update: { permissions: [...solo.SOLO_PERMISSIONS] },
-          create: { id: solo.SOLO_ROLE, permissions: [...solo.SOLO_PERMISSIONS] },
-        });
-        // Each solo driver is his own one-person carrier org: the marketplace
-        // award creates the Trip in this org, so it must exist before any bid.
-        const org = await tx.org.create({
-          data: { name: company || solo.soloOrgName(name), locale: 'en', dataRegion: 'eu' },
-        });
-        const user = await tx.user.create({
-          data: {
-            roleId: solo.SOLO_ROLE,
-            name,
-            email,
-            phone,
-            orgId: org.id,
-            passwordHash,
-            lang: 'en',
-          },
-        });
-        const profile = await tx.soloDriverProfile.create({
-          data: {
-            userId: user.id,
-            orgId: org.id,
-            phone,
-            truckPlate: truck.truckPlate ?? null,
-            truckEquipment: truck.truckEquipment ?? null,
-            truckCapacityKg: truck.truckCapacityKg ?? null,
-          },
-        });
-        return { orgId: org.id, userId: user.id, profileId: profile.id };
-      });
+      // One creation path for every account type (board task #111): the shared
+      // helper re-asserts the `solo` role row idempotently with fixed values,
+      // so an anonymous caller can never influence the permission set.
+      created = await prisma.$transaction((tx) =>
+        createSoloAccount(tx as any, { name, company, email, phone, passwordHash, truck }),
+      );
     } catch (err) {
       if ((err as { code?: string }).code === 'P2002') {
         return reply.code(409).send({ error: 'email_taken' });

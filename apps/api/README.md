@@ -187,7 +187,8 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | Route | Auth | Purpose |
 |---|---|---|
 | `GET /health` | — | liveness |
-| `POST /api/auth/register` | — (public) | self-service fleet-owner signup (board task #86): `name`, `email`, `password` (min 8, optional `company`); creates the `Org` + an `owner` `User` and returns `201 { token, user }` — the same session shape as login. Rate-limited per client IP (`429 rate_limited` + `retry-after`, default 10 per 15 min); `409 email_taken`; `400` with `field` + `messageKey` from the shared rules |
+| `POST /api/auth/register` | — (public) | three-way self-service signup (board tasks #86/#111): `accountType` (`customer` \| `fleet` \| `solo_driver`, default `fleet`), `name`, `email`, `password` (min 8, optional `company`; `phone` required for a solo driver). The role is derived SERVER-SIDE from the type (`customer` / `owner` / `solo`) — a client-supplied `role`/`roleId` is ignored. Creates the matching rows (fleet = `Org` + `owner`; customer = `Customer` + `customer` `User` + `CustomerAccount`, no org on the token; solo = one-person `Org` + `solo` `User` + profile) and returns `201 { accountType, token, user }` — the same session shape as login. Rate-limited per client IP (`429 rate_limited` + `retry-after`, default 10 per 15 min); `409 email_taken`; `400` with `field` + `messageKey` from the shared rules; `400 invalid_input` for an unknown account type |
+| `POST /api/fleet/drivers` | bearer, `user:manage` | create a fleet-employed driver inside the caller's org (board task #111): `name`, `email`, `password`, optional `phone`; the `driver` role is derived server-side and the account is not billed individually. `201 { driver }`; `403 forbidden` / `403 no_org` without the capability; `409 email_taken` |
 | `POST /api/auth/login` | — | email + password login for registered or pre-created users; returns a bearer token plus `user.locale` (org default), `user.lang` (the person's own preference) and `user.locales` (supported list) |
 | `GET /api/auth/me` | bearer | the current principal |
 | `POST /api/auth/device/register` | bearer | bind an EC P-256 device public key (base64 SPKI) to the caller (board task #104); stores the public key only. `400 invalid_public_key` / `unsupported_algorithm` |
@@ -1347,6 +1348,33 @@ Public entry point: a visitor registers a fleet and is signed in immediately.
 - **Out of scope, stated honestly.** No email verification and no password reset:
   the domain cannot send mail yet, so email verification stays gated on the owner's
   task #29.
+
+## Account types — board task #111 (owner direction 2026-10-01)
+- **The choice.** Registration offers exactly three types — `customer` (free),
+  `fleet` (EUR 20/month after a 1-month trial, see #99) and `solo_driver` (free,
+  self-service). The catalogue is `app/lib/account-types.js`, loaded by the
+  browser signup form and imported by the API, so the form and the server share
+  one list. `accountTypes.roleFor(type)` is the SERVER-SIDE mapping to the role
+  (`customer` / `owner` / `solo`); a body claiming a `role`/`roleId` cannot
+  change it.
+- **The rows.** `src/registration-accounts.ts` is the single creation path:
+  `createFleetAccount` (Org + owner), `createCustomerAccount` (Customer +
+  `customer` User + `CustomerAccount`, host org from `CUSTOMER_HOST_ORG_ID`),
+  `createSoloAccount` (one-person Org + `solo` User + profile) and
+  `createFleetDriver` (driver User inside a fleet org). `POST /api/customer/signup`
+  and `POST /api/solo/signup` now delegate to the same helpers, so a signup can
+  never grant a role the chosen type does not carry.
+- **Fleet-managed drivers.** A fleet manager (`user:manage`) creates its own
+  drivers with `POST /api/fleet/drivers`: the account lives in the fleet org with
+  the `driver` role and is not billed individually (the fleet owns the plan).
+- **Screens.** The `/app/signup` form renders the three-way choice (catalogue
+  keys `account.type.*`); the radio values are pinned to `accountTypes.ids()` by
+  `src/account-types.test.js`. Android registration is the remaining slice of
+  #111 (the Android app has no auth screens yet).
+- **Evidence.** Unit: `src/account-types.test.js` (catalogue, role derivation,
+  no self-upgrade, signup integration) and `src/signup-core.test.js` (the shared
+  rules). DB-backed: `test/registration.test.ts` (each type creates the right
+  role/rows and logs in; the fleet owner creates a driver; a driver gets `403`).
 
 ## Passwordless device auth — board task #104 (owner direction 2026-10-01)
 - **What it is.** After the first Android login (password or phone OTP) the app
