@@ -24,8 +24,11 @@ class TranslatorTest {
 
     @Test
     fun `an unknown key returns the key itself, never blank`() {
-        assertEquals("driver.missing", translator().t("driver.missing"))
-        assertTrue(translator().missing.contains("driver.missing"))
+        // `missing` is per-Translator instance state: hold ONE instance so the
+        // recorded miss is the one asserted on (a second instance is a fresh set).
+        val tr = translator()
+        assertEquals("driver.missing", tr.t("driver.missing"))
+        assertTrue(tr.missing.contains("driver.missing"))
     }
 
     @Test

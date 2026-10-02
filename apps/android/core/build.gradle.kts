@@ -27,6 +27,12 @@ android {
     buildFeatures {
         buildConfig = false
     }
+
+    // Board #114 (AND1-QA2): Robolectric/Room Tier-2 suites need the merged
+    // Android resources. The suites stay UNRUN until the CI job #113 lands.
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -41,4 +47,11 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+
+    // Board #114 (AND1-QA2): Tier-2 JVM test dependencies (hand-off from #108).
+    // UNRUN until the CI instrumented job #113 lands. room-testing matches the
+    // Room 2.6.1 already declared above.
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.room:room-testing:2.6.1")
 }

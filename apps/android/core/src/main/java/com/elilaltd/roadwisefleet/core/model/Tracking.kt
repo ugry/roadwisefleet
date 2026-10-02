@@ -53,9 +53,19 @@ object TrackingCore {
      */
     const val FLUSH_INTERVAL_MINUTES = 15L
 
-    /** Where a trip sits relative to tracking. */
+    /**
+     * Where a trip sits relative to tracking.
+     *
+     * `ACTIVE` needs both the server-side gate ([tracking]) and a status that is
+     * still an *active assignment*. The server clears `tracking` at `DELIVERED`
+     * (owner decision, board #106), and `DELIVERED` is not terminal — it
+     * transitions on to `POD_UPLOADED` — so a stale local `true` must read
+     * `STOPPED`, never keep sampling. `isTerminal` still closes genuinely
+     * finished trips (`SETTLED`, `CANCELLED`).
+     */
     fun phaseFor(tracking: Boolean, status: String): TrackingPhase = when {
         TripStatus.isTerminal(status) -> TrackingPhase.STOPPED
+        !TripStatus.isActiveAssignment(status) -> TrackingPhase.STOPPED
         tracking -> TrackingPhase.ACTIVE
         else -> TrackingPhase.NOT_STARTED
     }
