@@ -66,8 +66,9 @@
   "login.helper": "Use the account you created for your fleet.",
   "login.createAccount": "Register",
 
-  "signup.title": "Create your fleet account",
-  "signup.lead": "Set up your fleet in a minute. You become the owner and can invite dispatchers, accountants and drivers once you are in.",
+  "signup.title": "Create your account",
+  "signup.lead": "Choose how you use RoadwiseFleet: as a customer, as a fleet, or as a solo truck driver.",
+  "signup.accountType": "Account type",
   "signup.name": "Your name",
   "signup.namePlaceholder": "Alex Morgan",
   "signup.company": "Company (optional)",
@@ -85,6 +86,14 @@
   "signup.error.emailInvalid": "Enter a valid email address, for example you@company.com.",
   "signup.error.passwordShort": "Use a password with at least 8 characters.",
   "signup.error.passwordLong": "That password is too long. Use 200 characters or fewer.",
+  "signup.error.accountTypeInvalid": "Choose an account type: customer, fleet or solo truck driver.",
+
+  "account.type.customer": "Customer",
+  "account.type.customerHint": "Book loads and track your shipments. Free.",
+  "account.type.fleet": "Fleet",
+  "account.type.fleetHint": "Run a fleet with drivers and vehicles. EUR 20/month after 1 free month.",
+  "account.type.soloDriver": "Solo truck driver",
+  "account.type.soloDriverHint": "Drive on your own, free of charge.",
 
   "overview.title": "Overview",
   "overview.body": "You are signed in to the Fleet Manager shell. The dashboard KPIs, trips list and dispatch tools plug into this layout as each function lands.",

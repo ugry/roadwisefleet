@@ -41,6 +41,7 @@ test('a valid registration is normalised: trimmed name/company, lower-cased emai
   const result = signup.validateRegistration(body({ name: '  Ada  ', company: '  Ada GmbH ', email: ' Ada@Example.COM ' }));
   assert.equal(result.ok, true);
   assert.deepEqual(result.value, {
+    accountType: 'fleet',
     name: 'Ada',
     company: 'Ada GmbH',
     email: 'ada@example.com',
@@ -128,12 +129,21 @@ test('the API endpoint imports this module and the shell loads it (drift guard)'
   const route = read('apps/api/src/routes/auth.ts');
   // UMD (a classic script for the page), so the route takes the CommonJS default.
   assert.match(route, /import signupRules from '\.\.\/\.\.\/\.\.\/\.\.\/app\/lib\/signup\.js'/);
-  assert.match(route, /signupRules\.validateRegistration\(req\.body/);
+  // The fleet path still validates through the shared rules (board task #111
+  // dispatches to the per-type validators first).
+  assert.match(route, /signupRules\.validateRegistration\(/);
+  assert.doesNotMatch(route, /signupRules\.validateRegistration\(req\.body/);
+  // The chosen account type is validated against the shared catalogue before any
+  // row is written, so a client cannot self-upgrade.
+  assert.match(route, /import accountTypes from '\.\.\/\.\.\/\.\.\/\.\.\/app\/lib\/account-types\.js'/);
+  assert.match(route, /accountTypes\.isAccountType\(requested\)/);
   // The route must not restate the rules.
   assert.doesNotMatch(route, /password\.length\s*<\s*8/);
 
   const page = read('app/index.html');
   assert.match(page, /<script src="\/app\/lib\/signup\.js"><\/script>/);
+  // The account-type catalogue the three-way signup choice is validated against.
+  assert.match(page, /<script src="\/app\/lib\/account-types\.js"><\/script>/);
   const appJs = read('app/app.js');
   assert.match(appJs, /\/api\/auth\/register/);
   assert.match(appJs, /SIGNUP\.validateRegistration/);

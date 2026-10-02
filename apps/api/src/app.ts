@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { fleetRoutes } from './routes/fleet.js';
 import { deviceAuthRoutes } from './routes/device-auth.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { tripRoutes } from './routes/trips.js';
@@ -42,6 +43,9 @@ export function buildServer() {
 
   app.register(healthRoutes);
   app.register(authRoutes, { prefix: '/api' });
+  // Fleet-managed driver accounts (board task #111, AND2-REG1): a fleet manager
+  // creates a driver inside its own org.
+  app.register(fleetRoutes, { prefix: '/api' });
   // Passwordless Android device auth (board task #104, AND1-A2): public
   // challenge/verify plus the authenticated register/revoke.
   app.register(deviceAuthRoutes, { prefix: '/api' });

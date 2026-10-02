@@ -771,6 +771,15 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
 .review-prompt textarea { width: 100%; margin-bottom: 12px; }
 .review-prompt .review-msg { margin-top: 8px; }
 
+/* Account-type choice on signup (board task #111). */
+fieldset.field { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 0; }
+fieldset.field legend { padding: 0 6px; font-weight: 600; }
+.choice { display: flex; gap: 8px; align-items: flex-start; padding: 8px 6px; border-radius: 8px; cursor: pointer; }
+.choice:hover { background: var(--surface); }
+.choice input { margin-top: 3px; flex: none; }
+.choice span { font-weight: 600; }
+.choice small { display: block; color: #6b7280; font-weight: 400; }
+
 /* Live tracking panel (board task #107, AND1-A5). */
 .live-state { font-weight: 600; margin: 8px 0; }
 .live-state.live { color: var(--accent-deep); }

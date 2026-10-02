@@ -52,12 +52,22 @@ const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
 /** Every org this suite created; removed in `after`. */
 const createdOrgIds: string[] = [];
+/** Every user row created here (customer logins have no org, board #111). */
+const createdUserIds: string[] = [];
+/** Every customer row created here (board #111). */
+const createdCustomerIds: string[] = [];
 
 async function cleanup(): Promise<void> {
-  if (createdOrgIds.length === 0) return;
   const inOrgs = { in: createdOrgIds };
-  await prisma.auditLog.deleteMany({ where: { orgId: inOrgs } });
-  await prisma.user.deleteMany({ where: { orgId: inOrgs } });
+  const inUsers = { in: createdUserIds };
+  const inCustomers = { in: createdCustomerIds };
+  // Dependent rows first: this schema carries no onDelete cascade.
+  await prisma.auditLog.deleteMany({ where: { OR: [{ orgId: inOrgs }, { actorId: inUsers }] } });
+  await prisma.customerAccount.deleteMany({ where: { userId: inUsers } });
+  await prisma.customerProfile.deleteMany({ where: { customerId: inCustomers } });
+  await prisma.customer.deleteMany({ where: { id: inCustomers } });
+  await prisma.soloDriverProfile.deleteMany({ where: { userId: inUsers } });
+  await prisma.user.deleteMany({ where: { OR: [{ id: inUsers }, { orgId: inOrgs }] } });
   await prisma.org.deleteMany({ where: { id: inOrgs } });
 }
 
@@ -147,5 +157,137 @@ if (!reachable) {
     });
     assert.equal(res.statusCode, 400);
     assert.equal(await prisma.org.count(), before, 'a validation failure creates no org');
+  });
+
+  // --- board task #111: the three account types + fleet-managed drivers ------
+
+  test('a customer registration derives the customer role server-side', async () => {
+    const customerEmail = `qa-customer-${stamp}@roadwisefleet.test`;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { accountType: 'customer', name: 'QA Customer', company: `QA Customer ${stamp}`, email: customerEmail, password },
+    });
+    assert.equal(res.statusCode, 201, res.payload);
+    const data = JSON.parse(res.payload);
+    assert.equal(data.accountType, 'customer');
+    assert.equal(data.user.roleId, 'customer');
+    assert.equal(data.user.orgId, null, 'a customer token never carries a fleet org');
+    assert.ok(data.user.customer && data.user.customer.id, 'the response links the customer record');
+    // Same locale contract as the solo/fleet branches (board #111 review).
+    assert.equal(data.user.locale, 'en');
+    assert.ok(Array.isArray(data.user.locales));
+    createdUserIds.push(data.user.id);
+    createdCustomerIds.push(data.user.customer.id);
+
+    const row = await prisma.user.findUnique({ where: { id: data.user.id }, select: { roleId: true, orgId: true } });
+    assert.equal(row?.roleId, 'customer');
+    assert.equal(row?.orgId, null);
+    const link = await prisma.customerAccount.findUnique({ where: { userId: data.user.id } });
+    assert.equal(link?.customerId, data.user.customer.id, 'the login ↔ customer link exists');
+    // The registration is audited like the solo/fleet branches (board #111 review):
+    // the customer has no org, so the entry is filed in the host carrier org.
+    const audit = await prisma.auditLog.findFirst({
+      where: { actorId: data.user.id, action: 'auth.register' },
+    });
+    assert.ok(audit, 'the customer registration writes the register audit row');
+
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: customerEmail, password } });
+    assert.equal(login.statusCode, 200, login.payload);
+    assert.equal(JSON.parse(login.payload).user.roleId, 'customer');
+  });
+
+  test('a solo driver registration derives the solo role and creates the profile', async () => {
+    const soloEmail = `qa-solo-${stamp}@roadwisefleet.test`;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { accountType: 'solo_driver', name: 'QA Solo', company: `QA Solo ${stamp}`, email: soloEmail, phone: '+4915112345678', password },
+    });
+    assert.equal(res.statusCode, 201, res.payload);
+    const data = JSON.parse(res.payload);
+    assert.equal(data.accountType, 'solo_driver');
+    assert.equal(data.user.roleId, 'solo');
+    assert.ok(data.user.orgId, 'a solo driver gets a one-person carrier org');
+    assert.ok(data.driver && data.driver.id);
+    createdUserIds.push(data.user.id);
+    createdOrgIds.push(data.user.orgId);
+
+    const profile = await prisma.soloDriverProfile.findUnique({ where: { userId: data.user.id } });
+    assert.ok(profile, 'the solo driver profile exists');
+    assert.equal(profile?.orgId, data.user.orgId);
+
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: soloEmail, password } });
+    assert.equal(login.statusCode, 200, login.payload);
+  });
+
+  test('a client cannot self-upgrade: the role comes from the chosen type only', async () => {
+    const upgradeEmail = `qa-upgrade-${stamp}@roadwisefleet.test`;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { accountType: 'solo_driver', name: 'QA Upgrade', email: upgradeEmail, phone: '+4915112345679', password, role: 'owner', roleId: 'owner' },
+    });
+    assert.equal(res.statusCode, 201, res.payload);
+    const data = JSON.parse(res.payload);
+    assert.equal(data.user.roleId, 'solo', 'the claimed owner role is ignored');
+    createdUserIds.push(data.user.id);
+    createdOrgIds.push(data.user.orgId);
+    const row = await prisma.user.findUnique({ where: { id: data.user.id }, select: { roleId: true } });
+    assert.equal(row?.roleId, 'solo');
+  });
+
+  test('an unknown account type is refused before any row is written', async () => {
+    const before = await prisma.org.count();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { accountType: 'admin', name: 'QA Bad', email: `qa-bad-type-${stamp}@roadwisefleet.test`, password },
+    });
+    assert.equal(res.statusCode, 400, res.payload);
+    const data = JSON.parse(res.payload);
+    assert.equal(data.field, 'accountType');
+    assert.equal(data.messageKey, 'signup.error.accountTypeInvalid');
+    assert.equal(await prisma.org.count(), before);
+  });
+
+  test('the fleet owner creates a driver account inside the fleet org', async () => {
+    const driverEmail = `qa-fleet-driver-${stamp}@roadwisefleet.test`;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/fleet/drivers',
+      headers: bearer(token),
+      payload: { name: 'QA Fleet Driver', email: driverEmail, password },
+    });
+    assert.equal(res.statusCode, 201, res.payload);
+    const data = JSON.parse(res.payload);
+    assert.equal(data.driver.roleId, 'driver', 'the role is derived, not supplied');
+    assert.equal(data.driver.orgId, orgId, 'the driver belongs to the manager fleet org');
+    createdUserIds.push(data.driver.id);
+
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: driverEmail, password } });
+    assert.equal(login.statusCode, 200, login.payload);
+    const driverToken = JSON.parse(login.payload).token;
+    const me = JSON.parse((await app.inject({ method: 'GET', url: '/api/auth/me', headers: bearer(driverToken) })).payload);
+    assert.equal(me.user.roleId, 'driver');
+    assert.equal(me.user.orgId, orgId);
+
+    // A driver holds no `user:manage`: creating accounts is refused.
+    const forbidden = await app.inject({
+      method: 'POST',
+      url: '/api/fleet/drivers',
+      headers: bearer(driverToken),
+      payload: { name: 'Nope', email: `qa-nope-${stamp}@roadwisefleet.test`, password },
+    });
+    assert.equal(forbidden.statusCode, 403, forbidden.payload);
+
+    // The email is unique: the same driver cannot be created twice.
+    const dup = await app.inject({
+      method: 'POST',
+      url: '/api/fleet/drivers',
+      headers: bearer(token),
+      payload: { name: 'QA Fleet Driver', email: driverEmail, password },
+    });
+    assert.equal(dup.statusCode, 409, dup.payload);
   });
 }
