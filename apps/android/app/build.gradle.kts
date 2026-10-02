@@ -62,6 +62,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    // Board #114 (AND1-QA2): Robolectric/Compose Tier-2 suites need the merged
+    // Android resources. The suites stay UNRUN until the CI job #113 lands.
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -92,4 +98,22 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+
+    // Board #114 (AND1-QA2): Tier-2 test dependencies (hand-off from #108).
+    // UNRUN until the CI instrumented job #113 lands; nothing here changes the
+    // debug build. kotlinx-coroutines-test comes from the existing catalog
+    // (1.9.0) to match the module's coroutines version, not the README's 1.8.1.
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.work:work-testing:2.9.1")
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    // Compose test artifacts stay versionless: the same BOM the app already uses
+    // (libs.androidx.compose.bom) aligns them. No new repositories.
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.compose.ui:ui-test-manifest")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
