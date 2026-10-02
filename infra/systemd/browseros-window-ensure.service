@@ -1,0 +1,22 @@
+[Unit]
+Description=BrowserOS agent window self-heal (board eila/tasks#8) — recreate a drivable page when the browser has none
+Documentation=file:/opt/roadwisefleet/infra/browseros.md
+After=browseros.service
+
+[Service]
+Type=oneshot
+User=debian
+
+# --ensure runs the board #8 health check and, ONLY when the failure is the
+# known "no drivable page" defect (a reachable CDP whose /json/list holds no
+# page target — e.g. the onboarding-only state), issues the proven
+# non-destructive CDP recovery `PUT http://127.0.0.1:9101/json/new?about:blank`
+# and re-checks. It never restarts browseros.service and never touches the
+# browser when the unit / MCP / CDP itself is the failure (a PUT cannot help
+# there), so it is safe to leave enabled. It restores a usable window; it does
+# NOT fix the onboarding root cause (infra/browseros.md §5.2, option B).
+#
+# Install + rollback: infra/browseros.md §5.2 option A. Endpoint overrides live
+# in the script env (RWF_BROWSEROS_MCP / RWF_BROWSEROS_CDP); defaults are the
+# loopback endpoints in the runbook §1.
+ExecStart=/usr/local/bin/browseros-health.sh --ensure

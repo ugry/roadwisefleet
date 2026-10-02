@@ -18,6 +18,14 @@
 #   --live       (on elilavps2) unit active + MCP healthy + CDP up + at least
 #                one drivable page; exit 1 when the known defect is present, so
 #                it can be wired into monitoring.
+#   --ensure     like --live, but when the ONLY failure is the known "no
+#                drivable page" defect (a reachable CDP with an onboarding-only
+#                or empty page list), it issues the proven non-destructive
+#                recovery — `PUT /json/new?about:blank` — and re-checks. It
+#                never touches the browser when the unit/MCP/CDP itself is the
+#                failure (a PUT cannot help there). Restart-free; driven by
+#                infra/systemd/browseros-window-ensure.{service,timer}. Exit 0
+#                only when a drivable page exists after the attempt.
 #   --self-test  fixture proof of every decision (no host, no network).
 #   --help
 # Exit: 0 ok (warnings allowed), 1 a real failure, 2 usage error.
@@ -39,6 +47,9 @@ MCP_BASE="${RWF_BROWSEROS_MCP:-http://127.0.0.1:9200}"
 CDP_BASE="${RWF_BROWSEROS_CDP:-http://127.0.0.1:9101}"
 ONBOARDING_URL="chrome://browseros-onboarding/"
 
+# 0 = check only (--live); 1 = attempt the non-destructive window heal (--ensure).
+HEAL=0
+
 fails=0
 warns=0
 
@@ -47,9 +58,10 @@ fail() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 warn() { printf '  WARN  %s\n' "$1"; warns=$((warns + 1)); }
 
 usage() {
-  printf 'Usage: %s [--live|--self-test|--help]\n' "$(basename "$0")"
+  printf 'Usage: %s [--live|--ensure|--self-test|--help]\n' "$(basename "$0")"
   printf '  (no flag)   same as --live\n'
   printf '  --live      assert the browser is up AND has a drivable page (run on elilavps2)\n'
+  printf '  --ensure    like --live, but heal the known no-window defect (CDP PUT /json/new)\n'
   printf '  --self-test fixture proof of every decision (no host, no network)\n'
 }
 
@@ -90,6 +102,18 @@ page_urls() {
 
 has_onboarding() {
   grep -q 'chrome://browseros-onboarding' <<<"$1"
+}
+
+# try_heal: issue the proven non-destructive CDP recovery (create one blank
+# page) and re-read /json/list. Returns 0 iff a drivable page now exists. It
+# never restarts the unit and is safe to run repeatedly. Callers must only use
+# this for the "CDP reachable but no drivable page" defect — a PUT cannot help
+# when the unit, the MCP or the CDP endpoint itself is down.
+try_heal() {
+  curl -sS -m 5 -X PUT "$CDP_BASE/json/new?about:blank" >/dev/null 2>&1
+  probe "$CDP_BASE/json/list"
+  [ "$PROBE_CODE" = "200" ] || return 1
+  [ -n "$(page_urls "$PROBE_BODY")" ]
 }
 
 # --- live check -------------------------------------------------------------
@@ -133,6 +157,15 @@ run_live_check() {
       ok "browser window present: $n drivable page(s), e.g. $(printf '%s\n' "$urls" | head -n 1)"
       if has_onboarding "$list"; then
         warn "the BrowserOS onboarding page is still open alongside a real page — onboarding never finished, so a restart can lose the window again (infra/browseros.md §5)"
+      fi
+    elif [ "$HEAL" = "1" ] && try_heal; then
+      # --ensure only: a reachable CDP with no drivable page is exactly the
+      # board #8 defect, and the CDP PUT is the proven recovery. Note `list` is
+      # still the pre-heal body, so the onboarding warning stays truthful.
+      n="$(page_urls "$PROBE_BODY" | wc -l | tr -d '[:space:]')"
+      ok "healed: created a blank page over CDP (PUT /json/new?about:blank); $n drivable page(s) now"
+      if has_onboarding "$list"; then
+        warn "the heal restores a usable window but not the onboarding root cause — the profile still never completed first-run onboarding (infra/browseros.md §5.2)"
       fi
     elif has_onboarding "$list"; then
       fail "no drivable page: CDP only holds $ONBOARDING_URL — this is the board #8 defect ('tabs failed: CDP error: No browser window available'): the profile has never completed first-run onboarding (infra/browseros.md §4)"
@@ -184,7 +217,7 @@ fixture() { # -> sets rc and out, leaving fails/warns set by the run
 }
 
 self_test() {
-  local st rc out
+  local st rc out healed
   st="$(mktemp -d "${TMPDIR:-/tmp}/browseros-health-selftest.XXXXXX")"
   # shellcheck disable=SC2064
   trap "rm -rf '$st'" EXIT
@@ -200,7 +233,19 @@ emit() { printf '%s' "$1"; printf '\n%s\n' "$2"; }
 case "$url" in
   *:9200/health)  emit "${STUB_MCP_BODY:-}" "${STUB_MCP_CODE:-200}" ;;
   */json/version) emit "${STUB_CDP_VERSION_BODY:-}" "${STUB_CDP_VER_CODE:-200}" ;;
-  */json/list)    emit "${STUB_CDP_LIST_BODY:-[]}" "${STUB_CDP_LIST_CODE:-200}" ;;
+  # The heal: record that the PUT was issued (the assertion is on the payload
+  # actually sent to CDP, i.e. the marker file), then answer.
+  */json/new*)
+    if [ -n "${STUB_HEAL_MARKER:-}" ]; then : > "$STUB_HEAL_MARKER"; fi
+    emit "" "${STUB_NEW_CODE:-200}" ;;
+  */json/list)
+    # A heal changes the browser, so fixtures may serve a different list after
+    # the marker exists (default: the same body, i.e. a heal that did not help).
+    if [ -n "${STUB_HEAL_MARKER:-}" ] && [ -e "$STUB_HEAL_MARKER" ]; then
+      emit "${STUB_CDP_LIST_BODY_AFTER:-${STUB_CDP_LIST_BODY:-[]}}" "${STUB_CDP_LIST_CODE:-200}"
+    else
+      emit "${STUB_CDP_LIST_BODY:-[]}" "${STUB_CDP_LIST_CODE:-200}"
+    fi ;;
   *)              emit "" "000" ;;
 esac
 STUB
@@ -221,6 +266,8 @@ STUB
   PATH="$st/bin:$PATH"
   export PATH
   export STUB_UNIT_STATE STUB_MCP_CODE STUB_MCP_BODY STUB_CDP_VER_CODE STUB_CDP_LIST_CODE STUB_CDP_LIST_BODY
+  export STUB_CDP_LIST_BODY_AFTER STUB_NEW_CODE STUB_HEAL_MARKER
+  STUB_HEAL_MARKER="$st/healed"
 
   local healthy_list onboarding_only
   healthy_list='[{"id":"a","type":"page","url":"https://example.com/","title":"Example"},{"id":"b","type":"service_worker","url":"chrome-extension://k/","title":""}]'
@@ -296,6 +343,64 @@ STUB
   expect "a devtools-only page list is one failure" 1 "$fails"
   contains "the devtools-only failure says no drivable page" "$out" "no drivable CDP page target"
 
+  # --- --ensure (the heal; board #8) ---------------------------------------
+  # Guarantee the heal cannot "pass for the wrong reason": every heal fixture
+  # asserts the marker left by the stub curl, i.e. that CDP's PUT was or was not
+  # actually issued, not merely the exit code.
+
+  # 9. a healthy browser makes --ensure a no-op (no PUT)
+  rm -f "$STUB_HEAL_MARKER"
+  STUB_UNIT_STATE=active
+  STUB_MCP_CODE=200
+  STUB_MCP_BODY='{"status":"ok"}'
+  STUB_CDP_VER_CODE=200
+  STUB_CDP_LIST_CODE=200
+  STUB_CDP_LIST_BODY="$healthy_list"
+  STUB_CDP_LIST_BODY_AFTER=""
+  HEAL=1
+  fixture
+  expect "ensure: a healthy browser exits 0" 0 "$rc"
+  if [ -e "$STUB_HEAL_MARKER" ]; then healed=1; else healed=0; fi
+  expect "ensure: a healthy browser is not healed (no PUT)" 0 "$healed"
+  HEAL=0
+
+  # 10. the defect: onboarding-only, reachable CDP → the heal creates a page
+  rm -f "$STUB_HEAL_MARKER"
+  STUB_CDP_LIST_BODY="$onboarding_only"
+  STUB_CDP_LIST_BODY_AFTER="$healthy_list"
+  HEAL=1
+  fixture
+  expect "ensure: heals an onboarding-only browser (rc)" 0 "$rc"
+  expect "ensure: the healed run has no failures" 0 "$fails"
+  contains "ensure: the run reports the heal" "$out" "healed"
+  if [ -e "$STUB_HEAL_MARKER" ]; then healed=1; else healed=0; fi
+  expect "ensure: the CDP PUT was issued" 1 "$healed"
+  HEAL=0
+
+  # 11. the browser is down: a PUT cannot help, so it must not be attempted
+  rm -f "$STUB_HEAL_MARKER"
+  STUB_CDP_VER_CODE=000
+  STUB_CDP_LIST_CODE=000
+  HEAL=1
+  fixture
+  expect "ensure: an unreachable CDP is not healed (rc)" 1 "$rc"
+  if [ -e "$STUB_HEAL_MARKER" ]; then healed=1; else healed=0; fi
+  expect "ensure: no PUT when the browser is down" 0 "$healed"
+  HEAL=0
+
+  # 12. the heal runs but does not recover a drivable page → still a failure
+  rm -f "$STUB_HEAL_MARKER"
+  STUB_CDP_VER_CODE=200
+  STUB_CDP_LIST_CODE=200
+  STUB_CDP_LIST_BODY="$onboarding_only"
+  STUB_CDP_LIST_BODY_AFTER="$onboarding_only"
+  HEAL=1
+  fixture
+  expect "ensure: a heal that does not recover a page fails (rc)" 1 "$rc"
+  expect "ensure: that is one failure" 1 "$fails"
+  contains "ensure: the failure names the defect" "$out" "browseros-onboarding"
+  HEAL=0
+
   printf '\nself-test: %d passed, %d failed\n' "$pass" "$failed"
   if [ "$failed" -gt 0 ]; then
     return 1
@@ -308,6 +413,7 @@ main() {
   case "${1:-}" in
     --self-test) self_test ;;
     --live|"")   run_live_check ;;
+    --ensure)    HEAL=1; run_live_check ;;
     --help|-h)   usage; return 0 ;;
     *)           printf 'unknown argument: %s\n' "$1" >&2; usage; return 2 ;;
   esac
