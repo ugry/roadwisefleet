@@ -37,10 +37,17 @@
   // The shared signup validation (board task #86), loaded before this one and
   // also imported by `POST /api/auth/register`, so the form and the server agree.
   var SIGNUP = win && win.RoadwiseSignup ? win.RoadwiseSignup : {};
+  // The account-type catalogue (board task #111), loaded before this one: it is
+  // the single source of the type → surface mapping used after registration.
+  var ACCOUNT_TYPES = win && win.RoadwiseAccountTypes ? win.RoadwiseAccountTypes : {};
   // The pure documents view model (board task #37, F6), loaded before this one.
   var DOC = win && win.RoadwiseDocuments ? win.RoadwiseDocuments : {};
   // The pure tracking-link view model (board task #39, F8), loaded before this one.
   var TRACK = win && win.RoadwiseTracking ? win.RoadwiseTracking : {};
+  // The pure live-tracking view model (board task #107, AND1-A5), loaded before
+  // this one and shared with the customer portal, so the two live surfaces
+  // cannot disagree about phases or the "not started yet" state.
+  var LIVE = win && win.RoadwiseLiveTracking ? win.RoadwiseLiveTracking : {};
   // The shared document rules / checklist owner (board task #4), loaded before
   // this one from `/pilot/lib/driver-core.js`. The documents UI never restates
   // the POD gate — it asks this module.
@@ -132,6 +139,29 @@
     store.removeItem(APP.USER_KEY);
   }
 
+  /**
+   * Hand a freshly created session to ANOTHER same-origin pilot surface (board
+   * task #111 review). A customer (`/c/`) and a solo driver (`/s/`) each keep
+   * their own sessionStorage pair, so a signup on `/app/signup` writes that
+   * surface's keys before navigating to it — same tab, same origin, so the
+   * handover survives the navigation. Best-effort: a locked-down WebView that
+   * blocks storage still reaches the surface, which then shows its sign-in.
+   * @param {{ tokenKey: string, userKey: string }} home
+   * @param {string} token
+   * @param {unknown} user
+   */
+  function handOffSession(home, token, user) {
+    if (!home) return;
+    var store = storage();
+    if (!store) return;
+    try {
+      if (token) store.setItem(home.tokenKey, token);
+      if (user) store.setItem(home.userKey, JSON.stringify(user));
+    } catch (err) {
+      /* storage unavailable: the target surface will ask the person to sign in */
+    }
+  }
+
   /** Push or replace the URL without leaving the page (SPA routing). */
   function setPath(path, replace) {
     if (typeof history === 'undefined' || !history) return;
@@ -188,6 +218,7 @@
   function renderPanel(route) {
     var outlet = el('outlet');
     if (!outlet) return null;
+    stopLiveStream();
     var panel = APP.panelFor(route, T);
     var token = ++renderToken;
     if (route && route.view === 'trips') {
@@ -534,6 +565,7 @@
       '<dt>' + esc(T('trips.createdAt')) + '</dt><dd>' + esc(fmtDate(trip.createdAt)) + '</dd>' +
       '</dl>';
 
+    html += livePanelHtml(trip);
     html += assignBoxHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.timeline')) + '</h2>' + timelineHtml(trip.statusEvents || []);
     html += documentsPanelHtml(trip);
@@ -886,6 +918,109 @@
     });
   }
 
+  /* ----------------------------------------------- live tracking (A5) --- */
+
+  /**
+   * The fleet-manager live tracking panel (board task #107, AND1-A5).
+   *
+   * Owner direction: tracking is available for the fleet manager on the trip's
+   * CURRENT (tracking = true) cargo only. The state, the phase milestones and
+   * the position reduction all come from `/app/lib/live-tracking.js` — the SAME
+   * module the customer portal loads — so the two surfaces cannot disagree.
+   *
+   * Only a live trip opens the stream: `GET /api/trips/:id/stream` is scoped
+   * server-side (org + trip read scope), and the client reads it with `fetch`
+   * rather than `EventSource` because `EventSource` cannot send the bearer
+   * token. A historical (delivered/cancelled) trip shows its final milestones
+   * and no stream.
+   */
+  var liveStream = null;
+
+  /** Abort the previous trip's stream before a new panel renders. */
+  function stopLiveStream() {
+    if (liveStream && liveStream.controller && liveStream.controller.abort) {
+      try {
+        liveStream.controller.abort();
+      } catch (err) {
+        /* already closed */
+      }
+    }
+    liveStream = null;
+  }
+
+  function liveMilestonesHtml(status) {
+    var rows = LIVE.milestoneRows ? LIVE.milestoneRows(status) : [];
+    var items = rows.map(function (row) {
+      return '<li class="lm ' + esc(row.state) + '">' + esc(T(row.key)) + '</li>';
+    }).join('');
+    return '<ol class="live-milestones">' + items + '</ol>';
+  }
+
+  function livePanelHtml(trip) {
+    if (!LIVE.liveState) return '';
+    var state = LIVE.liveState({ tracking: trip && trip.tracking, status: trip && trip.status });
+    var hintKey = state === 'live' ? 'live.waiting' : (state === 'not_started' ? 'live.notStarted.hint' : 'live.history.hint');
+    var html = '<h2 class="section-title">' + esc(T('live.title')) + '</h2>';
+    html += '<p class="live-state ' + esc(state) + '" id="liveState">' + esc(T(LIVE.stateKey(state))) + '</p>';
+    html += '<p class="muted live-eta">' + esc(T('live.etaUnknown')) + '</p>';
+    html += liveMilestonesHtml(trip && trip.status);
+    html += '<p class="live-position" id="livePosition">' + esc(T(hintKey)) + '</p>';
+    return html;
+  }
+
+  /** Repaint the last-known position from the reduced live state. */
+  function renderLivePosition(outlet, state) {
+    var node = outlet.querySelector ? outlet.querySelector('#livePosition') : null;
+    if (!node) return;
+    var pos = state && state.lastPosition ? state.lastPosition : null;
+    if (!pos) return;
+    node.textContent = T('live.position', {
+      lat: pos.lat,
+      lng: pos.lng,
+      at: pos.at ? fmtDate(pos.at) : '—'
+    });
+  }
+
+  function loadLiveTrackingControl(outlet, trip) {
+    if (!LIVE.liveState || !LIVE.streamPathForTrip) return;
+    var state = LIVE.liveState({ tracking: trip && trip.tracking, status: trip && trip.status });
+    if (state !== 'live') return;
+    if (typeof fetch !== 'function' || typeof AbortController !== 'function') return;
+
+    var live = { lastPosition: null, updatedAt: null };
+    var controller = new AbortController();
+    liveStream = { controller: controller };
+    fetch(LIVE.streamPathForTrip(trip.id), {
+      headers: { authorization: 'Bearer ' + session.token, accept: 'text/event-stream' },
+      signal: controller.signal
+    }).then(function (res) {
+      if (!res.ok || !res.body || typeof res.body.getReader !== 'function') throw new Error('stream unavailable');
+      var reader = res.body.getReader();
+      var decoder = typeof TextDecoder === 'function' ? new TextDecoder() : null;
+      var buffer = '';
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) return undefined;
+          buffer += decoder ? decoder.decode(chunk.value, { stream: true }) : String(chunk.value);
+          var parsed = LIVE.parseSseChunk(buffer, '');
+          buffer = parsed.rest;
+          for (var i = 0; i < parsed.events.length; i++) {
+            if (parsed.events[i].event === 'gps') {
+              live = LIVE.applyPoint(live, parsed.events[i].data);
+              renderLivePosition(outlet, live);
+            }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function () {
+      if (liveStream && liveStream.controller === controller) liveStream = null;
+      var node = outlet.querySelector ? outlet.querySelector('#livePosition') : null;
+      if (node) node.textContent = T('live.unavailable');
+    });
+  }
+
   function renderTripDetail(outlet, route_, token, flash) {
     var id = route_ && route_.params ? route_.params.id : '';
     outlet.innerHTML =
@@ -915,6 +1050,7 @@
       loadAssignControl(outlet, route_, trip);
       loadDocumentsControl(outlet, route_, trip, flash);
       loadTrackingControl(outlet, trip);
+      loadLiveTrackingControl(outlet, trip);
     });
   }
 
@@ -2693,6 +2829,7 @@
 
   /** The signup input id for a validation field, so an error can focus it. */
   var SIGNUP_FIELD_IDS = {
+    accountType: 'signupAccountType',
     name: 'signupName',
     company: 'signupCompany',
     email: 'signupEmail',
@@ -2725,8 +2862,11 @@
    * is validated first with the SAME rules the server imports, so an invalid
    * submit makes no request at all.
    */
-  function register(name, company, email, password) {
+  function register(name, company, email, password, accountType) {
     var body = {
+      // The chosen account type (board task #111); empty falls back to `fleet`
+      // in the shared rules, so a legacy form still registers a fleet.
+      accountType: accountType === undefined || accountType === null ? '' : String(accountType),
       name: String(name || '').trim(),
       company: String(company || '').trim(),
       email: String(email || '').trim(),
@@ -2754,6 +2894,21 @@
       session = { token: res.data.token, user: res.data.user || null };
       writeSession(session.token, session.user);
       if (i18n && typeof i18n.setUser === 'function') i18n.setUser(res.data.user || {});
+      // Land by the CHOSEN account type, not by the role (board #111 review):
+      // `ROLE_HOME` has no `customer`/`solo` key, so a customer or solo driver
+      // used to end up in the Fleet Manager shell with a token that cannot load
+      // it. The catalogue owns the type → surface mapping.
+      var home = typeof ACCOUNT_TYPES.homeFor === 'function'
+        ? ACCOUNT_TYPES.homeFor(res.data.accountType)
+        : null;
+      if (home && home.path !== APP.HOME_PATH) {
+        // A different same-origin surface (/c/ or /s/): hand the session over
+        // and navigate for real — /app/ cannot render that shell.
+        handOffSession(home, session.token, session.user);
+        pendingPath = null;
+        if (typeof location !== 'undefined' && location.replace) location.replace(home.path);
+        return { ok: true, status: res.status, user: session.user };
+      }
       var role = session.user && session.user.roleId;
       var target = APP.ROLE_HOME[role] || APP.HOME_PATH;
       pendingPath = null;
@@ -2793,11 +2948,19 @@
       signupForm.addEventListener('submit', function (ev) {
         if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
         hide('signupError');
+        var accountType = '';
+        if (typeof document !== 'undefined' && document.querySelectorAll) {
+          var choices = document.querySelectorAll('input[name="accountType"]');
+          for (var i = 0; i < choices.length; i++) {
+            if (choices[i].checked) { accountType = choices[i].value || ''; break; }
+          }
+        }
         register(
           (el('signupName') || {}).value || '',
           (el('signupCompany') || {}).value || '',
           (el('signupEmail') || {}).value || '',
-          (el('signupPassword') || {}).value || ''
+          (el('signupPassword') || {}).value || '',
+          accountType
         );
       });
     }

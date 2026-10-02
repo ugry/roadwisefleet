@@ -72,13 +72,21 @@ test('the register endpoint wires the shared rules, the role and the rate limit 
   assert.match(route, /reply\.code\(429\)/);
   assert.match(route, /error: 'rate_limited'/);
   assert.match(route, /OWNER_ROLE/);
-  assert.match(route, /OWNER_PERMISSIONS/);
   assert.match(route, /error: 'email_taken'/);
   assert.match(route, /reply\.code\(409\)/);
   assert.match(route, /REGISTER_AUDIT_ACTION/);
-  assert.match(route, /defaultOrgName\(/);
-  // The public endpoint must re-assert the role rather than assume the seed ran.
-  assert.match(route, /tx\.role\.upsert\(/);
+  // Board task #111: the endpoint dispatches to the three per-type creators; the
+  // fleet row creation (org, owner, role re-assertion) lives in the helper now.
+  assert.match(route, /import \{ createCustomerAccount, createFleetAccount, createSoloAccount \}/);
+  assert.match(route, /createFleetAccount\(/);
+  assert.match(route, /createCustomerAccount\(/);
+  assert.match(route, /createSoloAccount\(/);
+  assert.doesNotMatch(route, /tx\.role\.upsert\(/);
+
+  const helper = read('apps/api/src/registration-accounts.ts');
+  assert.match(helper, /OWNER_PERMISSIONS/);
+  assert.match(helper, /defaultOrgName\(/);
+  assert.match(helper, /tx\.role\.upsert\(/);
 });
 
 test('the env exposes the limiter bounds the route reads', () => {

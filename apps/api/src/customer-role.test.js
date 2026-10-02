@@ -105,14 +105,22 @@ test('the role migration is idempotent and carries the exact permission set', ()
 
 test('signup re-asserts the role idempotently before the User insert', () => {
   const route = stripComments(readFileSync(resolve(SRC, 'routes/customer.ts'), 'utf8'));
-  const upsertAt = route.indexOf('tx.role.upsert(');
-  const userAt = route.indexOf('tx.user.create(');
-  const ensure = upsertAt > 0 ? route.slice(upsertAt, upsertAt + 400) : '';
+  // Board task #111: the creation moved into the shared registration helper, so
+  // the route delegates instead of restating the transaction.
+  assert.match(route, /createCustomerAccount\(/);
+  assert.doesNotMatch(route, /tx\.role\.upsert\(/);
 
-  assert.ok(upsertAt > 0, 'the signup transaction must ensure the role row itself');
-  assert.ok(userAt > upsertAt, 'the role must be ensured BEFORE the User row is inserted');
-  assert.match(ensure, /CUSTOMER_ROLE/);
-  assert.match(ensure, /CUSTOMER_PERMISSIONS/);
+  const helper = stripComments(readFileSync(resolve(SRC, 'registration-accounts.ts'), 'utf8'));
+  const start = helper.indexOf('export async function createCustomerAccount');
+  const next = helper.indexOf('export async function', start + 10);
+  assert.ok(start > 0, 'the helper must own the customer creation');
+  const fn = helper.slice(start, next > 0 ? next : undefined);
+  const ensureAt = fn.indexOf('ensureRole(tx, customerCore.CUSTOMER_ROLE');
+  const userAt = fn.indexOf('tx.user.create(');
+  assert.ok(ensureAt > 0, 'the customer signup must ensure the customer role');
+  assert.ok(userAt > ensureAt, 'the role must be ensured BEFORE the User row is inserted');
+  // The role helper writes the row itself, idempotently.
+  assert.match(helper, /tx\.role\.upsert\(/);
 });
 
 test('the role constants are the ones the portal documents', () => {

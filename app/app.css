@@ -770,3 +770,30 @@ ul.activity a, ul.activity li > span { display: block; padding: 9px 2px; color: 
 .review-prompt .star.is-selected { background: var(--accent-deep); border-color: var(--accent-deep); color: #fff; }
 .review-prompt textarea { width: 100%; margin-bottom: 12px; }
 .review-prompt .review-msg { margin-top: 8px; }
+
+/* Account-type choice on signup (board task #111). */
+fieldset.field { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 0; }
+fieldset.field legend { padding: 0 6px; font-weight: 600; }
+.choice { display: flex; gap: 8px; align-items: flex-start; padding: 8px 6px; border-radius: 8px; cursor: pointer; }
+.choice:hover { background: var(--surface); }
+.choice input { margin-top: 3px; flex: none; }
+.choice span { font-weight: 600; }
+.choice small { display: block; color: #6b7280; font-weight: 400; }
+
+/* Live tracking panel (board task #107, AND1-A5). */
+.live-state { font-weight: 600; margin: 8px 0; }
+.live-state.live { color: var(--accent-deep); }
+.live-state.not_started, .live-state.completed, .live-state.cancelled { color: var(--muted); }
+.live-milestones { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 8px 0 12px; }
+.live-milestones .lm {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--surface);
+}
+.live-milestones .lm.done { border-color: var(--accent); color: var(--text); }
+.live-milestones .lm.current { border-color: var(--accent-deep); background: var(--accent-deep); color: #fff; }
+.live-position { font-variant-numeric: tabular-nums; margin: 4px 0 12px; }
+.live-eta { margin: 0 0 8px; }

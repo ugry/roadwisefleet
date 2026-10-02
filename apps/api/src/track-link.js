@@ -308,6 +308,10 @@ export function shapeTrackedTrip(trip, { podAvailable = false } = {}) {
 
   return {
     status: trip?.status ?? null,
+    // Board task #107 (AND1-A5): whether the driver has turned live tracking on.
+    // The surfaces use it to say "not started yet" instead of drawing an empty
+    // map; delivery clears it (`trips-core.js`), so a delivered trip reads false.
+    tracking: Boolean(trip?.tracking),
     route: order
       ? {
           origin: order.origin ?? null,

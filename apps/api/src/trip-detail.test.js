@@ -111,6 +111,16 @@ test('shapeTripDetail maps the relations, timeline and P&L', () => {
   assert.equal(detail.totals.pnlEur, 850);
 });
 
+test('shapeTripDetail carries the live tracking flag as a strict boolean', () => {
+  // Board task #107 review: the fleet-manager live panel reads `trip.tracking`
+  // to decide whether to open the stream, so the detail payload must carry the
+  // real boolean — never the trips-list link-summary object.
+  assert.equal(shapeTripDetail(fullTrip({ tracking: true })).tracking, true);
+  assert.equal(shapeTripDetail(fullTrip({ tracking: false })).tracking, false);
+  assert.equal(shapeTripDetail(fullTrip({ tracking: undefined })).tracking, false);
+  assert.equal(shapeTripDetail(fullTrip({ tracking: { active: true } })).tracking, false);
+});
+
 test('shapeTripDetail handles a trip with no events, documents, expenses or settlement', () => {
   const detail = shapeTripDetail(
     fullTrip({

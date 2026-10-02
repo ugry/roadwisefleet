@@ -16,6 +16,11 @@ import * as CORE from './lib/customer-core.js';
 
 if (typeof window !== 'undefined') window.RoadwiseCustomer = CORE;
 
+// The shared live-tracking view model (board task #107, AND1-A5), loaded as a
+// classic script BEFORE this module. The SAME module drives the fleet app, so
+// the two live surfaces cannot disagree about phases or "not started yet".
+const LIVE = (typeof window !== 'undefined' && window.RoadwiseLiveTracking) ? window.RoadwiseLiveTracking : {};
+
 const TOKEN_KEY = 'rwf.customer.token';
 const USER_KEY = 'rwf.customer.user';
 
@@ -291,6 +296,7 @@ function statusPill(status) {
 }
 
 async function renderShipments() {
+  stopLiveChannel();
   const wrap = $('shipmentsList');
   if (!wrap) return;
   wrap.innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
@@ -328,7 +334,88 @@ async function renderShipments() {
 
 /* ----------------------------------------------------------- shipment --- */
 
+/* ------------------------------------------------------- live tracking --- */
+
+/**
+ * Customer live tracking (board task #107, AND1-A5).
+ *
+ * The customer tracks only their own current cargo: this panel lives inside one
+ * of their own shipments and subscribes to that shipment's own read-only link
+ * stream (`/api/track/:token/stream`). The state and milestone rules come from
+ * the shared `live-tracking.js` module the fleet app also loads. A trip whose
+ * driver has not started (tracking = false) says so; a delivered or cancelled
+ * one shows its milestones and opens no stream — historical cargo is never
+ * live-tracked.
+ */
+let liveChannel = null;
+
+function stopLiveChannel() {
+  if (liveChannel) {
+    try {
+      liveChannel.close();
+    } catch (err) {
+      /* already closed */
+    }
+    liveChannel = null;
+  }
+}
+
+function liveMilestonesHtml(status) {
+  const rows = LIVE.milestoneRows ? LIVE.milestoneRows(status) : [];
+  return '<ol class="live-milestones">' +
+    rows.map((row) => '<li class="lm ' + esc(row.state) + '">' + esc(t(row.key)) + '</li>').join('') +
+    '</ol>';
+}
+
+function livePanelHtml(trip) {
+  if (!LIVE.liveState || !trip) return '';
+  const liveStatus = LIVE.liveState({ tracking: trip.tracking, status: trip.status });
+  const hintKey = liveStatus === 'live'
+    ? 'live.waiting'
+    : (liveStatus === 'not_started' ? 'live.notStarted.hint' : 'live.history.hint');
+  return '<h2>' + esc(t('live.title')) + '</h2>' +
+    '<p class="live-state ' + esc(liveStatus) + '" id="liveState">' + esc(t(LIVE.stateKey(liveStatus))) + '</p>' +
+    '<p class="muted">' + esc(t('live.etaUnknown')) + '</p>' +
+    liveMilestonesHtml(trip.status) +
+    '<p class="live-position" id="livePosition">' + esc(t(hintKey)) + '</p>';
+}
+
+function renderLivePosition(live) {
+  const wrap = $('shipmentDetail');
+  const node = wrap ? wrap.querySelector('#livePosition') : null;
+  if (!node) return;
+  const pos = live && live.lastPosition ? live.lastPosition : null;
+  if (!pos) return;
+  node.textContent = t('live.position', {
+    lat: pos.lat,
+    lng: pos.lng,
+    at: pos.at ? new Date(pos.at).toLocaleString() : '—'
+  });
+}
+
+function openLiveChannel(trip, trackLink) {
+  stopLiveChannel();
+  if (!LIVE.liveState || !LIVE.streamPathForTrackUrl || !trip) return;
+  if (LIVE.liveState({ tracking: trip.tracking, status: trip.status }) !== 'live') return;
+  if (!trackLink || !trackLink.url || typeof EventSource !== 'function') return;
+  const path = LIVE.streamPathForTrackUrl(trackLink.url);
+  if (!path) return;
+  let live = { lastPosition: null, updatedAt: null };
+  liveChannel = new EventSource(path);
+  liveChannel.addEventListener('gps', (event) => {
+    let data = null;
+    try {
+      data = JSON.parse(event.data);
+    } catch (err) {
+      return;
+    }
+    live = LIVE.applyPoint(live, data);
+    renderLivePosition(live);
+  });
+}
+
 async function openShipment(id) {
+  stopLiveChannel();
   state.shipmentId = id;
   state.trackLink = null;
   showPanel('shipment');
@@ -387,16 +474,21 @@ function renderShipment(order, trackLink) {
     : '<p class="muted">' + esc(t('shipment.trackNone')) + '</p>' +
       '<button type="button" id="mintTrackLink" class="secondary">' + esc(t('shipment.trackCreate')) + '</button>';
 
+  const live = livePanelHtml(order.trip);
+
   wrap.innerHTML =
     '<h1>' + esc(t('shipment.heading')) + '</h1>' +
     '<p class="route">' + esc(order.origin) + ' → ' + esc(order.destination) + '</p>' +
     '<p>' + statusPill(status) + '</p>' +
     '<dl class="detail">' + rows + '</dl>' + stopsHtml +
-    '<h2>' + esc(t('shipment.tracking')) + '</h2>' + tracking +
+    '<h2>' + esc(t('shipment.tracking')) + '</h2>' + tracking + live +
     '<p id="shipmentMsg" class="alert" role="status" hidden></p>';
 
   const button = wrap.querySelector('#mintTrackLink');
   if (button) button.addEventListener('click', mintTrackLink);
+  // Only a live trip opens the stream; the panel above already said why when it
+  // is not started/completed/cancelled.
+  openLiveChannel(order.trip, trackLink);
 }
 
 async function mintTrackLink() {
