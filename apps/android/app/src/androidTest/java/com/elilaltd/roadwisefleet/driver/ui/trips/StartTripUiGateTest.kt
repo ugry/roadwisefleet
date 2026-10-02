@@ -73,7 +73,9 @@ class StartTripUiGateTest {
     }
 
     @Test
-    fun `an ASSIGNED trip shows Start trip and holds it until location is granted`() {
+    // Human label: an ASSIGNED trip shows Start trip and holds it until location is granted.
+    // Underscored: D8 rejects space-containing names for the minSdk 24 DEX level.
+    fun an_ASSIGNED_trip_shows_Start_trip_and_holds_it_until_location_is_granted() {
         runBlocking { container.database.tripDao().upsertAll(listOf(tripEntity("trip-assigned", "ASSIGNED"))) }
         render()
 
@@ -91,7 +93,8 @@ class StartTripUiGateTest {
     }
 
     @Test
-    fun `a DELIVERED trip offers no Start trip action`() {
+    // Human label: a DELIVERED trip offers no Start trip action.
+    fun a_DELIVERED_trip_offers_no_Start_trip_action() {
         runBlocking { container.database.tripDao().upsertAll(listOf(tripEntity("trip-delivered", "DELIVERED"))) }
         render()
 

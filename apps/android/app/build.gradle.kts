@@ -103,7 +103,9 @@ dependencies {
     // UNRUN until the CI instrumented job #113 lands; nothing here changes the
     // debug build. kotlinx-coroutines-test comes from the existing catalog
     // (1.9.0) to match the module's coroutines version, not the README's 1.8.1.
-    testImplementation("org.robolectric:robolectric:4.13")
+    // 4.14.1, not 4.13: this module targets SDK 35 and Robolectric added SDK-35
+    // support in 4.14; 4.13's DefaultSdkPicker rejects targetSdkVersion=35.
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.work:work-testing:2.9.1")
     testImplementation(libs.kotlinx.coroutines.test)
