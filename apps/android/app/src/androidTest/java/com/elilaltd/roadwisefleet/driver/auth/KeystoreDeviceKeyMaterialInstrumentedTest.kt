@@ -13,6 +13,7 @@ import org.junit.runner.RunWith
 import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.Signature
+import java.security.interfaces.ECKey
 import java.security.spec.ECParameterSpec
 import java.security.spec.X509EncodedKeySpec
 
@@ -65,14 +66,17 @@ class KeystoreDeviceKeyMaterialInstrumentedTest {
         val key = KeyFactory.getInstance("EC")
             .generatePublic(X509EncodedKeySpec(android.util.Base64.decode(first, android.util.Base64.NO_WRAP)))
         assertEquals("EC", key.algorithm)
-        assertTrue(key.params is ECParameterSpec)
+        // `java.security.PublicKey` exposes no curve parameters — an EC key does.
+        // The backend contract is ES256, so the exported key must be P-256.
+        val ecKey = key as ECKey
+        assertTrue(ecKey.params is ECParameterSpec)
         assertEquals(
             "P-256 field size",
             256,
-            (key.params as ECParameterSpec).curve.field.fieldSize,
+            (ecKey.params as ECParameterSpec).curve.field.fieldSize,
         )
         // No private material may be exposed by the seam.
-        assertTrue("only the public key is exported", !first.contains("PRIVATE"))
+        assertTrue("only the public key is exported", !first!!.contains("PRIVATE"))
     }
 
     @Test
@@ -114,7 +118,7 @@ class KeystoreDeviceKeyMaterialInstrumentedTest {
     }
 
     @Test
-    fun `the generated key is an ES256 (P-256 / SHA-256) signing key`() {
+    fun `the generated key is an ES256 (P-256, SHA-256) signing key`() {
         val material = KeystoreDeviceKeyMaterial(alias)
         material.publicKeySpkiBase64() // force generation
         val store = keystore()

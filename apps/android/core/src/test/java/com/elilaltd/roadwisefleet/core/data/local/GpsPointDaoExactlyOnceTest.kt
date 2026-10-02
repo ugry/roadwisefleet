@@ -92,7 +92,7 @@ class GpsPointDaoExactlyOnceTest {
     }
 
     @Test
-    fun `only the accepted batch is purged; an unsent point survives a partial flush`() = runTest {
+    fun `only the accepted batch is purged and an unsent point survives a partial flush`() = runTest {
         dao.insert(point("client-1", at = 1_000L))
         dao.insert(point("client-2", at = 2_000L))
 
