@@ -30,7 +30,11 @@ class TrackingCoreTest {
     fun `phase is active only while the flag is on and the trip is open`() {
         assertEquals(TrackingPhase.ACTIVE, TrackingCore.phaseFor(tracking = true, status = "EN_ROUTE"))
         assertEquals(TrackingPhase.NOT_STARTED, TrackingCore.phaseFor(tracking = false, status = "ASSIGNED"))
+        // DELIVERED is not terminal (POD_UPLOADED follows) but is past the active
+        // assignment, so it must read STOPPED whether or not the flag is stale.
         assertEquals(TrackingPhase.STOPPED, TrackingCore.phaseFor(tracking = true, status = "DELIVERED"))
+        assertEquals(TrackingPhase.STOPPED, TrackingCore.phaseFor(tracking = false, status = "DELIVERED"))
+        assertEquals(TrackingPhase.STOPPED, TrackingCore.phaseFor(tracking = false, status = "POD_UPLOADED"))
         assertEquals(TrackingPhase.STOPPED, TrackingCore.phaseFor(tracking = false, status = "SETTLED"))
     }
 
