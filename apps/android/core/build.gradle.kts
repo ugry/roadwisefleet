@@ -51,7 +51,9 @@ dependencies {
     // Board #114 (AND1-QA2): Tier-2 JVM test dependencies (hand-off from #108).
     // UNRUN until the CI instrumented job #113 lands. room-testing matches the
     // Room 2.6.1 already declared above.
-    testImplementation("org.robolectric:robolectric:4.13")
+    // 4.14.1, not 4.13: Robolectric added SDK-35 support in 4.14 and this module
+    // follows :app on compileSdk 35.
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.room:room-testing:2.6.1")
 }

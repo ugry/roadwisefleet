@@ -52,7 +52,9 @@ class KeystoreDeviceKeyMaterialInstrumentedTest {
     fun tearDown() = clearAlias()
 
     @Test
-    fun `generates a persistent EC P-256 keypair on first use`() {
+    // Human label: generates a persistent EC P-256 keypair on first use.
+    // Underscored: D8 rejects space-containing names for the minSdk 24 DEX level.
+    fun generates_a_persistent_EC_P256_keypair_on_first_use() {
         val material = KeystoreDeviceKeyMaterial(alias)
 
         val first = material.publicKeySpkiBase64()
@@ -80,7 +82,8 @@ class KeystoreDeviceKeyMaterialInstrumentedTest {
     }
 
     @Test
-    fun `a signature verifies with the exported public key only`() {
+    // Human label: a signature verifies with the exported public key only.
+    fun a_signature_verifies_with_the_exported_public_key_only() {
         val material = KeystoreDeviceKeyMaterial(alias)
         val publicKeyB64 = material.publicKeySpkiBase64()
         assertNotNull(publicKeyB64)
@@ -102,7 +105,8 @@ class KeystoreDeviceKeyMaterialInstrumentedTest {
     }
 
     @Test
-    fun `a different nonce does not verify (the signature is bound to the challenge)`() {
+    // Human label: a different nonce does not verify (the signature is bound to the challenge).
+    fun a_different_nonce_does_not_verify_the_signature_is_bound_to_the_challenge() {
         val material = KeystoreDeviceKeyMaterial(alias)
         val publicKeyB64 = material.publicKeySpkiBase64()!!
         val signatureB64 = material.signNonce("nonce-A")!!
@@ -118,7 +122,8 @@ class KeystoreDeviceKeyMaterialInstrumentedTest {
     }
 
     @Test
-    fun `the generated key is an ES256 (P-256, SHA-256) signing key`() {
+    // Human label: the generated key is an ES256 (P-256, SHA-256) signing key.
+    fun the_generated_key_is_an_ES256_P256_SHA256_signing_key() {
         val material = KeystoreDeviceKeyMaterial(alias)
         material.publicKeySpkiBase64() // force generation
         val store = keystore()
