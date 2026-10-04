@@ -80,6 +80,12 @@ Custody:
   makes the whole workflow file invalid ("Unrecognized function: 'hashFiles'")
   and GitHub marks *every* push with a failed run. That defect shipped once on
   board #109; the guard rejects it (§7).
+- **Unit tests:** the release build is gated on the Android JVM suites —
+  `./gradlew --no-daemon :core:testDebugUnitTest :app:testDebugUnitTest` runs on
+  release events (tag push / `workflow_dispatch`). On a `pull_request` the same
+  suites already run in `ci-android.yml` (`jvm-tests`), so the step is skipped
+  there to avoid compiling and running them twice on every `apps/android` PR.
+  The guard rejects a release workflow that drops the test step (§7).
 - **Signing:** the keystore is decoded from `ANDROID_KEYSTORE_BASE64` into the
   runner temp dir, consumed via AGP's injected-signing properties, and deleted
   in an `always()` step. When the four secrets are absent the job builds an
@@ -160,11 +166,20 @@ requires, for a 10-minute background location foreground service:
 - `--self-test` proves each rejection (a tracked keystore, a private key under
   an innocent filename, a `.gitignore` gap, an inline base64 blob, a signing
   value taken from `vars` instead of `secrets`, an ungated workflow, a missing
-  workflow, and a **job-level `if` calling `hashFiles()`** — the invalid-workflow
-  defect from board #109).
+  workflow, a **job-level `if` calling `hashFiles()`** — the invalid-workflow
+  defect from board #109 — and a release workflow that never runs the Android
+  JVM unit tests).
+- The JVM-test assertion matches **comment-stripped** workflow content. This
+  workflow's own doc comment names `:core:testDebugUnitTest`, and a whole-file
+  grep was satisfied by that comment alone — the step could be deleted and the
+  check still reported `ok` (Team Leader review, board #109). A comment cannot
+  run a test, so comment lines are removed before matching. Self-test case 10
+  keeps the doc comment and removes only the step, so it fails if a comment is
+  ever allowed to satisfy the assertion again.
 - Repo mode is the CI gate: no signing material by name or content, `.gitignore`
   coverage, and a gated / least-privilege / secrets-only release workflow with no
-  job-level `hashFiles()` `if`, whose secret names match this file.
+  job-level `hashFiles()` `if`, that runs the JVM unit tests, whose secret names
+  match this file.
 
 CI job `android-release-check` in `ci.yml` (self-test + repo check).
 

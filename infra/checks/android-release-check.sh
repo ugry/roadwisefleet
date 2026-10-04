@@ -24,7 +24,11 @@
 #      shipped once (board #109) because the old check accepted any hashFiles()
 #      as the "gate" without looking at where it was used;
 #   6. the workflow and infra/android-release.md agree on the secret-name
-#      contract, so a rename in one without the other cannot ship silently.
+#      contract, so a rename in one without the other cannot ship silently;
+#   7. the release workflow runs the Android JVM unit suites (a tag/dispatch
+#      release must not ship code the `:core`/`:app` tests never saw). The
+#      match is against COMMENT-STRIPPED content: a doc comment that merely
+#      names the task must not satisfy a check about the executable step.
 #
 # Usage:
 #   bash infra/checks/android-release-check.sh             # repo (CI)
@@ -160,6 +164,24 @@ check_repo() {
       fail "$wfrel is not gated — it would run (and fail) before the A1 scaffold exists"
     fi
 
+    # The release build must be gated on the Android JVM unit suites too: the
+    # workflow historically only assembled, so a tag/dispatch release could ship
+    # code the `:core`/`:app` unit tests never saw (board #109). PR coverage is
+    # ci-android.yml's `jvm-tests` job; this asserts the release workflow itself
+    # runs the suites, so removing the step cannot ship silently.
+    #
+    # Comment lines are stripped before matching. The workflow carries a doc
+    # comment that names `:core:testDebugUnitTest`, and a whole-file grep was
+    # satisfied by that comment alone: the step could be deleted and the check
+    # still reported ok (Team Leader review, board #109). A comment cannot run a
+    # test, so it must never satisfy a check about the executable step.
+    if grep -vE '^[[:space:]]*#' "$wf" \
+         | grep -qE 'testDebugUnitTest|[[:space:]]test([[:space:]]|$)'; then
+      ok "$wfrel runs the Android JVM unit tests (release gated on the suites)"
+    else
+      fail "$wfrel does not run the Android JVM unit tests — a release could ship untested code"
+    fi
+
     bad=0
     while IFS= read -r expr; do
       if printf '%s' "$expr" | grep -qiE 'password|keystore|_alias|service[_-]account'; then
@@ -238,6 +260,10 @@ mk_good_repo() {
   local d="$1"
   mkdir -p "$d/.github/workflows" "$d/infra"
   cat > "$d/.github/workflows/android-release.yml" <<'YAML'
+# Release-workflow fixture. This doc comment deliberately names the JVM task
+# (`:core:testDebugUnitTest` + `:app:testDebugUnitTest`), mirroring the real
+# workflow: the repo check must ignore comments, and self-test case 10 removes
+# only the step while keeping this comment.
 name: android-release
 on:
   pull_request:
@@ -258,6 +284,8 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+      - name: run the JVM unit tests
+        run: ./gradlew --no-daemon :core:testDebugUnitTest :app:testDebugUnitTest
       - name: release
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -410,6 +438,26 @@ YAML
   out="$(cat "$st/out")"
   expect "a job-level hashFiles if fails (rc)" 1 "$rc"
   contains "the job-level if is named" "$out" "a job-level 'if' uses hashFiles()"
+
+  # 10. a release workflow that never runs the JVM unit tests FAILS — board
+  #     #109: the release build was not gated on the `:core`/`:app` suites.
+  #     The step is removed but the top-of-file doc comment (which names the
+  #     JVM task) is kept: that is exactly the case the old whole-file grep
+  #     accepted, and this fixture must fail because the comment cannot run a
+  #     test. Asserting the comment survived stops the case passing for the
+  #     wrong reason if a later edit deletes it.
+  mk_good_repo "$st/notests"
+  notests_wf="$st/notests/.github/workflows/android-release.yml"
+  sed -i '/- name: run the JVM unit tests/,+1d' "$notests_wf"
+  contains "the no-tests fixture keeps the doc comment" \
+    "$(cat "$notests_wf")" ":core:testDebugUnitTest"
+  fails=0
+  warns=0
+  check_repo "$st/notests" > "$st/out" 2>&1
+  rc=$?
+  out="$(cat "$st/out")"
+  expect "a release workflow without the JVM tests fails (rc)" 1 "$rc"
+  contains "the missing test run is named" "$out" "does not run the Android JVM unit tests"
 
   printf '\nself-test: %d passed, %d failed\n' "$pass" "$failed"
   if [ "$failed" -gt 0 ]; then

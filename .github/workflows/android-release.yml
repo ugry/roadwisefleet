@@ -12,6 +12,12 @@ name: android-release
 # testing -> production) uses PLAY_SERVICE_ACCOUNT_JSON in the `google-play`
 # environment. Secret names + the operator procedure: infra/android-release.md.
 #
+# A release event (tag push / workflow_dispatch) also runs the Android JVM unit
+# suites (`:core:testDebugUnitTest` + `:app:testDebugUnitTest`) before building,
+# so a release cannot ship code the tests never saw (board #109, Team Leader
+# request). On a pull_request the same suites run in ci-android.yml, so the step
+# is skipped there to avoid running them twice.
+#
 # Until the A1 scaffold exists there is no apps/android/gradlew, so the build
 # steps are a clean no-op (the job still succeeds) and this workflow cannot
 # redden CI; the `android-release-check` job in ci.yml guards the contract above
@@ -73,6 +79,19 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         if: steps.scaffold.outputs.present == 'true'
+
+      # The release build is gated on the Android JVM unit suites (board #109,
+      # Team Leader request from the #103/#92 review): this workflow assembles
+      # but never ran `./gradlew test`, so a tag/dispatch release could ship
+      # code the `:core`/`:app` unit tests never saw. Same task names as the
+      # `jvm-tests` job in ci-android.yml.
+      # On a pull_request those suites already run in ci-android.yml, so this
+      # step is limited to release events (tag push / workflow_dispatch) to
+      # avoid compiling and running them twice on every apps/android PR.
+      - name: Run the JVM unit tests
+        if: steps.scaffold.outputs.present == 'true' && github.event_name != 'pull_request'
+        working-directory: apps/android
+        run: ./gradlew --no-daemon :core:testDebugUnitTest :app:testDebugUnitTest
 
       - name: Are the signing secrets configured?
         id: sign
