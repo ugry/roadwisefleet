@@ -169,6 +169,13 @@ requires, for a 10-minute background location foreground service:
   workflow, a **job-level `if` calling `hashFiles()`** — the invalid-workflow
   defect from board #109 — and a release workflow that never runs the Android
   JVM unit tests).
+- The JVM-test assertion matches **comment-stripped** workflow content. This
+  workflow's own doc comment names `:core:testDebugUnitTest`, and a whole-file
+  grep was satisfied by that comment alone — the step could be deleted and the
+  check still reported `ok` (Team Leader review, board #109). A comment cannot
+  run a test, so comment lines are removed before matching. Self-test case 10
+  keeps the doc comment and removes only the step, so it fails if a comment is
+  ever allowed to satisfy the assertion again.
 - Repo mode is the CI gate: no signing material by name or content, `.gitignore`
   coverage, and a gated / least-privilege / secrets-only release workflow with no
   job-level `hashFiles()` `if`, that runs the JVM unit tests, whose secret names
