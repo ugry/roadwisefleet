@@ -160,6 +160,17 @@ check_repo() {
       fail "$wfrel is not gated — it would run (and fail) before the A1 scaffold exists"
     fi
 
+    # The release build must be gated on the Android JVM unit suites too: the
+    # workflow historically only assembled, so a tag/dispatch release could ship
+    # code the `:core`/`:app` unit tests never saw (board #109). PR coverage is
+    # ci-android.yml's `jvm-tests` job; this asserts the release workflow itself
+    # runs the suites, so removing the step cannot ship silently.
+    if grep -qE 'testDebugUnitTest|[[:space:]]test([[:space:]]|$)' "$wf"; then
+      ok "$wfrel runs the Android JVM unit tests (release gated on the suites)"
+    else
+      fail "$wfrel does not run the Android JVM unit tests — a release could ship untested code"
+    fi
+
     bad=0
     while IFS= read -r expr; do
       if printf '%s' "$expr" | grep -qiE 'password|keystore|_alias|service[_-]account'; then
@@ -258,6 +269,8 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+      - name: run the JVM unit tests
+        run: ./gradlew --no-daemon :core:testDebugUnitTest :app:testDebugUnitTest
       - name: release
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -410,6 +423,18 @@ YAML
   out="$(cat "$st/out")"
   expect "a job-level hashFiles if fails (rc)" 1 "$rc"
   contains "the job-level if is named" "$out" "a job-level 'if' uses hashFiles()"
+
+  # 10. a release workflow that never runs the JVM unit tests FAILS — board
+  #     #109: the release build was not gated on the `:core`/`:app` suites.
+  mk_good_repo "$st/notests"
+  sed -i '/testDebugUnitTest/d' "$st/notests/.github/workflows/android-release.yml"
+  fails=0
+  warns=0
+  check_repo "$st/notests" > "$st/out" 2>&1
+  rc=$?
+  out="$(cat "$st/out")"
+  expect "a release workflow without the JVM tests fails (rc)" 1 "$rc"
+  contains "the missing test run is named" "$out" "does not run the Android JVM unit tests"
 
   printf '\nself-test: %d passed, %d failed\n' "$pass" "$failed"
   if [ "$failed" -gt 0 ]; then
