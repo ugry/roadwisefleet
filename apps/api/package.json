@@ -8,6 +8,7 @@
     "start": "tsx src/server.ts",
     "test": "node --test src/",
     "test:router": "tsx --test test/customer-portal-guards.test.ts test/track-router.test.ts test/driver-pwa.test.ts test/app-shell.test.ts test/register-router.test.ts test/registration.test.ts test/trips-list.test.ts test/user-payload.test.ts test/dashboard.test.ts test/delivery-timestamps.test.ts test/trip-driver-scope.test.ts test/trip-assign.test.ts test/trip-phases.test.ts test/documents-ui.test.ts test/tracking-link.test.ts test/customer-portal.test.ts test/marketplace.test.ts test/solo.test.ts test/offer-compare.test.ts test/reviews.test.ts test/device-auth.test.ts test/gps-ingest.test.ts test/live-tracking.test.ts",
+    "test:acceptance": "node scripts/fa-acceptance.mjs",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
