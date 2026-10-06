@@ -94,6 +94,28 @@ export const MAX_VERIFICATION_BYTES = 10 * 1024 * 1024;
 export const VERIFICATION_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 /**
+ * The document type the solo surface attaches as proof of delivery. Mirrors the
+ * first entry of `apps/api/src/documents.js` `POD_DOC_TYPES` (board #117, item B).
+ */
+export const POD_DOC_TYPE = 'pod';
+
+/**
+ * Mime types a POD capture may be — the API's document `ALLOWED_MIME` set, so
+ * the browser refuses a file the server would reject before any bytes are read.
+ */
+export const POD_MIME = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+];
+
+/** POD capture cap — the same 10 MiB default the API enforces. */
+export const MAX_POD_BYTES = MAX_VERIFICATION_BYTES;
+
+/**
  * Owner decision #73 q5 (2026-10-01): driver verification is OPTIONAL. A solo
  * driver without the papers may still use the platform — browse AND bid — so
  * the strict "bid only when VERIFIED" rule no longer ships. The mechanism is
@@ -668,6 +690,37 @@ export function nextStatusAfter(status) {
   const i = SOLO_STATUS_CHAIN.indexOf(String(status || '').toUpperCase());
   if (i < 0 || i >= SOLO_STATUS_CHAIN.length - 1) return null;
   return SOLO_STATUS_CHAIN[i + 1];
+}
+
+/**
+ * True when the next solo action is the POD gate: the driver must attach a proof
+ * of delivery before the surface may offer POD_UPLOADED (board task #117, item
+ * B). The server already refuses the move with `pod_required`, so this only
+ * tells the surface to render the capture control.
+ * @param {unknown} status
+ * @returns {boolean}
+ */
+export function needsPodCapture(status) {
+  return nextStatusAfter(status) === 'POD_UPLOADED';
+}
+
+/**
+ * Pre-upload check for a POD capture. The API re-validates and is authoritative;
+ * this only saves a doomed request and names the problem in the driver's
+ * language.
+ * @param {{ filename?: unknown, mimeType?: unknown, size?: unknown }} [input]
+ * @returns {{ ok: true } | { ok: false, messageKey: string }}
+ */
+export function validatePodCapture({ filename, mimeType, size } = {}) {
+  const name = typeof filename === 'string' ? filename.trim() : '';
+  if (!name) return { ok: false, messageKey: 'solo.jobs.podError.file' };
+  if (typeof mimeType !== 'string' || !POD_MIME.includes(mimeType)) {
+    return { ok: false, messageKey: 'solo.jobs.podError.mime' };
+  }
+  const bytes = Number(size);
+  if (!Number.isFinite(bytes) || bytes <= 0) return { ok: false, messageKey: 'solo.jobs.podError.file' };
+  if (bytes > MAX_POD_BYTES) return { ok: false, messageKey: 'solo.jobs.podError.size' };
+  return { ok: true };
 }
 
 /**
