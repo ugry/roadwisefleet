@@ -216,11 +216,17 @@
   var TOKEN_KEY = 'rwf_token';
   var USER_KEY = 'rwf_user';
   // Mirror of apps/api/src/trip-status.js — UI convenience only; the API is authoritative.
+  // Board task #117 (A): keep this in lock-step with the API machine, including the
+  // driver phases (EN_ROUTE/AT_PICKUP/AT_DELIVERY) and both "jump" edges. The
+  // parity guard `apps/api/src/pilot-status-parity.test.js` fails if they drift.
   var TRANSITIONS = {
     DRAFT: ['ASSIGNED', 'CANCELLED'],
-    ASSIGNED: ['LOADED', 'CANCELLED'],
+    ASSIGNED: ['EN_ROUTE', 'LOADED', 'CANCELLED'],
+    EN_ROUTE: ['AT_PICKUP'],
+    AT_PICKUP: ['LOADED'],
     LOADED: ['IN_TRANSIT'],
-    IN_TRANSIT: ['DELIVERED'],
+    IN_TRANSIT: ['AT_DELIVERY', 'DELIVERED'],
+    AT_DELIVERY: ['DELIVERED'],
     DELIVERED: ['POD_UPLOADED'],
     POD_UPLOADED: ['INVOICED'],
     INVOICED: ['SETTLED'],

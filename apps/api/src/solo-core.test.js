@@ -319,6 +319,47 @@ test('nextStatusAfter walks the display chain and stops at the end', () => {
   assert.equal(solo.nextStatusAfter('BOGUS'), null);
 });
 
+/* -------------------------------------------------- POD capture (board #117) */
+
+test('needsPodCapture is true only at the step that turns into POD_UPLOADED', () => {
+  assert.equal(solo.needsPodCapture('DELIVERED'), true);
+  assert.equal(solo.needsPodCapture('POD_UPLOADED'), false);
+  assert.equal(solo.needsPodCapture('IN_TRANSIT'), false);
+  assert.equal(solo.needsPodCapture('ASSIGNED'), false);
+  assert.equal(solo.needsPodCapture(null), false);
+});
+
+test('validatePodCapture refuses the file before any bytes are read', () => {
+  assert.equal(solo.validatePodCapture({}).ok, false);
+  assert.equal(solo.validatePodCapture({}).messageKey, 'solo.jobs.podError.file');
+  assert.equal(
+    solo.validatePodCapture({ filename: 'pod.gif', mimeType: 'image/gif', size: 10 }).messageKey,
+    'solo.jobs.podError.mime',
+  );
+  assert.equal(
+    solo.validatePodCapture({ filename: 'pod.jpg', mimeType: 'image/jpeg', size: solo.MAX_POD_BYTES + 1 }).messageKey,
+    'solo.jobs.podError.size',
+  );
+  assert.equal(solo.validatePodCapture({ filename: 'pod.jpg', mimeType: 'image/jpeg', size: 0 }).ok, false);
+  assert.equal(solo.validatePodCapture({ filename: 'pod.pdf', mimeType: 'application/pdf', size: 1024 }).ok, true);
+  assert.equal(solo.validatePodCapture({ filename: 'pod.heic', mimeType: 'image/heic', size: 1024 }).ok, true);
+});
+
+test('the POD constants agree with the API document rules and the surface wiring', () => {
+  const docs = readFileSync(resolve(repoRoot, 'apps/api/src/documents.js'), 'utf8');
+  const podTypes = /POD_DOC_TYPES = Object\.freeze\(\[([^\]]*)\]\)/.exec(docs);
+  assert.ok(podTypes, 'documents.js exports POD_DOC_TYPES');
+  assert.ok(podTypes[1].includes(`'${solo.POD_DOC_TYPE}'`), 'POD_DOC_TYPE is a real POD document type');
+  const allowedMime = /ALLOWED_MIME = Object\.freeze\(\{([\s\S]*?)\}\)/.exec(docs);
+  assert.ok(allowedMime, 'documents.js exports ALLOWED_MIME');
+  for (const mime of solo.POD_MIME) assert.ok(allowedMime[1].includes(`'${mime}'`), `${mime} is accepted by the API`);
+
+  const page = readFileSync(resolve(repoRoot, 'solo/solo.js'), 'utf8');
+  assert.match(page, /CORE\.needsPodCapture\(/, 'the jobs list asks the core when a POD is needed');
+  assert.match(page, /\/api\/trips\/' \+ encodeURIComponent\(id\) \+ '\/documents'/, 'the capture posts to the documents endpoint');
+  assert.match(page, /CORE\.POD_DOC_TYPE/, 'the upload names the POD document type from the core');
+});
+
 test('the role and permission constants are the ones the deploy path and signup share', () => {
   assert.equal(solo.SOLO_ROLE, 'solo');
   assert.ok(solo.SOLO_PERMISSIONS.includes('trip:*'));

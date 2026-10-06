@@ -369,6 +369,18 @@ function jobsView() {
         .map((job) => {
           const next = CORE.nextStatusAfter(job.status);
           const pay = job.settlement ? t(CORE.statusKey(job.settlement.status)) : t('solo.jobs.unpaid');
+          // Board task #117 (B): a solo driver has no fleet driver PWA, so the
+          // POD_UPLOADED step is completed here. Render the capture control at
+          // exactly the job the server gate would otherwise block.
+          const pod = CORE.needsPodCapture(job.status)
+            ? `
+          <form data-form="pod" data-id="${esc(job.id)}" class="pod-capture">
+            <label>${esc(t('solo.jobs.podLabel'))}
+              <input type="file" name="file" accept="${esc(CORE.POD_MIME.join(','))}" required></label>
+            <p class="muted">${esc(t('solo.jobs.podHint'))}</p>
+            <button type="submit">${esc(t('solo.jobs.podAttach'))}</button>
+          </form>`
+            : '';
           return `
         <li class="card">
           <div class="card-head"><strong>${esc(job.origin || '')} → ${esc(job.destination || '')}</strong>
@@ -378,6 +390,7 @@ function jobsView() {
             ${next ? `<button type="button" data-action="advance" data-id="${esc(job.id)}" data-to="${esc(next)}">${esc(t('solo.jobs.advance'))} ${esc(t(CORE.statusKey(next)))}</button>` : ''}
             <button type="button" data-action="track-link" data-id="${esc(job.id)}">${esc(t('solo.jobs.share'))}</button>
           </div>
+          ${pod}
         </li>`;
         })
         .join('')
@@ -768,6 +781,37 @@ async function advanceJob(id, to) {
     flash('jobs', t('solo.jobs.advanced') + ' ' + t(CORE.statusKey(to)), 'success');
     await loadJobs();
   } catch (err) {
+    // Board task #117 (B): the server refuses POD_UPLOADED without a document;
+    // point at the capture control on this job rather than the raw code.
+    const code = err && err.data && err.data.error;
+    flash('jobs', code === 'pod_required' ? t('solo.jobs.podFirst') : reasonFor(err));
+  }
+  render('jobs');
+}
+
+/**
+ * Attach a proof of delivery to a solo job (board task #117, item B). The same
+ * JSON-base64 upload the fleet surfaces use; the server stays authoritative.
+ */
+async function attachPod(form) {
+  const id = form.getAttribute('data-id');
+  const input = form.querySelector('[name="file"]');
+  const file = input && input.files && input.files[0];
+  const check = CORE.validatePodCapture(file ? { filename: file.name, mimeType: file.type, size: file.size } : {});
+  if (!check.ok) {
+    flash('jobs', t(check.messageKey));
+    render('jobs');
+    return;
+  }
+  try {
+    const dataBase64 = await fileToBase64(file);
+    await api('/api/trips/' + encodeURIComponent(id) + '/documents', {
+      method: 'POST',
+      body: { docType: CORE.POD_DOC_TYPE, filename: file.name, mimeType: file.type, dataBase64 },
+    });
+    flash('jobs', t('solo.jobs.podAttached'), 'success');
+    await loadJobs();
+  } catch (err) {
     flash('jobs', reasonFor(err));
   }
   render('jobs');
@@ -825,7 +869,8 @@ $('panel').addEventListener('submit', (event) => {
     profileForm: () => saveProfile(form),
     otpForm: () => verifyOtp(form),
   };
-  const handler = handlers[form.id];
+  // One POD capture form per delivered job, so it is keyed by data-form, not id.
+  const handler = handlers[form.id] || (form.getAttribute('data-form') === 'pod' ? () => attachPod(form) : null);
   if (handler) handler();
 });
 

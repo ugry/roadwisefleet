@@ -15,6 +15,27 @@
  */
 
 /**
+ * Human labels for every trip status the public page can show. Mirrors the
+ * English wording of `pilot/locales/en.json` (`status.*`). Board task #117 (C):
+ * a customer must read "In transit", never the raw `IN_TRANSIT` token.
+ * @type {Readonly<Record<string, string>>}
+ */
+export const TRACK_STATUS_LABELS = Object.freeze({
+  DRAFT: 'Draft',
+  ASSIGNED: 'Assigned',
+  EN_ROUTE: 'En route',
+  AT_PICKUP: 'At pickup',
+  LOADED: 'Loaded',
+  IN_TRANSIT: 'In transit',
+  AT_DELIVERY: 'At delivery',
+  DELIVERED: 'Delivered',
+  POD_UPLOADED: 'POD uploaded',
+  INVOICED: 'Invoiced',
+  SETTLED: 'Settled',
+  CANCELLED: 'Cancelled',
+});
+
+/**
  * @returns {string} the complete HTML document
  */
 export function trackPageHtml() {
@@ -98,6 +119,15 @@ export function trackPageHtml() {
     return isNaN(d.getTime()) ? String(v) : d.toLocaleString();
   }
 
+  // Board task #117 (C): the page speaks in words, not status tokens. The map is
+  // the exported TRACK_STATUS_LABELS, so a new phase cannot ship unlabelled.
+  var STATUS_LABELS = ${JSON.stringify(TRACK_STATUS_LABELS)};
+
+  function statusLabel(s) {
+    if (!s) return 'Unknown';
+    return STATUS_LABELS[s] || String(s);
+  }
+
   function statusClass(s) {
     if (s === 'DELIVERED' || s === 'POD_UPLOADED' || s === 'INVOICED' || s === 'SETTLED') return 'status done';
     if (s === 'CANCELLED') return 'status pending';
@@ -113,7 +143,7 @@ export function trackPageHtml() {
 
     var timeline = events.length
       ? '<ul class="timeline">' + events.map(function (e) {
-          return '<li><div>' + esc(e.from) + ' → ' + esc(e.to) + '</div>' +
+          return '<li><div>' + esc(statusLabel(e.from)) + ' → ' + esc(statusLabel(e.to)) + '</div>' +
             '<div class="tl-when">' + esc(fmtDate(e.at)) + '</div></li>';
         }).join('') + '</ul>'
       : '<p class="muted">No status updates yet.</p>';
@@ -124,7 +154,7 @@ export function trackPageHtml() {
 
     app.innerHTML =
       '<div class="card">' +
-        '<span class="' + statusClass(t.status) + '">' + esc(t.status || 'UNKNOWN') + '</span>' +
+        '<span class="' + statusClass(t.status) + '">' + esc(statusLabel(t.status)) + '</span>' +
         '<div class="route">' + esc(route.origin || '?') + ' → ' + esc(route.destination || '?') + '</div>' +
         (route.cargo ? '<div class="muted">' + esc(route.cargo) + '</div>' : '') +
         '<dl class="kv">' +

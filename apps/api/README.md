@@ -422,6 +422,11 @@ route — the signed trip id *is* the capability.
 Logic lives in `src/track-link.js` (pure, covered by `src/track-link.test.js`);
 the HTML shell is `src/track-page.js`; the routes are `src/routes/track.ts`.
 
+Board task #117 (C): the page renders human status labels for the badge and the
+history rows — `Draft`, `In transit`, `POD uploaded`, … — never the raw token.
+The map is the exported `TRACK_STATUS_LABELS`, embedded into the page script and
+pinned by `src/track-page.test.js` (coverage of every machine status).
+
 A tracking token is ~203 chars, which is longer than Fastify's default route
 parameter cap (`maxParamLength: 100`) — so `buildServer()` configures
 `routerOptions.maxParamLength` (512) via `src/server-options.js`, otherwise
@@ -444,7 +449,9 @@ with `/api/*` — no new port and no nginx. Production `web/` is untouched.
   switcher in the header.
 - `pilot/dashboard.html` — owner/dispatcher login, org trip list, create-trip
   form (order/driver/truck dropdowns fed by `GET /api/reference`, plus a rate
-  input — no raw IDs), status-transition controls, a click-a-row trip drawer
+  input — no raw IDs), status-transition controls that mirror the full API chain
+  including the driver phases (board task #117 A; parity pinned by
+  `src/pilot-status-parity.test.js`), a click-a-row trip drawer
   (timeline, documents, expenses, P&L) and a "Create tracking link" action
   (board task #5).
 - `pilot/driver.html` — the driver PWA (board task #4): mobile-first layout,
@@ -1305,6 +1312,11 @@ needs no account at all. Wallet-lite reads the existing `Trip.rateEur` and
 searches), load detail + bid, my offers, beacon, verification, jobs, customers and
 profile. 44px targets for coarse pointers, AA contrast on the pill tints it
 actually paints on, reduced motion honoured, and a web app manifest for install.
+A job that reaches `DELIVERED` shows the **Attach proof of delivery** control
+(board task #117 B): a solo driver has no fleet driver PWA, so the `POD_UPLOADED`
+step is completed here — the capture posts `{ docType: 'pod', … }` to
+`POST /api/trips/:id/documents` and the server's `pod_required` gate is surfaced
+as a sentence that names the control.
 
 **Apply the migration first:**
 `pnpm --filter @roadwisefleet/api exec prisma migrate deploy` — until then the
