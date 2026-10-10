@@ -32,7 +32,7 @@ Two independent limits stand between the phone and the disk:
 | Layer | Limit | Behaviour on breach | Owner |
 |---|---|---|---|
 | nginx | `client_max_body_size` — **default 1 MB**, no directive in the deployed vhost | **413 before the API sees the request** | this task + #41 |
-| API | `bodyLimit = MAX_UPLOAD_BYTES × 2` (20 MB) and `validateDocumentUpload` rejects `> MAX_UPLOAD_BYTES` (10 MB) | 413 / `file_too_large` JSON (`detail`) | dev |
+| API | `bodyLimit = MAX_UPLOAD_BYTES × 2` (20 MB) and `validateDocumentUpload` rejects `> MAX_UPLOAD_BYTES` (10 MB) | **400** / `file_too_large` JSON (`detail`) | dev |
 
 The 1 MB nginx default is **the #41 defect**: a 2–5 MB phone photo never reaches the API, so the
 legally required POD flow is impossible on the live pilot. The fix is pre-staged and verified —
@@ -45,10 +45,12 @@ legally required POD flow is impossible on the live pilot. The fix is pre-staged
   not applied.** I did not duplicate it here; my changes are the storage/retention/backup half.
 
 **Client-side half still owed:** a readable "this file is too large" message in the driver client
-(F7a, Max) rather than a silent failure. The API already answers `413 {"error":"file_too_large",
-"detail":"max N bytes"}` and nginx's own 413 is a plain HTML page — the client must render its own
-message *before* upload from its local size check, and map a 413 to the same text if it still
-happens.
+(F7a, Max) rather than a silent failure. The API answers `400 {"error":"file_too_large",
+"detail":"max N bytes"}` when the decoded size exceeds `MAX_UPLOAD_BYTES` (a request body that
+exceeds the route's 20 MB `bodyLimit` is rejected earlier by Fastify's generic `413 Payload Too
+Large`), and nginx's own 413 is a plain HTML page — the client must render its own message *before*
+upload from its local size check, and map the API's `400 file_too_large` and a proxy `413` to the
+same text if either still happens.
 
 ## 2. Verified live state (2026-09-23 ~22:30–23:00 UTC, read-only, from elilavps2)
 
@@ -251,7 +253,7 @@ prove nothing was already missing. That is what #43's freshness check and deleti
 | Acceptance criterion | Status |
 |---|---|
 | a >2.5 MB photo uploads from a phone through the public URL and the trip reaches `POD_UPLOADED` | **MET on the live surface** — a **3,200,120-byte** JPEG through `https://roadwisefleet.com` → **HTTP 201**, stored in the new tree (`0640`) when the B1 window ran (§2b; the Team Leader's host evidence, not first-hand). The trip reaching `POD_UPLOADED` still needs the F7a/F7c device flow (#48). |
-| an over-limit file produces a readable message rather than a silent no-op | nginx half **applied** (#41 closed, proven with a real 9.75 MB POST); the readable *client* message is still the F7a client half (§1). |
+| an over-limit file produces a readable message rather than a silent no-op | nginx half **applied** (#41 closed, proven with a real 9.75 MB POST); the API answers **`400 file_too_large`** for a decoded size above `MAX_UPLOAD_BYTES` (§1); the readable *client* message is still the F7a client half (§1). |
 | the upload lands on disk with a documented path + permissions | **MET** — live path + modes in §2b (`/var/lib/roadwisefleet/uploads`, 0750/0640); enforced for new writes by code + a CI test. |
 | disk usage is monitored with an alert before it fills | **MET** — `pilot-disk-check.timer` installed (hourly); first run green (25 files, dir 750, filesystem 19 %). Thresholds T9/T10. |
 | retention policy written down, matching the business/legal requirement | **ANSWERED as far as it can be, DECISION PENDING owner + legal** — there is no company/legal position on record (secretary, `eila/requests#14`), so the ship-safe default stands: **retention disabled / delete nothing** until the owner signs off in writing (§5). |

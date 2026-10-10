@@ -10,6 +10,7 @@ import {
   canUploadDocument,
   canViewTripDocuments,
   createDocument,
+  DEFAULT_MAX_UPLOAD_BYTES,
   decodeBase64Upload,
   hasPodDocument,
   listTripDocuments,
@@ -23,6 +24,7 @@ import {
   validateDocumentUpload,
   writeDocumentFile,
 } from './documents.js';
+import { statusForError } from './http-errors.js';
 
 const OWNER = { userId: 'admin', permissions: ['trip:*'] };
 const DISPATCHER = { userId: 'disp', permissions: ['trip:*'] };
@@ -252,6 +254,27 @@ test('createDocument isolates orgs and rejects bad payloads', async () => {
     (await createDocument(prisma, { orgId: 'org1', tripId: 't1', body: { ...body, mimeType: 'text/plain' }, actor: OWNER })).error,
     'unsupported_type',
   );
+});
+
+test('createDocument refuses an over-limit upload: 400 file_too_large, no row (board #119)', async () => {
+  const prisma = makeFakePrisma();
+  // One byte past the shipped default cap (10 MiB), so the test pins the real
+  // contract and not a toy limit.
+  const overLimit = Buffer.alloc(DEFAULT_MAX_UPLOAD_BYTES + 1, 7).toString('base64');
+  const result = await createDocument(prisma, {
+    orgId: 'org1',
+    tripId: 't1',
+    body: { docType: 'pod', filename: 'pod.png', mimeType: 'image/png', dataBase64: overLimit },
+    actor: DRIVER1,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'file_too_large');
+  assert.equal(result.detail, `max ${DEFAULT_MAX_UPLOAD_BYTES} bytes`);
+  // The route maps domain errors through statusForError, so the shipped HTTP
+  // status for `file_too_large` is 400 — not 413 (board #119 / ugry#42). Pin it
+  // here so the docs and the error mapping cannot drift apart again.
+  assert.equal(statusForError(result.error), 400);
+  assert.equal(prisma.state.documents.length, 0, 'no document row for an over-limit upload');
 });
 
 test('listTripDocuments scopes to the org and the assigned driver', async () => {
