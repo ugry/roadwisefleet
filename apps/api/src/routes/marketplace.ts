@@ -157,30 +157,41 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const orderId = typeof body.orderId === 'string' ? body.orderId.trim() : '';
 
+    // Board #113 (QA defect ugry/roadwisefleet#113): EVERY load is posted from
+    // an order, not just a fleet's. `awardPlan` creates the Trip against the
+    // load's order and nobody re-enters the load, so an order-less posting could
+    // never be awarded (`409 order_required`) — a dead end for the shipper and a
+    // wasted bid for every carrier. Requiring the order here is the one contract
+    // (the alternative, minting an order at post time, would silently invent
+    // customer work). The lookup below also proves the order belongs to the
+    // caller, so tenancy is unchanged.
+    if (!orderId) {
+      return reply.code(400).send({
+        error: 'invalid_input',
+        field: 'orderId',
+        detail: 'orderId is required: a load is posted from an order so it can be awarded',
+      });
+    }
+
     // A load posted from an order inherits its lane, so the shipper never
     // re-types the load (diagram 05). The order is scoped to the caller.
-    const defaults: Record<string, unknown> = {};
-    if (orderId) {
-      const order =
-        principal.customerId !== null
-          ? await prisma.order.findFirst({
-              where: { id: orderId, customerId: principal.customerId },
-              include: { booking: true },
-            })
-          : await prisma.order.findFirst({
-              where: { id: orderId, customer: { orgId: principal.orgId! } },
-              include: { booking: true },
-            });
-      if (!order) return refuse(reply, 'order_not_found');
-      defaults.origin = order.origin;
-      defaults.destination = order.destination;
-      defaults.cargo = order.cargo ?? undefined;
-      defaults.equipment = (order.booking as { equipment?: string | null } | null)?.equipment ?? undefined;
-    } else if (principal.orgId && !principal.customerId) {
-      // A fleet posting an uncovered load must name the order it cannot cover:
-      // the award creates the Trip against it, and nobody re-enters the load.
-      return reply.code(400).send({ error: 'invalid_input', field: 'orderId', detail: 'orderId is required for a fleet posting' });
-    }
+    const order =
+      principal.customerId !== null
+        ? await prisma.order.findFirst({
+            where: { id: orderId, customerId: principal.customerId },
+            include: { booking: true },
+          })
+        : await prisma.order.findFirst({
+            where: { id: orderId, customer: { orgId: principal.orgId! } },
+            include: { booking: true },
+          });
+    if (!order) return refuse(reply, 'order_not_found');
+    const defaults: Record<string, unknown> = {
+      origin: order.origin,
+      destination: order.destination,
+      cargo: order.cargo ?? undefined,
+      equipment: (order.booking as { equipment?: string | null } | null)?.equipment ?? undefined,
+    };
 
     const merged: Record<string, unknown> = { ...body };
     for (const [key, value] of Object.entries(defaults)) {
