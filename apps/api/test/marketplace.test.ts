@@ -39,6 +39,7 @@ const { env } = await import('../src/env.js');
 const { hashPassword } = await import('../src/auth/password.js');
 const { signToken } = await import('../src/auth/tokens.js');
 const { CUSTOMER_PERMISSIONS, CUSTOMER_ROLE } = await import('../../../customer/lib/customer-core.js');
+const { awardPlan } = await import('../src/marketplace.js');
 
 const CARRIER_ORG = 'qa-market-carrier';
 const CARRIER2_ORG = 'qa-market-carrier2';
@@ -233,16 +234,56 @@ if (!ready) {
     assert.equal(row?.orderId, orderId);
   });
 
-  test('an invalid load posting is refused with the field', async () => {
+  test('an invalid load posting is still refused field-by-field (after the order contract)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/marketplace/loads',
       headers: bearer(shipper),
-      payload: {},
+      payload: { orderId, pricingMode: 'instant' },
     });
     assert.equal(res.statusCode, 400, res.payload);
     assert.equal(res.json().error, 'invalid_input');
-    assert.equal(res.json().field, 'origin');
+    assert.equal(res.json().field, 'priceEur', 'an instant-rate load needs a price');
+  });
+
+  test('a load cannot be posted without an order — it could never be awarded (board #113)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/marketplace/loads',
+      headers: bearer(shipper),
+      payload: { origin: 'QA Mkt V Berlin', destination: 'QA Mkt V Hamburg', pricingMode: 'quotes', priceEur: 700 },
+    });
+    assert.equal(res.statusCode, 400, res.payload);
+    assert.equal(res.json().error, 'invalid_input');
+    assert.equal(res.json().field, 'orderId');
+
+    // Nothing was written: the board must not carry a demand nobody can win.
+    assert.equal(
+      await prisma.loadPosting.count({ where: { origin: 'QA Mkt V Berlin', destination: 'QA Mkt V Hamburg' } }),
+      0,
+    );
+  });
+
+  test('a load posted from an order of another tenant is refused (order scoped to the caller)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/marketplace/loads',
+      headers: bearer(third),
+      payload: { orderId },
+    });
+    assert.equal(res.statusCode, 404, res.payload);
+    assert.equal(res.json().error, 'order_not_found');
+  });
+
+  test('a 201 POSTED load always carries an order, so it is awardable in principle', async () => {
+    const row = await prisma.loadPosting.findUnique({ where: { id: loadId } });
+    assert.ok(row?.orderId, 'the posted load is linked to an order');
+    const plan = awardPlan({
+      load: row,
+      offers: [{ id: 'probe-offer', status: 'SENT', expiresAt: null }],
+      offerId: 'probe-offer',
+    });
+    assert.equal(plan.ok, true, JSON.stringify(plan));
   });
 
   test('a driver without trip:create cannot use the supply side', async () => {

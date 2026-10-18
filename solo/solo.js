@@ -361,6 +361,10 @@ function verifyView() {
 
 function jobsView() {
   const wallet = state.wallet || { jobs: 0, earnedEur: 0, paidEur: 0, outstandingEur: 0 };
+  // Board #110: a driver holds one active job at a time. Show that state on the
+  // new-job form instead of letting the request come back as a 409; the server
+  // still refuses (a stale client can never create a second one).
+  const current = CORE.activeJob(state.jobs);
   const customers = state.customers
     .map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`)
     .join('');
@@ -409,13 +413,14 @@ function jobsView() {
     </div>
     ${link}
     <h3>${esc(t('solo.job.new'))}</h3>
+    ${current ? `<p class="muted" id="activeJobHint">${esc(t('solo.job.busyHint'))}</p>` : ''}
     <form id="quickJobForm">
       <label>${esc(t('solo.job.customer'))}<select name="customerId"><option value="">${esc(t('solo.job.newCustomer'))}</option>${customers}</select></label>
       <label>${esc(t('solo.job.customerName'))}<input name="customerName" autocomplete="off"></label>
       <label>${esc(t('solo.feed.origin'))}<input name="origin" required autocomplete="off"></label>
       <label>${esc(t('solo.feed.destination'))}<input name="destination" required autocomplete="off"></label>
       <label>${esc(t('solo.job.rate'))}<input name="rateEur" inputmode="decimal"></label>
-      <button type="submit">${esc(t('solo.job.create'))}</button>
+      <button type="submit"${current ? ' disabled' : ''}>${esc(t('solo.job.create'))}</button>
     </form>
     <h3>${esc(t('solo.jobs.list'))}</h3>
     <ul class="list">${rows}</ul>`;
@@ -690,6 +695,14 @@ async function uploadVerification(form) {
 }
 
 async function createJob(form) {
+  // Board #110: one active job per driver. A disabled button does not stop an
+  // Enter/programmatic submit, so the handler refuses too; the server is the
+  // authority either way.
+  if (CORE.activeJob(state.jobs)) {
+    flash('jobs', t('solo.job.error.driverBusy'));
+    render('jobs');
+    return;
+  }
   const body = {
     customerId: form.querySelector('[name="customerId"]').value || '',
     customerName: form.querySelector('[name="customerName"]').value,

@@ -7,6 +7,7 @@ import { hashPassword } from '../auth/password.js';
 import { signToken } from '../auth/tokens.js';
 import { hasPermission, loadRolePermissions } from '../auth/permissions.js';
 import { statusForError } from '../http-errors.js';
+import { ACTIVE_ASSIGNMENT_STATUSES } from '../trip-status.js';
 import { stripCredentialFields } from '../user-payload.js';
 import { decodeBase64Upload, resolveWithin, writeDocumentFile } from '../documents.js';
 import { createSoloAccount } from '../registration-accounts.js';
@@ -590,6 +591,21 @@ export async function soloRoutes(app: FastifyInstance) {
 
     const rows = solo.buildQuickJobRows(value, { orgId, driverId: userId, customerId: customerId || '' });
     const created = await prisma.$transaction(async (tx) => {
+      // Board #110 (QA defect ugry/roadwisefleet#110): a quick job is created
+      // already ASSIGNED — an active assignment — so creation itself must obey
+      // the one-active-assignment gate that trip-assignment and transitionTrip
+      // already apply. Without this check a driver could hold two active trips
+      // and then BOTH transitions were refused with 409 driver_busy forever.
+      // The check runs first inside the transaction, before the customer/order
+      // rows are written, so a refusal creates nothing.
+      const activeTrip = await tx.trip.findFirst({
+        where: { orgId, driverId: userId, status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] } },
+        select: { id: true, status: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      const conflict = solo.quickJobConflict(activeTrip);
+      if (conflict) return { conflict, order: null, trip: null };
+
       if (!customerId) {
         const customer = await tx.customer.create({
           data: { orgId, name: value.customerName || 'Own customer', lang: 'en' },
@@ -610,22 +626,28 @@ export async function soloRoutes(app: FastifyInstance) {
           orderId: order.id,
         },
       });
-      return { order, trip };
+      return { conflict: null, order, trip };
     });
+
+    if (created.conflict) {
+      return reply.code(statusForError(created.conflict.error)).send(created.conflict);
+    }
+    const order = created.order!;
+    const trip = created.trip!;
 
     return reply.code(201).send(
       stripCredentialFields({
         job: solo.jobRow({
-          id: created.trip.id,
-          status: created.trip.status,
-          rateEur: created.trip.rateEur,
+          id: trip.id,
+          status: trip.status,
+          rateEur: trip.rateEur,
           deliveredAt: null,
-          createdAt: created.trip.createdAt,
-          order: { origin: created.order.origin, destination: created.order.destination, customer: null },
+          createdAt: trip.createdAt,
+          order: { origin: order.origin, destination: order.destination, customer: null },
           settlement: null,
         }),
-        orderId: created.order.id,
-        tripId: created.trip.id,
+        orderId: order.id,
+        tripId: trip.id,
       }),
     );
   });

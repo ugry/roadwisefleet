@@ -444,6 +444,23 @@ test('the award route goes through the pure plan, never a hand-rolled transition
   assert.match(route, /stripCredentialFields\(/, 'every marketplace response is credential-stripped');
 });
 
+test('every load posting requires an order, so a 201 load can always be awarded (board #113)', () => {
+  const route = readFileSync(resolve(repoRoot, 'apps/api/src/routes/marketplace.ts'), 'utf8');
+  const start = route.indexOf("app.post('/marketplace/loads'");
+  assert.ok(start > -1, 'the posting route exists');
+  const post = route.slice(start, route.indexOf("app.get('/marketplace/loads'", start));
+  // One contract for every principal: no fleet-only branch, no order-less path.
+  assert.match(post, /if \(!orderId\)/, 'the route refuses a missing orderId');
+  assert.match(post, /field: 'orderId'/, 'the refusal names the field');
+  assert.ok(
+    post.indexOf("field: 'orderId'") < post.indexOf('loadPosting.create'),
+    'the order contract is enforced before the row is written',
+  );
+  assert.doesNotMatch(post, /orderId is required for a fleet posting/, 'the old fleet-only rule is gone');
+  // The award itself still refuses an order-less load (defence in depth).
+  assert.equal(market.awardPlan({ load: { status: 'POSTED', orderId: null }, offers: [], offerId: 'x' }).error, 'order_required');
+});
+
 test('the marketplace migration is additive: three new tables, no column on a shared model', () => {
   const dir = resolve(repoRoot, 'prisma/migrations');
   const name = readdirSync(dir).find((entry) => entry.endsWith('_add_marketplace'));

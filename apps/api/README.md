@@ -233,7 +233,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/customer/orders` | bearer, `customer:manage` | own shipments only (scope from the token, never the query) |
 | `GET /api/customer/orders/:id` | bearer, `customer:manage` | one own shipment + its booking detail; a foreign id is `404` |
 | `POST /api/customer/orders/:id/track-link` | bearer, `customer:manage` | mint (or re-read) the shareable tracking link for the order's trip, reusing the board-#5/#39 machinery; `404 no_trip` when the order has no trip |
-| `POST /api/marketplace/loads` | bearer, `order:create` (customer) or `trip:create` (fleet) | post a load (board task #76). A customer posts one of its own orders; a fleet posts a load it cannot cover (its own customer's order, `orderId` required). The lane/cargo/equipment are inherited from the order — nobody re-enters the load; `201 { load }` |
+| `POST /api/marketplace/loads` | bearer, `order:create` (customer) or `trip:create` (fleet) | post a load (board task #76). **`orderId` is required for every posting** (board #113): a customer posts one of its own orders, a fleet posts a load it cannot cover from one of its own customer's orders, and a missing/foreign order is `400 invalid_input` / `404 order_not_found` — an order-less load could never be awarded. The lane/cargo/equipment are inherited from the order — nobody re-enters the load; `201 { load }` |
 | `GET /api/marketplace/loads` | bearer, `trip:create` | the carrier feed: open, not own, not expired loads, matched in the database by `origin`/`destination` (substring), `equipment`, `readyFrom`/`readyTo`; `?beaconId=` ranks the feed against the caller's own capacity beacon instead of filtering it |
 | `GET /api/marketplace/loads/mine` | bearer, `order:create` or `trip:create` | the caller's own postings + `offerCount` |
 | `GET /api/marketplace/loads/:id` | bearer | one load; the poster sees every offer and its whole chain, a carrier sees only its own offers; an unknown id is `404`, a foreign awarded load is `403` |
@@ -261,7 +261,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/solo/customers` | bearer, `solo` | the driver's own customers (rows in his org, no login) |
 | `POST /api/solo/customers` | bearer, `order:create` | add one |
 | `GET /api/solo/jobs` | bearer, `solo` | wallet-lite: jobs + `{ earnedEur, paidEur, outstandingEur }` from the existing `Trip.rateEur` + `Settlement` |
-| `POST /api/solo/jobs` | bearer, `order:create` | quick job: own customer (or a new name) → `Order` + `ASSIGNED` `Trip` in the driver's org |
+| `POST /api/solo/jobs` | bearer, `order:create` | quick job: own customer (or a new name) → `Order` + `ASSIGNED` `Trip` in the driver's org; **`409 driver_busy`** while the driver already holds an active job (board #110) |
 | `GET /api/reviews/prompts` | bearer | the caller's open two-sided review prompts (board task #98); a customer login acts as its `Customer`, an org user as its `Org` — the rater comes from the token, never the body |
 | `POST /api/reviews` | bearer | submit one immutable review (`promptId`, `rating` 1–5, optional `comment`); `201 { review }`, `409 already_reviewed`, `404 prompt_not_found` (not addressed to the caller) |
 | `GET /api/reviews/summary/:subjectType/:subjectId` | bearer | read-only aggregate (`count`, `average`, `pending`) for an `org` or `customer`; a rating is counted only once it is revealed (both sides reviewed, or the disclosure window passed) |
@@ -1130,6 +1130,22 @@ applied:
   `parentOfferId` for the counter chain — the audit trail, so nothing is
   agreed verbally-only.
 
+**Posting requires an order (board #113, QA defect ugry/roadwisefleet#113).**
+Every posting is made **from an order** — customer and fleet alike. `POST
+/api/marketplace/loads` without a usable `orderId` answers
+`400 { error: "invalid_input", field: "orderId", detail: "orderId is required: a
+load is posted from an order so it can be awarded" }` and writes nothing. Why:
+`awardPlan()` creates the Trip against the load's order and nobody re-enters the
+load, so an order-less load could reach `POSTED` but never be awarded
+(`409 order_required`) — a dead end for the shipper and a wasted bid for every
+carrier. The alternative contract (minting an order at post time) was rejected
+because it would invent customer work. The order is looked up **scoped to the
+caller** (`customerId` for a customer login, the org's customers for a fleet), so
+a foreign or unknown order is a flat `404 order_not_found`. The lane/cargo/
+equipment still come from that order. Every `201 POSTED` row therefore carries a
+non-null `orderId` and is awardable in principle — pinned by
+`test/marketplace.test.ts`.
+
 **Award.** `awardPlan()` (pure) picks the winner, refuses an unknown/closed/
 expired offer and demands the load's order. The route then, in one transaction,
 creates the `Trip` in the **carrier's** org via `buildAwardTripData()`, flips the
@@ -1307,6 +1323,23 @@ job creates the same `Order` + `Trip` pair as the rest of the product (the trip
 `POST /api/trips/:id/track-link` machinery — the public `/api/track/:token` read
 needs no account at all. Wallet-lite reads the existing `Trip.rateEur` and
 `Settlement` rows; nothing new models money (invoice-first, UXF-OWN1).
+
+**One active job per driver (board #110, QA defect ugry/roadwisefleet#110).** A
+quick job is created already `ASSIGNED`, which is an active assignment, so
+creation now applies the **same one-active-assignment gate** as dispatcher
+assignment (`trip-assignment.js`) and `transitionTrip`. While the driver holds
+any active job (`ASSIGNED`, `EN_ROUTE`, `AT_PICKUP`, `LOADED`, `IN_TRANSIT`,
+`AT_DELIVERY`), `POST /api/solo/jobs` answers `409` with
+`{ error: "driver_busy", messageKey: "solo.job.error.driverBusy",
+activeTripId, activeTripStatus, detail }` and writes **nothing** (no customer,
+no order) — the check runs first inside the creation transaction. The refusal,
+not a queue, keeps the invariant true at every point; before it, a second quick
+job left the driver holding two active trips which the transition gate then
+refused forever. Sequential jobs still work: finish (or cancel) the current job
+and the next creation is accepted. The pure rule lives in
+`solo-core.js#quickJobConflict` / `activeJob` (with a drift guard against
+`ACTIVE_ASSIGNMENT_STATUSES`), and `/s/` disables the new-job form, explains the
+state, and refuses in the submit handler as well.
 
 **Surface.** `/s/` is a single-column mobile-first app: loads (filters + saved
 searches), load detail + bid, my offers, beacon, verification, jobs, customers and

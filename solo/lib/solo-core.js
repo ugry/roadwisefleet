@@ -616,8 +616,62 @@ export function buildQuickJobRows(value, args) {
   };
 }
 
-/* -------------------------------------------------------- saved searches --- */
+/**
+ * Board task #110 (QA defect ugry/roadwisefleet#110) — the one-active-assignment
+ * gate, applied at quick-job CREATION.
+ *
+ * A quick job is created already in `ASSIGNED`, which is an active assignment
+ * status. Creating a second one used to skip the gate the dispatcher and the
+ * transition path both apply, so the driver held two active trips and
+ * `transitionTrip` then refused BOTH with `409 driver_busy` — a permanent
+ * dead-end. Refusing the second creation (instead of queueing) keeps the
+ * invariant "one active assignment per driver" true at every point, and the
+ * solo surface shows the refusal on the new-job form.
+ *
+ * Pure: the caller passes the driver's existing active trip (or null/undefined
+ * when the driver is free), so the rule is unit-testable without a database.
+ * @param {{ id?: string|null, status?: string|null }|null|undefined} activeTrip
+ * @returns {null | { error: string, messageKey: string, detail: string, activeTripId: string|null, activeTripStatus: string|null }}
+ */
+export function quickJobConflict(activeTrip) {
+  if (!activeTrip) return null;
+  return {
+    error: 'driver_busy',
+    messageKey: 'solo.job.error.driverBusy',
+    detail: 'Finish your current job before creating another one.',
+    activeTripId: activeTrip.id ? String(activeTrip.id) : null,
+    activeTripStatus: activeTrip.status ? String(activeTrip.status) : null,
+  };
+}
 
+/**
+ * The job statuses in which a driver is occupied (board #110). Kept in step with
+ * `apps/api/src/trip-status.js#ACTIVE_ASSIGNMENT_STATUSES`; `solo-core.test.js`
+ * deep-equals the two lists so they cannot drift silently.
+ * @type {readonly string[]}
+ */
+export const ACTIVE_JOB_STATUSES = Object.freeze([
+  'ASSIGNED',
+  'EN_ROUTE',
+  'AT_PICKUP',
+  'LOADED',
+  'IN_TRANSIT',
+  'AT_DELIVERY',
+]);
+
+/**
+ * The driver's current job, if any — the one that makes a new quick job a
+ * `409 driver_busy`. Pure, so the surface can show the busy state without a
+ * second request; the server stays the authority.
+ * @param {Array<{ id?: string, status?: string }>|null|undefined} jobs
+ * @returns {{ id?: string, status?: string }|null}
+ */
+export function activeJob(jobs) {
+  if (!Array.isArray(jobs)) return null;
+  return jobs.find((job) => job && ACTIVE_JOB_STATUSES.includes(/** @type {string} */ (job.status))) || null;
+}
+
+/* -------------------------------------------------------- saved searches --- */
 /** The query keys a saved search may carry (mirror of the feed's filter). */
 export const SEARCH_KEYS = ['origin', 'destination', 'equipment', 'readyFrom', 'readyTo'];
 
