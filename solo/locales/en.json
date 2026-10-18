@@ -189,6 +189,8 @@
   "solo.job.error.dateInvalid": "That date is not valid",
   "solo.job.error.windowOrder": "Delivery cannot be before pickup",
   "solo.job.error.equipmentUnknown": "Unknown equipment",
+  "solo.job.error.driverBusy": "Finish your current job first — a driver can only hold one active job.",
+  "solo.job.busyHint": "You already have an active job. Finish it (or cancel it) before creating another one.",
 
   "solo.customers.title": "My customers",
   "solo.customers.hint": "People who ship with you and never sign up anywhere.",
@@ -249,5 +251,6 @@
   "solo.error.own_load": "You cannot bid on your own load.",
   "solo.error.offer_closed": "That offer is closed.",
   "solo.error.offer_expired": "That offer has expired.",
-  "solo.error.pod_required": "Upload a proof of delivery before this step."
+  "solo.error.pod_required": "Upload a proof of delivery before this step.",
+  "solo.error.driver_busy": "Finish your current job first — a driver can only hold one active job."
 }

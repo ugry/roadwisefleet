@@ -261,7 +261,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/solo/customers` | bearer, `solo` | the driver's own customers (rows in his org, no login) |
 | `POST /api/solo/customers` | bearer, `order:create` | add one |
 | `GET /api/solo/jobs` | bearer, `solo` | wallet-lite: jobs + `{ earnedEur, paidEur, outstandingEur }` from the existing `Trip.rateEur` + `Settlement` |
-| `POST /api/solo/jobs` | bearer, `order:create` | quick job: own customer (or a new name) → `Order` + `ASSIGNED` `Trip` in the driver's org |
+| `POST /api/solo/jobs` | bearer, `order:create` | quick job: own customer (or a new name) → `Order` + `ASSIGNED` `Trip` in the driver's org; **`409 driver_busy`** while the driver already holds an active job (board #110) |
 | `GET /api/reviews/prompts` | bearer | the caller's open two-sided review prompts (board task #98); a customer login acts as its `Customer`, an org user as its `Org` — the rater comes from the token, never the body |
 | `POST /api/reviews` | bearer | submit one immutable review (`promptId`, `rating` 1–5, optional `comment`); `201 { review }`, `409 already_reviewed`, `404 prompt_not_found` (not addressed to the caller) |
 | `GET /api/reviews/summary/:subjectType/:subjectId` | bearer | read-only aggregate (`count`, `average`, `pending`) for an `org` or `customer`; a rating is counted only once it is revealed (both sides reviewed, or the disclosure window passed) |
@@ -1323,6 +1323,23 @@ job creates the same `Order` + `Trip` pair as the rest of the product (the trip
 `POST /api/trips/:id/track-link` machinery — the public `/api/track/:token` read
 needs no account at all. Wallet-lite reads the existing `Trip.rateEur` and
 `Settlement` rows; nothing new models money (invoice-first, UXF-OWN1).
+
+**One active job per driver (board #110, QA defect ugry/roadwisefleet#110).** A
+quick job is created already `ASSIGNED`, which is an active assignment, so
+creation now applies the **same one-active-assignment gate** as dispatcher
+assignment (`trip-assignment.js`) and `transitionTrip`. While the driver holds
+any active job (`ASSIGNED`, `EN_ROUTE`, `AT_PICKUP`, `LOADED`, `IN_TRANSIT`,
+`AT_DELIVERY`), `POST /api/solo/jobs` answers `409` with
+`{ error: "driver_busy", messageKey: "solo.job.error.driverBusy",
+activeTripId, activeTripStatus, detail }` and writes **nothing** (no customer,
+no order) — the check runs first inside the creation transaction. The refusal,
+not a queue, keeps the invariant true at every point; before it, a second quick
+job left the driver holding two active trips which the transition gate then
+refused forever. Sequential jobs still work: finish (or cancel) the current job
+and the next creation is accepted. The pure rule lives in
+`solo-core.js#quickJobConflict` / `activeJob` (with a drift guard against
+`ACTIVE_ASSIGNMENT_STATUSES`), and `/s/` disables the new-job form, explains the
+state, and refuses in the submit handler as well.
 
 **Surface.** `/s/` is a single-column mobile-first app: loads (filters + saved
 searches), load detail + bid, my offers, beacon, verification, jobs, customers and
