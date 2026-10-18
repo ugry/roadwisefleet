@@ -142,22 +142,33 @@ Owner/operator steps (I hold no Play account and no ability to create one):
   new channel behind the same envelope, not a second delivery path. The board
   #79 runbook owns that contract.
 
-## 6. Play Data Safety + ACCESS_BACKGROUND_LOCATION (draft)
+## 6. Play Data Safety + ACCESS_BACKGROUND_LOCATION
 
-Draft only — the owner/product/legal sign-off is an open decision (§9). Play
-requires, for a 10-minute background location foreground service:
+The submission-ready declaration lives in **`infra/play-data-safety.md`** (board
+#109, 2026-10-18): the answer set was derived from the code (manifest,
+`apps/android/app` dependencies, `prisma/schema.prisma`), not from a template, and
+it carries the paste-ready background-location justification plus the demo-video
+shot list. That file is the source of truth; the summary below only records why it
+is a release gate.
 
-- **Data Safety:** declare *Precise location* collected (app functionality,
-  not advertising), *linked to the user*, encrypted in transit, deletable on
-  request; declare account data (name, email, phone) and documents (POD/eCMR)
-  the same way. Nothing here may be marked "not collected".
-- **Background location:** a written justification that tracking runs **only
-  while a trip is active** (the driver's Start Trip button; it stops at
-  DELIVERED) and the battery constraint the owner recorded, plus a **demo
-  video** showing the prominent disclosure and the foreground-service
+Play requires, for a 10-minute background location foreground service:
+
+- **Data Safety:** declare *Precise location* collected (app functionality, not
+  advertising), *linked to the user*, encrypted in transit, deletable on request;
+  declare account data (name, email, phone) and documents (POD/eCMR) the same way.
+  Nothing in the declared set may be marked "not collected".
+- **Background location:** a written justification that tracking runs **only while
+  a trip is active** (the driver's Start Trip button; it stops at DELIVERED), plus
+  a **demo video** showing the prominent disclosure and the foreground-service
   notification. Tracking outside an active trip is not requested.
-- **Permissions to declare:** `ACCESS_FINE_LOCATION`,
-  `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`, `POST_NOTIFICATIONS`.
+- **Permissions to declare:** the manifest is the source of truth — the machine-
+  checked block in `infra/play-data-safety.md` §8.
+
+Two Play requirements are **not met by the product today** and are recorded as
+blockers in `infra/play-data-safety.md` §5: there is no privacy-policy URL
+(`https://roadwisefleet.com/privacy` → 404 live) and no account-deletion path
+(no user-deletion route in `apps/api/src/routes`, no in-app entry point). Play
+requires both for an app that creates accounts and requests sensitive permissions.
 
 ## 7. Guard + CI job
 
@@ -183,6 +194,14 @@ requires, for a 10-minute background location foreground service:
 
 CI job `android-release-check` in `ci.yml` (self-test + repo check).
 
+A second, narrower guard covers the declaration itself: **`play-data-safety-check.sh`**
+(CI job `play-data-safety`) compares the permission block in
+`infra/play-data-safety.md` §8 against `AndroidManifest.xml` in both directions and
+requires a written justification per line, so the POD camera (A4 follow-up) cannot
+land without the Play form being updated in the same PR. The self-test proves all
+three failures (a permission the app adds, a stale one it dropped, a line with no
+reason) plus a missing marker block.
+
 ## 8. Acceptance mapping (honest)
 
 | #109 acceptance | State |
@@ -190,7 +209,7 @@ CI job `android-release-check` in `ci.yml` (self-test + repo check).
 | a signed build is produced by CI | **NOT met** — needs the A1 scaffold + the four signing secrets; the workflow is wired and guarded but has produced nothing |
 | the chosen channel accepts it | **NOT met** — needs the Play account + service account (§4) |
 | FCM delivery verified on a test device | **NOT met** — needs the FCM project (§5), the app, and a device |
-| the Data Safety draft is ready for the owner | **draft skeleton only** (§6) |
+| the Data Safety draft is ready for the owner | **draft complete** (`infra/play-data-safety.md`) — blocked on the two Play-required public URLs it names (privacy policy, account deletion) and the owner/legal sign-off |
 
 ## 9. Open decisions / owner inputs
 
@@ -200,7 +219,9 @@ CI job `android-release-check` in `ci.yml` (self-test + repo check).
    `PLAY_SERVICE_ACCOUNT_JSON` secret.
 3. The FCM/Firebase project (owner) and where its server credential will live on
    the pilot host.
-4. Product/legal sign-off on the Data Safety + background-location declaration.
+4. Product/legal sign-off on the Data Safety + background-location declaration
+   (`infra/play-data-safety.md` §9), including the two missing Play-required
+   public URLs: the privacy policy and the account-deletion request page.
 5. Confirmation that AGP's injected-signing properties fit A1's Gradle setup;
    if A1 prefers an app-side `signingConfig`, the workflow's `-P` flags are
    redundant but harmless, and this file is updated.

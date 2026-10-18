@@ -336,6 +336,26 @@ jobs:
       - name: Check the repo Android release wiring
         run: bash infra/checks/android-release-check.sh
 
+  play-data-safety:
+    name: Play Data Safety vs. app permissions (#109)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Board #109 (AND1-OPS1). The Data Safety form is a legal statement the
+      # owner submits in Play Console, so CI cannot answer it — but it can stop
+      # the answer from silently going stale. The declared-permission block in
+      # infra/play-data-safety.md must list exactly the manifest's permissions,
+      # each with a written justification; the POD camera (A4 follow-up) is the
+      # next permission to land and would otherwise ship without the form being
+      # updated. The self-test proves the failure fires for a permission the app
+      # adds, a stale permission the app dropped, and a line with no reason.
+      - name: Self-test the checker (fixtures, no host, no network)
+        run: bash infra/checks/play-data-safety-check.sh --self-test
+
+      - name: Check the declaration against the app manifest
+        run: bash infra/checks/play-data-safety-check.sh
+
   deploy-pages:
     name: Deploy GitHub Pages (web/)
     if: github.ref == 'refs/heads/main'
