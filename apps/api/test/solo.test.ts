@@ -439,6 +439,73 @@ if (!ready) {
     assert.match(publicRead.headers['x-robots-tag'] as string, /noindex/);
   });
 
+  test('a second quick job is refused while one is active, and accepted once it is finished (board #110)', async () => {
+    // The quick job from the test above is still ASSIGNED — an ACTIVE assignment.
+    // Before the fix, this second creation returned 201 and left BOTH trips
+    // permanently stuck on `409 driver_busy`.
+    const busy = await app.inject({
+      method: 'POST',
+      url: '/api/solo/jobs',
+      headers: bearer(soloToken),
+      payload: { customerName: 'Zweiter Kunde', origin: 'Leipzig, DE', destination: 'Halle, DE', rateEur: 300 },
+    });
+    assert.equal(busy.statusCode, 409, busy.payload);
+    assert.equal(busy.json().error, 'driver_busy');
+    assert.equal(busy.json().messageKey, 'solo.job.error.driverBusy');
+    assert.equal(busy.json().activeTripId, quickJobTripId);
+    assert.equal(busy.json().activeTripStatus, 'ASSIGNED');
+
+    // A refusal must not leave a half-created customer/order behind.
+    assert.equal(await prisma.customer.count({ where: { orgId: soloOrgId, name: 'Zweiter Kunde' } }), 0);
+    assert.equal(
+      await prisma.order.count({ where: { origin: 'Leipzig, DE', customer: { orgId: soloOrgId } } }),
+      0,
+      'the refused request created no order',
+    );
+
+    // The first job is NOT stuck: it still walks to DELIVERED (a non-active status).
+    for (const status of ['LOADED', 'IN_TRANSIT', 'DELIVERED']) {
+      const moved = await app.inject({
+        method: 'POST',
+        url: `/api/trips/${quickJobTripId}/status`,
+        headers: bearer(soloToken),
+        payload: { status },
+      });
+      assert.equal(moved.statusCode, 200, `${status}: ${moved.payload}`);
+    }
+
+    // Two SEQUENTIAL quick jobs work: with the first one finished, the next is
+    // accepted and is drivable itself.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/solo/jobs',
+      headers: bearer(soloToken),
+      payload: { customerName: 'Dritter Kunde', origin: 'Leipzig, DE', destination: 'Halle, DE', rateEur: 320 },
+    });
+    assert.equal(second.statusCode, 201, second.payload);
+    assert.equal(second.json().job.status, 'ASSIGNED');
+    const secondTripId = second.json().tripId as string;
+    assert.notEqual(secondTripId, quickJobTripId);
+
+    const started = await app.inject({
+      method: 'POST',
+      url: `/api/trips/${secondTripId}/status`,
+      headers: bearer(soloToken),
+      payload: { status: 'LOADED' },
+    });
+    assert.equal(started.statusCode, 200, started.payload);
+
+    // The gate is still enforced on creation — it was not weakened, just applied.
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/solo/jobs',
+      headers: bearer(soloToken),
+      payload: { customerName: 'Vierter Kunde', origin: 'Leipzig, DE', destination: 'Halle, DE', rateEur: 340 },
+    });
+    assert.equal(again.statusCode, 409, again.payload);
+    assert.equal(again.json().activeTripId, secondTripId);
+  });
+
   test('the beacon and the saved searches are org/driver scoped', async () => {
     const published = await app.inject({
       method: 'POST',

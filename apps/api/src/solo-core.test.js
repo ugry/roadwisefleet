@@ -257,6 +257,52 @@ test('buildQuickJobRows creates the shared Order + Trip pair, self-assigned', ()
   assert.equal(rows.booking.supplyChoice, 'solo');
 });
 
+/* ------------------------------------------- one active job (board #110) --- */
+
+test('quickJobConflict refuses only when the driver already holds an active job', () => {
+  assert.equal(solo.quickJobConflict(null), null);
+  assert.equal(solo.quickJobConflict(undefined), null);
+  const conflict = solo.quickJobConflict({ id: 'trip-1', status: 'EN_ROUTE' });
+  assert.equal(conflict.error, 'driver_busy');
+  assert.equal(conflict.messageKey, 'solo.job.error.driverBusy');
+  assert.equal(conflict.activeTripId, 'trip-1');
+  assert.equal(conflict.activeTripStatus, 'EN_ROUTE');
+});
+
+test('the surface can name the current job from the jobs list', () => {
+  const jobs = [
+    { id: 'old', status: 'SETTLED' },
+    { id: 'now', status: 'IN_TRANSIT' },
+  ];
+  assert.equal(solo.activeJob(jobs)?.id, 'now');
+  assert.equal(solo.activeJob([{ id: 'done', status: 'POD_UPLOADED' }]), null);
+  assert.equal(solo.activeJob(undefined), null);
+  assert.equal(solo.activeJob({}), null);
+});
+
+test('the solo active-job list cannot drift from the API assignment gate', async () => {
+  const { ACTIVE_ASSIGNMENT_STATUSES } = await import('./trip-status.js');
+  assert.deepEqual([...solo.ACTIVE_JOB_STATUSES], [...ACTIVE_ASSIGNMENT_STATUSES]);
+  // Every status in the list occupies the driver by definition.
+  for (const status of solo.ACTIVE_JOB_STATUSES) {
+    assert.equal(solo.activeJob([{ id: 'x', status }])?.id, 'x', status);
+  }
+});
+
+test('the quick-job route applies the gate before it writes any row (board #110)', () => {
+  const source = readFileSync(resolve(repoRoot, 'apps/api/src/routes/solo.ts'), 'utf8');
+  const start = source.indexOf("app.post('/solo/jobs'");
+  assert.ok(start > -1, 'the quick-job route exists');
+  const route = source.slice(start);
+  assert.match(route, /ACTIVE_ASSIGNMENT_STATUSES/);
+  assert.match(route, /quickJobConflict\(activeTrip\)/);
+  assert.ok(
+    route.indexOf('quickJobConflict(activeTrip)') < route.indexOf('tx.order.create'),
+    'the gate runs before the new order is written',
+  );
+  assert.match(route, /statusForError\(created\.conflict\.error\)/);
+});
+
 /* --------------------------------------------------------- saved searches --- */
 
 test('normalizeSavedSearch drops unknown filter keys and unknown equipment', () => {
