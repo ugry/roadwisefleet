@@ -98,8 +98,9 @@ Target extraction as the wave grows (each is a plain move of a package):
 | `:feature:tracking-share` | — | A5 |
 
 Package convention: `com.elilaltd.roadwisefleet.driver.*` (app) and
-`com.elilaltd.roadwisefleet.core.*` (library). The application id is
-`com.elilaltd.roadwisefleet.driver` — the package name `#109` already targets.
+`com.elilaltd.roadwisefleet.core.*` (library). The **application id** is
+`com.roadwisefleet` — the single Play Console app board #122 aligns the upload
+with — while the Kotlin namespace/package names are unchanged.
 
 ## 4. Offline model
 
