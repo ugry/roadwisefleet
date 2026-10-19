@@ -197,6 +197,11 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/device/challenge` | — (public) | issue a single-use nonce for a credential: `{ challengeId, nonce, algorithm, expiresAt }`; per-IP rate-limited; `404 credential_not_found`, `403 credential_revoked` |
 | `POST /api/auth/device/verify` | — (public) | verify the detached ECDSA signature over the nonce and return the same `{ token, user }` shape as login; `401 challenge_used` / `challenge_expired` / `invalid_signature`, `403 credential_revoked` |
 | `POST /api/auth/device/revoke` | bearer | revoke a device (lost phone / logout); the credential's driver or an admin (`user:manage`/`trip:*`); idempotent |
+| `POST /api/auth/otp/email/request` | — (public) | mail a 6-digit sign-in code (board task #125). The body is **constant** — `{ ok, expiresInSeconds, resendAfterSeconds }` — for a known address, an unknown one, a throttled resend and an unconfigured sender, so it cannot enumerate accounts. Per-IP and per-address windows (`429 rate_limited`), 60 s send gap, `400 invalid_email` only for a malformed address |
+| `POST /api/auth/otp/email/verify` | — (public) | redeem the code (`{ email, code }`) and return the SAME `{ token, user }` shape as `/api/auth/login`; the device key is registered by the app afterwards. A wrong digit, an expired code, a used code and an unknown address are all `401 invalid_code`; five wrong guesses burn the code; a locked account is `423` only after a correct code |
+| `POST /api/auth/email/confirm/request` | bearer | mail a confirmation code to the caller's own address (same service, purpose `verify`) |
+| `POST /api/auth/email/confirm/verify` | bearer | redeem it; sets `User.emailVerifiedAt` and returns `{ ok, emailVerifiedAt }`. A sign-in code can never be used here (the purpose is bound into the HMAC) |
+| `GET /api/auth/otp/email/status` | — (public) | `{ configured, ttlSeconds, resendSeconds, maxAttempts }` — the app hides "Email me a code" when the server has no sender (#124). Never a secret |
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); **a caller without `trip:*` (a driver) is narrowed to their own trips — a client-supplied `driverId` cannot widen it** (board task #68); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
@@ -1564,9 +1569,49 @@ Public entry point: a visitor registers a fleet and is signed in immediately.
   paths, idempotent replay, and a REAL-socket SSE delivery for both the scoped
   stream and the share link, including a revoked token).
 
+## Email one-time codes — board task #125
+- **What it is.** Passwordless driver sign-in by a 6-digit code mailed to the
+  account's address, plus email confirmation for signup/account verification.
+  Owner decision (2026-10-19): no SMS and no 10DLC — email and (later) WhatsApp
+  are the auth channels; password login stays as the fallback.
+- **Core.** `src/email-otp.js` (dependency-free): `generateCode` (6 digits,
+  injectable RNG), `hashCode` — HMAC-SHA256 keyed from `AUTH_SECRET` and bound
+  to `purpose:email:code`, so the plaintext is never stored and a hash from one
+  account/purpose cannot be replayed for another; `gate` (10-minute TTL, 5
+  attempts), `nextAttempt` (the fifth failure burns the hash),
+  `resendWaitSeconds`, `normalizeEmail`/`isValidEmail` (CRLF refused).
+- **Storage.** `EmailOtp` (migration `20261019150000_add_email_otp`): one row
+  per (address, purpose); a new request replaces it, so an old code dies the
+  moment a new one is sent. Redemption is a conditional
+  `updateMany({ usedAt: null })`, so two concurrent verifies mint at most one
+  session.
+- **Delivery.** `src/auth/email-transport.js` consumes the #124 contract —
+  `AUTH_EMAIL_SMTP_HOST`, `AUTH_EMAIL_SMTP_PORT` (**465 only**, implicit TLS),
+  `AUTH_EMAIL_SMTP_USER`, `AUTH_EMAIL_SMTP_PASS`, `AUTH_EMAIL_FROM` — from the
+  process environment only (`/etc/roadwisefleet/auth-email.env`, 0600 root).
+  **Fail-closed**: with any key absent no code row is created and nothing is
+  sent; the endpoint still answers generically. `src/auth/smtp-client.js` is a
+  minimal SMTPS client (EHLO/AUTH LOGIN/MAIL/RCPT/DATA) with dot-stuffing,
+  header-injection refusal and a single timeout; the password never appears in
+  an error or a log line. No mail dependency was added.
+- **No enumeration.** Every request body is byte-identical and every verify
+  failure is `401 invalid_code`; the app's copy says "If {email} has an account…".
+- **Tests.** `src/email-otp.test.js`, `src/auth/email-transport.test.js` and
+  `src/auth/smtp-client.test.js` run in the no-install CI job;
+  `test/email-otp.test.ts` (`pnpm test:router`, DB-backed, own `qa-otp-org`
+  fixture) covers send → single-use verify → token → `/api/auth/me`, the resend
+  gap, the unknown address, the attempt cap, expiry, the 429 window, email
+  confirmation (including a login code being refused there) and the fail-closed
+  sender.
+- **Not live yet.** A real send needs the `#124` mailbox + credential in
+  `/etc/roadwisefleet/auth-email.env`; until then the app hides the button
+  (`GET /api/auth/otp/email/status` → `configured: false`). WhatsApp OTP is
+  behind the Android build flag `-Proadwisefleet.whatsappOtp=true` and waits for
+  the #124 provider.
+
 ## Deliberately missing (until the right phase)
-- email verification and password reset (email is not live — registration itself
-  is live, board task #86) ·
+- password reset (board task #125 ships email verification and passwordless
+  email codes; delivery is fail-closed until #124 wires the SMTP credential) ·
 - server-side session revocation ·
 - GPS fan-out beyond a single API process (Redis stream → Timescale) · document presigned uploads ·
 - WhatsApp bridge · payments (post-free-phase)

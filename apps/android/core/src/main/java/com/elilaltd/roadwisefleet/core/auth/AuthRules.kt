@@ -28,6 +28,18 @@ object AuthRules {
     const val ERROR_NOT_DRIVER = "auth.error.notDriver"
     const val NOTICE_NO_PASSWORDLESS = "auth.notice.passwordless"
     const val NOTICE_SIGN_IN_AGAIN = "auth.notice.signInAgain"
+    const val NOTICE_CODE_SENT = "auth.otp.sent"
+
+    /** Board #125: the email-code path's error keys. */
+    const val ERROR_CODE = "auth.otp.error.code"
+    const val ERROR_CODE_EMAIL = "auth.otp.error.email"
+    const val ERROR_CODE_SEND = "auth.otp.error.send"
+
+    /** Exactly six digits, whatever the keyboard inserted. */
+    const val CODE_LENGTH = 6
+
+    /** The server's send gap, mirrored for the resend countdown (board #125). */
+    const val CODE_RESEND_SECONDS = 60
 
     fun isDriverRole(roleId: String?): Boolean = roleId != null && roleId in DRIVER_ROLES
 
@@ -42,6 +54,38 @@ object AuthRules {
         token.isNullOrBlank() -> GateStart.SignedOut
         !credentialId.isNullOrBlank() -> GateStart.Passwordless(credentialId)
         else -> GateStart.SignedIn
+    }
+
+    /**
+     * Keep only digits and cap at six: a paste of "123 456" or "123456\n" is
+     * accepted, anything longer is truncated rather than rejected.
+     */
+    fun normalizeCode(raw: String?): String =
+        (raw ?: "").filter { it.isDigit() }.take(CODE_LENGTH)
+
+    fun isCompleteCode(code: String?): Boolean =
+        normalizeCode(code).length == CODE_LENGTH
+
+    /**
+     * Map a code-verification HTTP status/code. `invalid_code` (401) covers a
+     * wrong digit, an expired code, a used code and an unknown address by
+     * design — the server refuses to say which, so the app must not either.
+     */
+    fun codeErrorKey(status: Int, error: String? = null): String = when {
+        status == 423 || error == "account_locked" -> ERROR_LOCKED
+        status == 429 || error == "rate_limited" -> ERROR_RATE_LIMITED
+        status == 0 -> ERROR_NETWORK
+        status >= 500 -> ERROR_SERVER
+        else -> ERROR_CODE
+    }
+
+    /** Map a code-REQUEST failure (sending the mail, not redeeming it). */
+    fun requestErrorKey(status: Int, error: String? = null): String = when {
+        status == 429 || error == "rate_limited" -> ERROR_RATE_LIMITED
+        status == 0 -> ERROR_NETWORK
+        status >= 500 -> ERROR_SERVER
+        error == "invalid_email" -> ERROR_CODE_EMAIL
+        else -> ERROR_CODE_SEND
     }
 
     /** Map a login HTTP status/code to the sentence the form shows. */

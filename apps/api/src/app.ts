@@ -7,6 +7,7 @@ import { authRoutes } from './routes/auth.js';
 import { fleetRoutes } from './routes/fleet.js';
 import { fleetCustomerRoutes } from './routes/fleet-customers.js';
 import { deviceAuthRoutes } from './routes/device-auth.js';
+import { emailOtpRoutes } from './routes/email-otp.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { tripRoutes } from './routes/trips.js';
 import { dashboardRoutes } from './routes/dashboard.js';
@@ -31,8 +32,13 @@ const pilotRoot = resolve(here, '../../../pilot');
  * Build the Fastify app without binding a port, so tests and smoke scripts can
  * use `app.inject()` / an ephemeral listener. `server.ts` is the only place
  * that calls `listen()`.
+ *
+ * `emailSender` is a test seam for the email-OTP route (board task #125): the
+ * DB-backed router test injects a fake that records what was delivered, so the
+ * endpoints are exercised without a real SMTP credential. Production passes
+ * nothing and the route builds the env-configured sender.
  */
-export function buildServer() {
+export function buildServer(options: { emailSender?: any } = {}) {
   // `routerOptions.maxParamLength` must exceed a real tracking token (~203
   // chars); the Fastify default (100) returned 414 before the handler ran.
   const app = Fastify(serverOptions());
@@ -53,6 +59,9 @@ export function buildServer() {
   // Passwordless Android device auth (board task #104, AND1-A2): public
   // challenge/verify plus the authenticated register/revoke.
   app.register(deviceAuthRoutes, { prefix: '/api' });
+  // Email one-time codes (board task #125): passwordless sign-in codes and email
+  // confirmation, delivered through the #124 SMTP contract.
+  app.register(emailOtpRoutes, { prefix: '/api', sender: options.emailSender });
   app.register(waitlistRoutes, { prefix: '/api' });
   app.register(tripRoutes, { prefix: '/api' });
   app.register(dashboardRoutes, { prefix: '/api' });

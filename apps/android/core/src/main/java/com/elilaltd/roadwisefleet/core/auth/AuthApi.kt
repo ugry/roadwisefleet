@@ -18,6 +18,22 @@ interface AuthApi {
     /** `POST /api/auth/login` — email + password. */
     suspend fun login(email: String, password: String): ApiResult<PasswordLogin>
 
+    /** `POST /api/auth/otp/email/request` — mail a sign-in code (board #125). */
+    suspend fun requestEmailCode(email: String): ApiResult<Unit>
+
+    /**
+     * `POST /api/auth/otp/email/verify` — redeem a code. The success payload is
+     * the same `{ token, user }` shape as [login], so both paths converge.
+     */
+    suspend fun verifyEmailCode(email: String, code: String): ApiResult<PasswordLogin>
+
+    /**
+     * `GET /api/auth/otp/email/status` — whether the server has a working email
+     * sender (#124). The login screen hides "Email me a code" when it does not,
+     * instead of sending the driver to a mailbox that will never fill.
+     */
+    suspend fun emailOtpAvailable(): ApiResult<Boolean>
+
     /** `POST /api/auth/device/register` (bearer) — bind this device's public key. */
     suspend fun registerDevice(
         publicKeyBase64: String,

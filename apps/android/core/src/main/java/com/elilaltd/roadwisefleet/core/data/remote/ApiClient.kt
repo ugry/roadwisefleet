@@ -127,21 +127,51 @@ class ApiClient(
      */
     override suspend fun login(email: String, password: String): ApiResult<PasswordLogin> {
         val body = JSONObject().put("email", email).put("password", password)
-        return request("POST", "/api/auth/login", body.toString()).map { response ->
-            val json = JSONObject(response)
-            val user = json.getJSONObject("user")
-            PasswordLogin(
-                token = json.getString("token"),
-                user = AuthUser(
-                    id = user.getString("id"),
-                    name = user.optString("name"),
-                    roleId = user.optString("roleId"),
-                    orgId = user.nullableString("orgId"),
-                    locale = user.nullableString("locale"),
-                    lang = user.nullableString("lang"),
-                ),
-            )
+        return request("POST", "/api/auth/login", body.toString()).map(::parseLogin)
+    }
+
+    // --- email one-time codes (board #125) -----------------------------------
+
+    /**
+     * Ask the server to mail a 6-digit sign-in code. The response is deliberately
+     * generic on the server (no account enumeration), so the app always enters
+     * the code screen and offers a resend after the server's 60 s gap.
+     */
+    override suspend fun requestEmailCode(email: String): ApiResult<Unit> {
+        val body = JSONObject().put("email", email)
+        return request("POST", "/api/auth/otp/email/request", body.toString()).map { }
+    }
+
+    /** Redeem the emailed code; success carries the same shape as [login]. */
+    override suspend fun verifyEmailCode(email: String, code: String): ApiResult<PasswordLogin> {
+        val body = JSONObject().put("email", email).put("code", code)
+        return request("POST", "/api/auth/otp/email/verify", body.toString()).map(::parseLogin)
+    }
+
+    /** Whether the server has an email sender configured (fails open = true). */
+    override suspend fun emailOtpAvailable(): ApiResult<Boolean> =
+        request("GET", "/api/auth/otp/email/status", null).map { response ->
+            JSONObject(response).optBoolean("configured", true)
         }
+
+    /**
+     * The `{ token, user }` payload shared by `/auth/login` and
+     * `/auth/otp/email/verify` — one parser, so the two paths cannot drift.
+     */
+    private fun parseLogin(response: String): PasswordLogin {
+        val json = JSONObject(response)
+        val user = json.getJSONObject("user")
+        return PasswordLogin(
+            token = json.getString("token"),
+            user = AuthUser(
+                id = user.getString("id"),
+                name = user.optString("name"),
+                roleId = user.optString("roleId"),
+                orgId = user.nullableString("orgId"),
+                locale = user.nullableString("locale"),
+                lang = user.nullableString("lang"),
+            ),
+        )
     }
 
     /**

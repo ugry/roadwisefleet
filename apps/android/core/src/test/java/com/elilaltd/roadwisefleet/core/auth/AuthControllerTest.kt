@@ -35,9 +35,14 @@ class AuthControllerTest {
         var verifyResult: ApiResult<DeviceSession> =
             ApiResult.Ok(DeviceSession("device-token", "u1", "cred-1"))
         var revokeResult: ApiResult<Unit> = ApiResult.Ok(Unit)
+        var requestCodeResult: ApiResult<Unit> = ApiResult.Ok(Unit)
+        var verifyCodeResult: ApiResult<PasswordLogin> =
+            ApiResult.HttpFailure(401, "invalid_code")
 
         val logins = mutableListOf<Pair<String, String>>()
         val revoked = mutableListOf<String>()
+        val codeRequests = mutableListOf<String>()
+        val codeVerifications = mutableListOf<Pair<String, String>>()
 
         override suspend fun login(email: String, password: String): ApiResult<PasswordLogin> {
             logins += email to password
@@ -62,6 +67,18 @@ class AuthControllerTest {
             revoked += credentialId
             return revokeResult
         }
+
+        override suspend fun requestEmailCode(email: String): ApiResult<Unit> {
+            codeRequests += email
+            return requestCodeResult
+        }
+
+        override suspend fun verifyEmailCode(email: String, code: String): ApiResult<PasswordLogin> {
+            codeVerifications += email to code
+            return verifyCodeResult
+        }
+
+        override suspend fun emailOtpAvailable(): ApiResult<Boolean> = ApiResult.Ok(true)
     }
 
     private class FakeKeys(private val available: Boolean = true) : DeviceKeyMaterial {
@@ -234,6 +251,142 @@ class AuthControllerTest {
         assertEquals(AuthRules.ERROR_REQUIRED, auth.signIn("   ", "secret"))
         assertEquals(AuthRules.ERROR_REQUIRED, auth.signIn("dana@example.com", ""))
         assertTrue(api.logins.isEmpty())
+    }
+
+    // --- email one-time codes (board #125) -----------------------------------
+
+    @Test
+    fun `requesting a code opens the code screen without touching the session`() = runTest {
+        val api = FakeApi()
+        val session = MemorySession()
+        val auth = controller(api, session)
+
+        val error = auth.requestCode("  dana@example.com ")
+
+        assertNull(error)
+        assertEquals(listOf("dana@example.com"), api.codeRequests)
+        assertEquals(AuthState.CodeEntry("dana@example.com", AuthRules.NOTICE_CODE_SENT), auth.state.value)
+        assertNull(session.token)
+    }
+
+    @Test
+    fun `an empty or malformed address sends no request`() = runTest {
+        val api = FakeApi()
+        val auth = controller(api, MemorySession())
+
+        assertEquals(AuthRules.ERROR_REQUIRED, auth.requestCode("   "))
+        assertEquals(AuthRules.ERROR_CODE_EMAIL, auth.requestCode("not-an-email"))
+        assertTrue(api.codeRequests.isEmpty())
+    }
+
+    @Test
+    fun `a code login persists the session, registers the device and opens the shell`() = runTest {
+        val api = FakeApi().apply { verifyCodeResult = ApiResult.Ok(PasswordLogin("otp-token", driver)) }
+        val session = MemorySession()
+        val auth = controller(api, session)
+        auth.requestCode("dana@example.com")
+
+        val error = auth.verifyCode("dana@example.com", "123456")
+
+        assertNull(error)
+        assertEquals(listOf("dana@example.com" to "123456"), api.codeVerifications)
+        assertEquals("otp-token", session.token)
+        assertEquals("cred-1", session.credentialId)
+        assertEquals(AuthState.SignedIn(driver), auth.state.value)
+    }
+
+    @Test
+    fun `a wrong code stays on the code screen and persists nothing`() = runTest {
+        val api = FakeApi().apply { verifyCodeResult = ApiResult.HttpFailure(401, "invalid_code") }
+        val session = MemorySession()
+        val auth = controller(api, session)
+        auth.requestCode("dana@example.com")
+
+        val error = auth.verifyCode("dana@example.com", "000000")
+
+        assertEquals(AuthRules.ERROR_CODE, error)
+        assertNull(session.token)
+        assertNull(session.credentialId)
+        assertEquals(AuthState.CodeEntry("dana@example.com", AuthRules.NOTICE_CODE_SENT), auth.state.value)
+    }
+
+    @Test
+    fun `a short code never reaches the server`() = runTest {
+        val api = FakeApi()
+        val auth = controller(api, MemorySession())
+
+        assertEquals(AuthRules.ERROR_CODE, auth.verifyCode("dana@example.com", "12"))
+        assertTrue(api.codeVerifications.isEmpty())
+    }
+
+    @Test
+    fun `the code field keeps only six digits`() = runTest {
+        val api = FakeApi().apply { verifyCodeResult = ApiResult.Ok(PasswordLogin("otp-token", driver)) }
+        val auth = controller(api, MemorySession())
+        auth.requestCode("dana@example.com")
+
+        assertNull(auth.verifyCode("dana@example.com", " 12 34 56 78 "))
+        assertEquals(listOf("dana@example.com" to "123456"), api.codeVerifications)
+    }
+
+    @Test
+    fun `code failures map to their own sentences`() = runTest {
+        val locked = FakeApi().apply { verifyCodeResult = ApiResult.HttpFailure(423, "account_locked") }
+        assertEquals(
+            AuthRules.ERROR_LOCKED,
+            controller(locked, MemorySession()).verifyCode("a@b.co", "123456"),
+        )
+
+        val limited = FakeApi().apply { verifyCodeResult = ApiResult.HttpFailure(429, "rate_limited") }
+        assertEquals(
+            AuthRules.ERROR_RATE_LIMITED,
+            controller(limited, MemorySession()).verifyCode("a@b.co", "123456"),
+        )
+
+        val offline = FakeApi().apply { verifyCodeResult = ApiResult.NetworkFailure("offline") }
+        assertEquals(
+            AuthRules.ERROR_NETWORK,
+            controller(offline, MemorySession()).verifyCode("a@b.co", "123456"),
+        )
+
+        val broken = FakeApi().apply { verifyCodeResult = ApiResult.HttpFailure(503, "http_error") }
+        assertEquals(
+            AuthRules.ERROR_SERVER,
+            controller(broken, MemorySession()).verifyCode("a@b.co", "123456"),
+        )
+    }
+
+    @Test
+    fun `a code login for a non-driver role is refused and registers no device`() = runTest {
+        val owner = AuthUser("u2", "Olivia Owner", "owner", "org1")
+        val api = FakeApi().apply { verifyCodeResult = ApiResult.Ok(PasswordLogin("owner-token", owner)) }
+        val session = MemorySession()
+        val auth = controller(api, session)
+        auth.requestCode("owner@example.com")
+
+        assertEquals(AuthRules.ERROR_NOT_DRIVER, auth.verifyCode("owner@example.com", "123456"))
+        assertNull(session.token)
+        assertNull(session.credentialId)
+        assertTrue(api.revoked.isEmpty())
+    }
+
+    @Test
+    fun `cancelling the code screen returns to login`() = runTest {
+        val auth = controller(FakeApi(), MemorySession())
+        auth.requestCode("dana@example.com")
+
+        auth.cancelCode()
+
+        assertEquals(AuthState.SignedOut(), auth.state.value)
+    }
+
+    @Test
+    fun `a rate-limited code request maps to the shared sentence`() = runTest {
+        val api = FakeApi().apply { requestCodeResult = ApiResult.HttpFailure(429, "rate_limited") }
+        val auth = controller(api, MemorySession())
+
+        assertEquals(AuthRules.ERROR_RATE_LIMITED, auth.requestCode("dana@example.com"))
+        assertEquals(AuthState.Restoring, auth.state.value)
     }
 
     @Test
