@@ -369,10 +369,10 @@ export async function customerRoutes(app: FastifyInstance) {
   // ------------------------------------------------------------- orders ---
 
   /**
-   * The book-a-load wizard. A bookable supply choice creates the Order **and**
-   * the DRAFT Trip in the carrier org (diagram 01 confirms the trip on award, so
-   * the fleet manager can dispatch immediately); a marketplace choice answers
-   * with the honest phase notice and creates nothing.
+   * The book-a-load wizard. A direct supply choice creates the Order and the
+   * DRAFT Trip in the customer's org; a marketplace choice (live since #78)
+   * creates the Order, its OrderBooking and a LoadPosting the carriers bid on —
+   * the award creates the trip in the carrier org (#100).
    */
   app.post('/customer/orders', { preHandler: auth }, async (req, reply) => {
     const resolved = await resolveCustomer(req);
