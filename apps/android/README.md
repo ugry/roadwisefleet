@@ -30,15 +30,40 @@ JVM unit tests pin them without a device. API side: `POST /api/trips/:id/gps`
 plus the SSE streams. Trade-offs and the battery note:
 [`docs/android-architecture.md`](../../docs/android-architecture.md) §9c.
 
+## Sign-in and auth gate (A2 reopen, board #104)
+
+The app opens on the **login screen**, never on the shell. `MainActivity`
+composes `AuthController` (`:core`) and renders `LoginScreen` until a driver
+session exists; the shell is only reachable from `AuthState.SignedIn`.
+
+- First run: `POST /api/auth/login` (email + password, inline 401/423/network
+  errors, no self-signup or reset). A non-driver role is refused with "use the
+  fleet web app" and the session is cleared.
+- On success: the Keystore EC P-256 key is created (first use) and
+  `POST /api/auth/device/register` binds it; `credentialId` + device label are
+  persisted. Registration failure keeps the password session and shows a
+  non-blocking notice.
+- Relaunch with a `credentialId`: challenge -> sign -> verify, no password.
+  A revoked/expired credential is cleared and the login screen returns.
+- More > Sign out: best-effort `POST /api/auth/device/revoke`, then the token,
+  credential and user fields are removed and the login screen returns. The
+  language choice is kept.
+
+Contract and threat notes: `docs/android-architecture.md` §9a/§9a.1; flow:
+`diagrams/17-android-auth-flow.mmd`. JVM tests: `AuthRulesTest`,
+`AuthControllerTest`; on-device: `KeystoreDeviceKeyMaterialInstrumentedTest`.
+
 ## Build
 
-The estate has no local JDK/Android SDK (see the ADR), so **CI is the build
-source of truth**. `.github/workflows/android-release.yml` builds
+**CI is the build source of truth** (`.github/workflows/android-release.yml`),
+but the developer host now also has a toolchain: JDK 21, Gradle 8.14.3 and the
+Android SDK (platforms 35/36/37) — enough to run the debug build and the JVM
+unit tests locally. `.github/workflows/android-release.yml` builds
 `./gradlew --no-daemon assembleDebug` for any PR touching `apps/android/**` and
 uploads `apps/android/app/build/outputs/apk/debug/app-debug.apk` as the
 `android-release` artifact.
 
-On a machine that does have a toolchain (JDK 17+ + Android SDK platform 36):
+Locally (or on any machine with JDK 21 + Android SDK platform 36):
 
 ```sh
 cd apps/android
@@ -49,10 +74,12 @@ cd apps/android
 
 ## i18n
 
-The four catalogues under `core/src/main/assets/locales/` are byte-identical
-copies of `pilot/locales/{en,de,pl,tr}.json` (board task #6), so a key the app
-uses always has the pilot's translation. `tools/check-locales.mjs` proves the
-copies have not drifted and that the four catalogues share one key set:
+The four catalogues under `core/src/main/assets/locales/` are a **superset** of
+`pilot/locales/{en,de,pl,tr}.json` (board task #6): every pilot key is copied
+verbatim, and the app-only chrome (`nav.*`, `auth.*`, `driver.sos*`,
+`driver.shell.*`) is added on top in all four languages.
+`tools/check-locales.mjs` proves the copies have not drifted and that the four
+catalogues share one app-only key set:
 
 ```sh
 node apps/android/tools/check-locales.mjs

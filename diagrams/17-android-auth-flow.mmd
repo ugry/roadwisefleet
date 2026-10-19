@@ -1,0 +1,25 @@
+flowchart TD
+    A(["Driver opens the app"]) --> B{"Device credential<br/>stored on this phone?"}
+    B -->|"No — first run"| C["Login screen<br/>email + password"]
+    C --> D{"POST /api/auth/login"}
+    D -->|"401 invalid / 423 locked / network"| C1["Show inline error<br/>stay on login"]
+    C1 --> C
+    D -->|"200 token + user"| E{"Role is driver<br/>or solo_driver?"}
+    E -->|"No"| E1["Explain: use the fleet web app<br/>clear the session"]
+    E1 --> C
+    E -->|"Yes"| F["Generate EC P-256 keypair<br/>in the Android Keystore"]
+    F --> G["POST /api/auth/device/register<br/>(bearer token)"]
+    G -->|"201 credentialId"| H["Persist token + credentialId<br/>+ device label"]
+    G -->|"Keystore/API failure"| H2["Keep the password session<br/>show a non-blocking notice"]
+    H --> I["Driver shell<br/>5 tabs + SOS"]
+    H2 --> I
+    B -->|"Yes"| J["POST /api/auth/device/challenge"]
+    J --> K["Sign the nonce in the Keystore"]
+    K --> L["POST /api/auth/device/verify"]
+    L -->|"200 token"| I
+    L -->|"401 / 403 / revoked / expired"| M["Clear the credential<br/>ask for a password login"]
+    M --> C
+    I --> N["More > Sign out"]
+    N --> O["POST /api/auth/device/revoke<br/>(best effort)"]
+    O --> P["Clear session + credentialId"]
+    P --> C
