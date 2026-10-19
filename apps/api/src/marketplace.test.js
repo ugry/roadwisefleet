@@ -641,6 +641,29 @@ test('carrierOutcomeNotifications reads the win/decline off the offer status', (
   assert.deepEqual(market.carrierOutcomeNotifications(null), []);
 });
 
+// QA #112: the award notice is documented as "the win (with the trip)", so it
+// must carry the trip id the award transaction wrote onto the load.
+test('an awarded carrier notice carries the trip the award created (#112)', () => {
+  const offers = [
+    { id: 'o-win', loadId: 'l-win', status: 'ACCEPTED' },
+    { id: 'o-lost', loadId: 'l-lost', status: 'DECLINED' },
+  ];
+  const loads = [
+    { id: 'l-win', tripId: 'trip-123', awardedOfferId: 'o-win' },
+    { id: 'l-lost', tripId: null },
+  ];
+  const notes = market.carrierOutcomeNotifications(offers, loads);
+  const awarded = notes.find((n) => n.kind === 'awarded');
+  assert.equal(awarded.loadId, 'l-win');
+  assert.equal(awarded.offerId, 'o-win');
+  assert.equal(awarded.tripId, 'trip-123', 'the awarded notice must link to the trip');
+  const declined = notes.find((n) => n.kind === 'declined');
+  assert.equal(declined.tripId, null, 'a declined bid never created a trip');
+  // A missing/unknown load row degrades to null, never to a crash or a stale id.
+  const orphan = market.carrierOutcomeNotifications([{ id: 'o1', loadId: 'gone', status: 'ACCEPTED' }], []);
+  assert.equal(orphan[0].tripId, null);
+});
+
 test('buildLoadPostingData downgrades an instant load with no price to quotes', () => {
   const build = market.buildLoadPostingData(
     { origin: 'A', destination: 'B', cargo: 'x', equipment: 'reefer', loadReadyAt: null, deliverByAt: null, pricingMode: 'instant', budgetEur: null },
