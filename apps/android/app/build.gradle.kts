@@ -1,4 +1,6 @@
 // :app — the RoadwiseFleet driver application (board #103, AND1-A1).
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -15,15 +17,20 @@ if (file("google-services.json").exists()) {
 }
 
 android {
+    // The Kotlin package stays com.elilaltd.roadwisefleet.driver: the Play
+    // identity is the applicationId, not the namespace (board #122).
     namespace = "com.elilaltd.roadwisefleet.driver"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.elilaltd.roadwisefleet.driver"
+        // Board #122: the Play Console has exactly one app, com.roadwisefleet.
+        // An upload whose applicationId differs is rejected as a new app.
+        applicationId = "com.roadwisefleet"
         // Android 7.0: the cheapest handsets the pilot drivers carry still run
-        // it; the app targets the current SDK for Play policy compliance.
+        // it; the app targets the current SDK for Play policy compliance
+        // (Android 16 / API 36 is the Play target-API floor from 2026-08-31).
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-a1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -70,6 +77,20 @@ android {
     }
 }
 
+// Board #122: Robolectric only supports Android 16 (SDK 36) on Java 21 — its
+// `android-all-instrumented-16-robolectric-…` jar is compiled for 21 and
+// DefaultSdkProvider refuses it on older runtimes ("Failed to create a
+// Robolectric sandbox: Android SDK 36 requires Java 21"). The build itself stays
+// on the Java 17 target above; only the test JVM is launched on a 21 toolchain,
+// provisioned by the foojay resolver declared in settings.gradle.kts.
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(
+        javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(21))
+        }
+    )
+}
+
 dependencies {
     implementation(project(":core"))
 
@@ -103,9 +124,10 @@ dependencies {
     // UNRUN until the CI instrumented job #113 lands; nothing here changes the
     // debug build. kotlinx-coroutines-test comes from the existing catalog
     // (1.9.0) to match the module's coroutines version, not the README's 1.8.1.
-    // 4.14.1, not 4.13: this module targets SDK 35 and Robolectric added SDK-35
-    // support in 4.14; 4.13's DefaultSdkPicker rejects targetSdkVersion=35.
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    // 4.16.1, not 4.14.1: board #122 moved targetSdk to 36 and Robolectric added
+    // SDK-36 support in 4.16; an older DefaultSdkPicker rejects targetSdkVersion
+    // > its max SDK ("Package targetSdkVersion=36 > maxSdkVersion=35").
+    testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.work:work-testing:2.9.1")
     testImplementation(libs.kotlinx.coroutines.test)

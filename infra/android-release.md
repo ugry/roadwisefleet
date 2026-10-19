@@ -111,7 +111,8 @@ Owner/operator steps (I hold no Play account and no ability to create one):
 
 1. **Play Console account** — owner, one-off registration fee (owner stated
    EUR 25; Google charges USD 25, receipt confirms).
-2. **App entry** — package `com.elilaltd.roadwisefleet.driver`; app id pairs
+2. **App entry** — package `com.roadwisefleet` (board #122; the Kotlin namespace
+   stays `com.elilaltd.roadwisefleet.driver`); app id pairs
    with board #104's device-auth work.
 3. **Play App Signing** — accept it; the CI keystore is then the *upload* key.
 4. **Service account** — Google Cloud project → enable the *Google Play Android

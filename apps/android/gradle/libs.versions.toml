@@ -1,12 +1,13 @@
 # Version catalog for the RoadwiseFleet driver app (board #103).
 #
-# Pinned to a mutually compatible, widely used set: AGP 8.7.x requires Gradle
-# 8.9+ (the wrapper pins Gradle 8.9) and supports compileSdk 35; Kotlin 2.0.21
-# uses the built-in Compose compiler plugin, so no kotlinCompilerExtensionVersion
-# is needed. AndroidX/Compose versions come from the Compose BOM.
+# Board #122 (release alignment): AGP 8.9.2 supports compileSdk/targetSdk 36
+# (Android 16) and needs Gradle 8.11.1+ — the wrapper pins the 8.14.3 the estate
+# provisions. Kotlin 2.0.21 is unchanged: it uses the built-in Compose compiler
+# plugin and AGP 8.9 stays compatible with it. AndroidX/Compose versions come
+# from the Compose BOM.
 
 [versions]
-agp = "8.7.2"
+agp = "8.9.2"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.25"
 coreKtx = "1.15.0"

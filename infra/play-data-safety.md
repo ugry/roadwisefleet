@@ -21,7 +21,7 @@ ship without this declaration changing in the same PR.
 ## 1. Scope
 
 The Play form describes the **Android driver app**
-(`com.elilaltd.roadwisefleet.driver`). The web surfaces (`/pilot/`, `/app/`,
+(`com.roadwisefleet`, board #122). The web surfaces (`/pilot/`, `/app/`,
 `/c/`, `/s/`) are not part of the APK's declaration, but they hit the same
 backend and the same database; §4 records where the data is stored so the privacy
 policy (§5, B-P1) can describe both.

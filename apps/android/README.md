@@ -1,6 +1,8 @@
 # RoadwiseFleet driver app (`apps/android/`)
 
-Native Android driver app — Kotlin + Jetpack Compose, package
+Native Android driver app — Kotlin + Jetpack Compose. The Play identity
+(`applicationId`) is `com.roadwisefleet`, matching the existing Play Console app
+(board #122); the Kotlin namespace and package names stay
 `com.elilaltd.roadwisefleet.driver`. This directory is the **A1 scaffold**
 (board `eila/tasks#103`, epic `#102`): the shell, the offline store, the sync
 engine and the i18n wiring that A2–A5 build on.
@@ -36,11 +38,12 @@ source of truth**. `.github/workflows/android-release.yml` builds
 uploads `apps/android/app/build/outputs/apk/debug/app-debug.apk` as the
 `android-release` artifact.
 
-On a machine that does have a toolchain (JDK 17 + Android SDK):
+On a machine that does have a toolchain (JDK 17+ + Android SDK platform 36):
 
 ```sh
 cd apps/android
 ./gradlew --no-daemon assembleDebug   # debug APK
+./gradlew --no-daemon bundleRelease   # AAB the Play upload consumes
 ./gradlew --no-daemon test            # JVM unit tests (:core domain rules)
 ```
 
