@@ -514,8 +514,11 @@ async function mintTrackLink() {
 /* ---------------------------------------------------------------- book --- */
 
 function choiceCard(choice, checked) {
+  // Board task #78 made the marketplace path live (the load is posted and
+  // carriers bid), so the card says what it does instead of the retired
+  // "opens with UXF-M1" phase flag (#100).
   const flag = choice.marketplace
-    ? '<span class="choice-flag">' + esc(t('book.pendingFlag')) + '</span>'
+    ? '<span class="choice-flag">' + esc(t('book.marketplaceFlag')) + '</span>'
     : '';
   return (
     '<label class="choice">' +

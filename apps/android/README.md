@@ -49,7 +49,22 @@ session exists; the shell is only reachable from `AuthState.SignedIn`.
   credential and user fields are removed and the login screen returns. The
   language choice is kept.
 
-Contract and threat notes: `docs/android-architecture.md` §9a/§9a.1; flow:
+### Email code sign-in (board #125)
+
+- **Email me a code** on the login screen asks the server to mail a 6-digit
+  code, then `EmailCodeScreen` takes the code with a local resend countdown
+  (the server enforces a 60 s gap). Success goes through the SAME post-login
+  path as a password (`AuthController.completeSignIn`): role gate, session,
+  Keystore registration, shell. A wrong digit keeps the driver on the code
+  screen.
+- The button is hidden when `GET /api/auth/otp/email/status` reports
+  `configured: false` — i.e. until #124 puts the SMTP credential on the host.
+  The app never holds an SMTP credential.
+- **Continue with WhatsApp** is compiled in only with
+  `-Proadwisefleet.whatsappOtp=true` (default off) and calls nothing until the
+  #124 provider exists.
+
+Contract and threat notes: `docs/android-architecture.md` §9a/§9a.1/§9a.2; flow:
 `diagrams/17-android-auth-flow.mmd`. JVM tests: `AuthRulesTest`,
 `AuthControllerTest`; on-device: `KeystoreDeviceKeyMaterialInstrumentedTest`.
 

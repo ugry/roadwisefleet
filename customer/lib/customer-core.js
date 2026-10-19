@@ -18,11 +18,11 @@
  * pilot targets cheap Android WebViews.
  *
  * Supply choice (the owner's first requirement: the customer chooses how to
- * ship). Two of the five paths are bookable today — a carrier that is already on
- * RoadwiseFleet (own carrier, direct booking) and one that is not (off-platform,
- * job link). The marketplace paths (find a fleet / find a solo driver /
- * auto-match / recurring contract) are reachable and explained, and return an
- * honest "marketplace opens with UXF-M1 (#76)" answer instead of a dead end.
+ * ship). Two paths create the DRAFT Trip directly — a carrier that is already on
+ * RoadwiseFleet (own carrier) and one that is not (off-platform job link). The
+ * marketplace paths (find a fleet / find a solo driver / auto-match / recurring
+ * contract) are live since #78: they post the Order plus a LoadPosting the
+ * carriers bid on, and the award creates the trip in the carrier org (#100).
  */
 
 /**
@@ -43,13 +43,10 @@ export const CUSTOMER_ROLE = 'customer';
  */
 export const CUSTOMER_PERMISSIONS = ['order:create', 'order:read', 'customer:manage'];
 
-/** The marketplace task that unblocks the fleet/solo/auto/recurring paths. */
-export const MARKETPLACE_TASK = 'UXF-M1 (#76)';
-
 /**
  * The five supply choices of diagram 01 stage 3, in the order the wizard
- * offers them. `bookable` = the path creates an Order today; the rest answer
- * with `marketplaceNotice()` and offer the fallback.
+ * offers them. `bookable` = the path creates the DRAFT Trip directly; a
+ * marketplace choice posts a LoadPosting instead and is awarded a trip (#78).
  */
 export const SUPPLY_CHOICES = [
   {
@@ -249,23 +246,6 @@ export function isBookableChoice(id) {
 export function isMarketplaceChoice(id) {
   const info = supplyChoiceInfo(id);
   return Boolean(info && info.marketplace);
-}
-
-/**
- * What the API answers for a marketplace path: not an error, not a dead end —
- * an honest "this opens with UXF-M1" state the UI explains and offers the
- * bookable fallback for.
- * @param {unknown} id
- * @returns {{ code: string, task: string, i18n: string, fallback: string }|null}
- */
-export function marketplaceNotice(id) {
-  if (!isMarketplaceChoice(id)) return null;
-  return {
-    code: 'marketplace_unavailable',
-    task: MARKETPLACE_TASK,
-    i18n: 'book.marketplacePending',
-    fallback: 'own_carrier'
-  };
 }
 
 /* ------------------------------------------------------------- auto-match --- */

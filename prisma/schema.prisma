@@ -821,3 +821,22 @@ model DeviceChallenge {
 
   @@index([credentialId])
 }
+
+// Email one-time codes (board task #125). The code itself is NEVER stored: only
+// its HMAC (`hash`, keyed from AUTH_SECRET and bound to purpose + address). One
+// row per request; `usedAt` makes a code single-use, `attempts` caps guessing,
+// and `expiresAt` bounds a leaked code. `purpose` separates sign-in codes from
+// email confirmation codes, so one can never be redeemed as the other.
+model EmailOtp {
+  id        String    @id @default(cuid())
+  email     String
+  purpose   String // login | verify
+  hash      String // HMAC-SHA256 hex of purpose:email:code
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email, purpose, createdAt])
+  @@index([expiresAt])
+}

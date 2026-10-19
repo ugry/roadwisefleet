@@ -38,6 +38,10 @@ android {
         // The API the driver app talks to. Overridable per build; never a secret.
         buildConfigField("String", "API_BASE_URL", "\"https://roadwisefleet.com\"")
         buildConfigField("String", "LOCALE_ASSET_DIR", "\"locales\"")
+        // Board #125: WhatsApp OTP is hidden unless the provider is ready
+        // (#124). Enable per build with -Proadwisefleet.whatsappOtp=true.
+        val whatsappOtp = (project.findProperty("roadwisefleet.whatsappOtp") as String?) ?: "false"
+        buildConfigField("boolean", "WHATSAPP_OTP_ENABLED", whatsappOtp)
     }
 
     buildTypes {
