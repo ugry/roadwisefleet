@@ -462,6 +462,20 @@ if (!ready) {
     assert.equal(parent?.status, 'COUNTERED');
   });
 
+  test('the winning carrier award notice links to the trip (QA #112)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/marketplace/offers/mine',
+      headers: bearer(carrier),
+    });
+    assert.equal(res.statusCode, 200, res.payload);
+    const notices = res.json().notifications as Array<{ kind: string; offerId: string; loadId: string; tripId: string | null }>;
+    const won = notices.find((note) => note.kind === 'awarded' && note.offerId === carrierCounterId);
+    assert.ok(won, 'the winning carrier gets an award notice');
+    assert.equal(won?.loadId, loadId);
+    assert.equal(won?.tripId, awardedTripId, 'the notice must name the trip the award created');
+  });
+
   test('the awarded load appears in the carrier fleet-manager trips list', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/trips', headers: bearer(carrier) });
     assert.equal(res.statusCode, 200, res.payload);
