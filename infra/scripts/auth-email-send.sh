@@ -175,7 +175,13 @@ valid_address() {
   local a="$1"
   # Deliberately no backtick, quote or whitespace: an address that cannot be
   # header-injected is the only kind this test sender accepts.
-  [[ "$a" =~ ^[A-Za-z0-9.!#%+&*+/=?^_{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]]
+  #
+  # The pattern must live in a variable. Written inline, the `&` that is a legal
+  # local-part character is a bash parse error inside `[[ ... =~ ... ]]`
+  # ("syntax error in conditional expression: unexpected token `&'") and takes
+  # the entire script down before any mode runs — board #124, run 39283581324.
+  local re='^[A-Za-z0-9.!#%+&*+/=?^_{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'
+  [[ "$a" =~ $re ]]
 }
 
 valid_host() {
