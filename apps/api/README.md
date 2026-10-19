@@ -96,6 +96,8 @@ quick-job validation, the saved-search filter and the wallet-lite read model)
 and the `/s/` static-serving rules, the two-sided review rules (the
 at-most-one-per-10 completed actions sampling cap and the random draw, the
 reveal rule, both directions and the read-only aggregate — board task #98), the
+fleet self-serve customer lane (quick-add and manual-order validation, the
+repeat-order copy and its browser view-model — board task #120), the
 self-service registration
 rules and their fixed-window rate limiter (board task #86 — the same validation
 the browser and `POST /api/auth/register` share), locale
@@ -210,6 +212,9 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/drivers` | bearer, `trip:create` | active org drivers (`id`, `name`, `phone`) |
 | `GET /api/trucks` | bearer, `trip:create` | org trucks (`id`, `plate`, `dimensions`, `euroClass`) |
 | `GET /api/customers` | bearer, `trip:create` | org customers (`id`, `name`) |
+| `GET /api/fleet/customers` | bearer, `trip:create` | the `/app/customers` list: the org's customers with `email`, `whatsappId`, `lang`, `orderCount` and `createdAt`, plus the `equipment` vocabulary the order form offers (board task #120) |
+| `POST /api/fleet/customers` | bearer, `trip:create` | quick-add a customer in the caller's org (`name` required; optional `email`, `whatsappId`/`phone`, `lang` en/de/pl/tr) → `201 { customer }`; validation is a `400` naming the field, never a `500` (board task #120) |
+| `POST /api/orders` | bearer, `trip:create` | create the fleet's own manual order for one of its customers: `{ customerId, origin, destination, cargo?, plannedAt?, equipment?, notes? }` → `201 { order }` with an `OrderBooking` (`supplyChoice: "fleet"`), status `BOOKED`; with `repeatOf` it copies that order into a **new** order (optional field overrides). A customer/order from another org is a flat `404` (board task #120) |
 | `POST /api/trips/:id/documents` | bearer, `trip:*` or `pod:upload` + assigned driver | upload a document as JSON base64 (`docType`, `filename`, `mimeType`, `dataBase64`, plus the optional driver capture `capturedAt` + `geo`); stored under `UPLOAD_DIR` with a generated `storageKey`, row `PENDING` → `UPLOADED`; `400` on a bad type/mime/size or a malformed capture (`invalid_capture`), `403` on the wrong role |
 | `GET /api/trips/:id/documents` | bearer, `trip:*` or `trip:read` + assigned driver | the trip's document checklist (`id`, `docType`, `status`, `uploadedAt`, `expiresAt`, `capturedAt`, `capture` — never the `storageKey`) |
 | `PATCH /api/documents/:id` | bearer, `trip:*` | set a document to `VERIFIED` or `REJECTED`; any other status is `400 invalid_status`, a foreign-org document is `404` |
@@ -616,6 +621,32 @@ Behaviour:
   `detail`. A new trip is created as `DRAFT`; assigning and moving it is the
   trip-detail/status flow, and delivery writes `Trip.deliveredAt` (board task #66).
   **Not in this task:** required-document selection (the F6 documents UI, board #37).
+
+- **Self-serve fleet customers (board task #120, UXF-O3 lane 1).**
+  `/app/customers` is the missing lane-1 build from the run-5 UXF report: the
+  fleet's **own** customers, who book directly and never join the platform.
+  The screen lists them (`GET /api/fleet/customers`, org-scoped, with contact,
+  language and order count), quick-adds one (`POST /api/fleet/customers`) and
+  books their work as a **manual order** (`POST /api/orders`) — an `Order` plus
+  an `OrderBooking` with `supplyChoice: "fleet"`, status `BOOKED`, never a
+  marketplace posting. Any existing order can be repeated: the server copies
+  the source customer/lane/cargo/equipment into a **new** order (`repeatOf`),
+  with explicit field overrides. Tenancy is the token's `org` claim throughout:
+  a customer or order from another fleet is a flat `404` (no existence leak),
+  and both writes are gated on `trip:create` (a driver gets `403`). Validation
+  is shared with the browser (`src/fleet-customers.js` + `app/lib/customers.js`),
+  so the form refuses an obviously invalid submit before a request leaves and
+  maps every server failure to a catalogue message. **Not in this task:** the
+  invite-to-portal step — the only invite flow (`POST /api/customer/team`)
+  requires an existing customer-account principal, so a fleet cannot call it;
+  wiring a fleet-side invite is an owner/provider decision (board #75/#79), and
+  no mailer is invented here.
+
+Tests: `src/fleet-customers.test.js` + `src/customers-view.test.js` run in the
+no-install CI job; `test/fleet-customer-lane.test.ts` adds the HTTP +
+database checks (201/4xx, auth, role, **tenant isolation**, repeat) under
+`pnpm test:router`; `scratch/verify-customers-view.js` drives the rendered
+screen.
 
 Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/menus.test.js` +
 `src/dispatch-form.test.js` + `src/assign-form.test.js` + `src/documents-ui.test.js`

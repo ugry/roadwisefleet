@@ -196,9 +196,13 @@
     },
     {
       id: 'customers',
+      // Implemented by board task #120 (UXF-O3 lane 1): the fleet's own
+      // customers — quick-add, manual order and repeat — off-platform people
+      // who never join the platform. app.js renders the screen.
       path: '/app/customers',
       i18n: 'nav.customers',
       roles: ['owner', 'dispatcher'],
+      view: 'customers',
       task: null
     },
     {
@@ -528,6 +532,11 @@
     // app.js; the core only supplies the title and an honest loading body.
     if (route.view === 'dispatch') {
       return { title: translate('nav.dispatch'), body: translate('common.loading'), task: null };
+    }
+    // Implemented view (board task #120, UXF-O3 lane 1): the fleet's own
+    // customers — quick-add and manual order/repeat.
+    if (route.view === 'customers') {
+      return { title: translate('nav.customers'), body: translate('common.loading'), task: null };
     }
     // Implemented view (board task #37, F6): the documents workspace list.
     if (route.view === 'documents') {
