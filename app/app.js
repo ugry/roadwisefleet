@@ -1962,7 +1962,14 @@
     }
     var submit = custNode(outlet, 'orderSubmit');
     if (submit) submit.disabled = customersState.rows.length === 0;
-    if (!customersState.rows.length) custMessage(outlet, 'orderMessage', 'customers.noCustomers');
+    var orderMessage = custNode(outlet, 'orderMessage');
+    if (!customersState.rows.length) {
+      custMessage(outlet, 'orderMessage', 'customers.noCustomers');
+    } else if (orderMessage && orderMessage.textContent === T('customers.noCustomers')) {
+      // The "add a customer first" hint is stale once one exists; a real
+      // success message is left alone.
+      custMessage(outlet, 'orderMessage', null);
+    }
   }
 
   function fillEquipmentOptions(outlet) {
