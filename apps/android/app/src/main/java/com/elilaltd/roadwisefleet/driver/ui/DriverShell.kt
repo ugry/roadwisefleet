@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Language
@@ -22,6 +23,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,18 +44,29 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.elilaltd.roadwisefleet.core.i18n.Catalog
 import com.elilaltd.roadwisefleet.core.i18n.Translator
+import com.elilaltd.roadwisefleet.core.model.AuthUser
 import com.elilaltd.roadwisefleet.core.model.TripStatus
 import com.elilaltd.roadwisefleet.driver.di.LocalAppContainer
+import com.elilaltd.roadwisefleet.driver.ui.auth.MoreScreen
 import com.elilaltd.roadwisefleet.driver.ui.trips.TripsScreen
 import kotlinx.coroutines.launch
 
 /**
  * The one-thumb shell (board #103, AND1-A1): five tabs and an always-visible
  * SOS button, per `docs/ux-flows/03-driver-flow.mmd`.
+ *
+ * Board #104 reopen: the shell is only reachable through `AuthGate`, so a
+ * [user] is always present. The More tab carries the account and Sign out.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DriverShell(translator: Translator) {
+fun DriverShell(
+    translator: Translator,
+    user: AuthUser,
+    versionName: String,
+    noticeKey: String?,
+    onSignOut: suspend () -> Unit,
+) {
     val container = LocalAppContainer.current
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -85,37 +98,56 @@ fun DriverShell(translator: Translator) {
             )
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = DriverDestination.Trips.route,
-            modifier = Modifier.padding(padding),
-        ) {
-            composable(DriverDestination.Trips.route) { TripsScreen(translator) }
-            composable(DriverDestination.Documents.route) {
-                PlaceholderScreen(
-                    title = translator.t("nav.documents"),
-                    body = translator.t("driver.shell.documents.body"),
-                    extra = translator.t("driver.requiredDocuments"),
-                )
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Board #104 reopen: a failed Keystore/device-registration step is a
+            // non-blocking notice, never a failed login or a hidden one.
+            noticeKey?.let { key ->
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = translator.t(key),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
             }
-            composable(DriverDestination.Money.route) {
-                PlaceholderScreen(
-                    title = translator.t("nav.money"),
-                    body = translator.t("driver.shell.money.body"),
-                )
-            }
-            composable(DriverDestination.Messages.route) {
-                PlaceholderScreen(
-                    title = translator.t("nav.messages"),
-                    body = translator.t("driver.shell.messages.body"),
-                )
-            }
-            composable(DriverDestination.More.route) {
-                PlaceholderScreen(
-                    title = translator.t("nav.more"),
-                    body = translator.t("driver.shell.more.body"),
-                )
-            }
+            NavHost(
+                navController = navController,
+                startDestination = DriverDestination.Trips.route,
+                modifier = Modifier.weight(1f),
+            ) {
+                composable(DriverDestination.Trips.route) { TripsScreen(translator) }
+                composable(DriverDestination.Documents.route) {
+                    PlaceholderScreen(
+                        title = translator.t("nav.documents"),
+                        body = translator.t("driver.shell.documents.body"),
+                        extra = translator.t("driver.requiredDocuments"),
+                    )
+                }
+                composable(DriverDestination.Money.route) {
+                    PlaceholderScreen(
+                        title = translator.t("nav.money"),
+                        body = translator.t("driver.shell.money.body"),
+                    )
+                }
+                composable(DriverDestination.Messages.route) {
+                    PlaceholderScreen(
+                        title = translator.t("nav.messages"),
+                        body = translator.t("driver.shell.messages.body"),
+                    )
+                }
+                composable(DriverDestination.More.route) {
+                    MoreScreen(
+                        translator = translator,
+                        user = user,
+                        versionName = versionName,
+                        noticeKey = noticeKey,
+                        onSignOut = { scope.launch { onSignOut() } },
+                    )
+                }
+                }
         }
     }
 

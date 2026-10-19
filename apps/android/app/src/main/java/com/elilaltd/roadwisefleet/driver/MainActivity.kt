@@ -5,11 +5,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import com.elilaltd.roadwisefleet.core.auth.AuthState
 import com.elilaltd.roadwisefleet.driver.di.LocalAppContainer
 import com.elilaltd.roadwisefleet.driver.ui.DriverShell
+import com.elilaltd.roadwisefleet.driver.ui.auth.LoginScreen
+import com.elilaltd.roadwisefleet.driver.ui.auth.RestoringScreen
 import com.elilaltd.roadwisefleet.driver.ui.theme.RoadwiseFleetTheme
 
 class MainActivity : ComponentActivity() {
@@ -25,8 +29,30 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalAppContainer provides container) {
                 val locale by container.localeController.locale.collectAsState()
                 val translator = remember(locale) { container.localeController.translator() }
+                val authState by container.auth.state.collectAsState()
+                // Board #104 reopen: the auth gate. `start()` restores the stored
+                // session, or silently re-authenticates with the device
+                // credential; the shell is never composed before that resolves.
+                LaunchedEffect(Unit) { container.auth.start() }
                 RoadwiseFleetTheme {
-                    DriverShell(translator = translator)
+                    when (val state = authState) {
+                        AuthState.Restoring -> RestoringScreen(translator = translator)
+
+                        is AuthState.SignedOut -> LoginScreen(
+                            translator = translator,
+                            versionName = BuildConfig.VERSION_NAME,
+                            noticeKey = state.noticeKey,
+                            onSignIn = { email, password -> container.auth.signIn(email, password) },
+                        )
+
+                        is AuthState.SignedIn -> DriverShell(
+                            translator = translator,
+                            user = state.user,
+                            versionName = BuildConfig.VERSION_NAME,
+                            noticeKey = state.noticeKey,
+                            onSignOut = { container.auth.signOut() },
+                        )
+                    }
                 }
             }
         }

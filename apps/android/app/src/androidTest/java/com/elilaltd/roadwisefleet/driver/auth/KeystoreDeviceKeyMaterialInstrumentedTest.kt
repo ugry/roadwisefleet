@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -119,6 +120,22 @@ class KeystoreDeviceKeyMaterialInstrumentedTest {
             "a signature over nonce-A must not verify nonce-B",
             !verifier.verify(android.util.Base64.decode(signatureB64, android.util.Base64.NO_WRAP)),
         )
+    }
+
+    @Test
+    // Human label: a cleared Keystore generates a different key (the old credential id is dead).
+    fun a_cleared_keystore_generates_a_different_key_so_an_old_credential_is_dead() {
+        val first = KeystoreDeviceKeyMaterial(alias).publicKeySpkiBase64()
+        assertNotNull(first)
+
+        // Simulates the user clearing app data / losing the Keystore entry: the
+        // stored credentialId can no longer be satisfied, so the gate must fall
+        // back to the password login (AuthController clears the credential).
+        keystore().deleteEntry(alias)
+
+        val second = KeystoreDeviceKeyMaterial(alias).publicKeySpkiBase64()
+        assertNotNull("a new keypair must be generated", second)
+        assertNotEquals("the device must not silently reuse a deleted key", first, second)
     }
 
     @Test

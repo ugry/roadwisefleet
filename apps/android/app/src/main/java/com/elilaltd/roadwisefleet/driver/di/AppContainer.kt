@@ -2,6 +2,9 @@ package com.elilaltd.roadwisefleet.driver.di
 
 import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
+import android.os.Build
+import com.elilaltd.roadwisefleet.core.auth.AuthController
+import com.elilaltd.roadwisefleet.core.auth.AuthRules
 import com.elilaltd.roadwisefleet.core.auth.DeviceAuth
 import com.elilaltd.roadwisefleet.core.auth.DeviceKeyMaterial
 import com.elilaltd.roadwisefleet.core.data.local.RoadwiseDatabase
@@ -42,6 +45,12 @@ class AppContainer(context: Context) {
     // keypair and the challenge -> sign -> verify orchestration.
     val deviceKeys: DeviceKeyMaterial = KeystoreDeviceKeyMaterial()
     val deviceAuth = DeviceAuth(api, deviceKeys)
+    // Board #104 reopen: the login gate. `start()` decides between the login
+    // screen, a passwordless re-login and the shell; it is owned here so the
+    // state survives an Activity recreation.
+    val auth = AuthController(api, deviceAuth, session) {
+        AuthRules.deviceLabel(Build.MANUFACTURER, Build.MODEL)
+    }
     val connectivity = ConnectivityObserver(appContext)
     val repository = TripRepository(api, database.tripDao(), database.outboxDao())
     // Board #106 (AND1-A4): the offline GPS queue, drained by GpsFlushWorker.

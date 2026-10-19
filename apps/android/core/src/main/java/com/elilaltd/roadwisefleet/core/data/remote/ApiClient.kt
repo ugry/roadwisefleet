@@ -1,8 +1,11 @@
 package com.elilaltd.roadwisefleet.core.data.remote
 
+import com.elilaltd.roadwisefleet.core.auth.AuthApi
+import com.elilaltd.roadwisefleet.core.model.AuthUser
 import com.elilaltd.roadwisefleet.core.model.DeviceChallenge
 import com.elilaltd.roadwisefleet.core.model.DeviceRegistration
 import com.elilaltd.roadwisefleet.core.model.DeviceSession
+import com.elilaltd.roadwisefleet.core.model.PasswordLogin
 import com.elilaltd.roadwisefleet.core.model.Trip
 import com.elilaltd.roadwisefleet.core.model.TripDocument
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +37,7 @@ inline fun <T, R> ApiResult<T>.map(transform: (T) -> R): ApiResult<R> = when (th
 class ApiClient(
     private val baseUrl: String,
     private val tokenProvider: () -> String?,
-) {
+) : AuthApi {
     suspend fun driverTrips(): ApiResult<List<Trip>> =
         request("GET", "/api/driver/trips", null).map { body -> parseTrips(body) }
 
@@ -71,7 +74,7 @@ class ApiClient(
      * caller passes the base64 SPKI public key from the Keystore — never a
      * private key.
      */
-    suspend fun registerDevice(
+    override suspend fun registerDevice(
         publicKeyBase64: String,
         algorithm: String,
         deviceLabel: String?,
@@ -91,7 +94,7 @@ class ApiClient(
     }
 
     /** Ask for a single-use nonce to sign (no password). */
-    suspend fun deviceChallenge(credentialId: String): ApiResult<DeviceChallenge> {
+    override suspend fun deviceChallenge(credentialId: String): ApiResult<DeviceChallenge> {
         val body = JSONObject().put("credentialId", credentialId)
         return request("POST", "/api/auth/device/challenge", body.toString()).map { response ->
             val json = JSONObject(response)
@@ -104,7 +107,7 @@ class ApiClient(
     }
 
     /** Exchange a signature over the nonce for a session token. */
-    suspend fun deviceVerify(challengeId: String, signatureBase64: String): ApiResult<DeviceSession> {
+    override suspend fun deviceVerify(challengeId: String, signatureBase64: String): ApiResult<DeviceSession> {
         val body = JSONObject().put("challengeId", challengeId).put("signature", signatureBase64)
         return request("POST", "/api/auth/device/verify", body.toString()).map { response ->
             val json = JSONObject(response)
@@ -114,6 +117,41 @@ class ApiClient(
                 deviceCredentialId = json.getJSONObject("user").nullableString("deviceCredentialId"),
             )
         }
+    }
+
+    // --- password login + sign-out revoke (board #104 reopen) ----------------
+
+    /**
+     * Email + password login. The response carries the same token shape as a
+     * device `verify`, so the caller treats both paths identically.
+     */
+    override suspend fun login(email: String, password: String): ApiResult<PasswordLogin> {
+        val body = JSONObject().put("email", email).put("password", password)
+        return request("POST", "/api/auth/login", body.toString()).map { response ->
+            val json = JSONObject(response)
+            val user = json.getJSONObject("user")
+            PasswordLogin(
+                token = json.getString("token"),
+                user = AuthUser(
+                    id = user.getString("id"),
+                    name = user.optString("name"),
+                    roleId = user.optString("roleId"),
+                    orgId = user.nullableString("orgId"),
+                    locale = user.nullableString("locale"),
+                    lang = user.nullableString("lang"),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Revoke this device on sign-out (best effort). The route requires the
+     * current bearer token, so the caller must invoke it BEFORE clearing the
+     * session.
+     */
+    override suspend fun revokeDevice(credentialId: String): ApiResult<Unit> {
+        val body = JSONObject().put("credentialId", credentialId)
+        return request("POST", "/api/auth/device/revoke", body.toString()).map { }
     }
 
     private suspend fun request(method: String, path: String, body: String?): ApiResult<String> =

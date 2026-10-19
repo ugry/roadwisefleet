@@ -71,13 +71,15 @@ apps/android/
 │       ├── session/SessionStore.kt      # the signed-in driver (+ A2 device credential)
 │       ├── push/                        # PushRegistrar, RoadwiseMessagingService (FCM)
 │       ├── ui/DriverShell.kt            # 5 tabs + always-visible SOS
+│       ├── ui/auth/                     # LoginScreen, MoreScreen (sign out), RestoringScreen
 │       ├── ui/DriverDestination.kt      # the tab registry
 │       ├── ui/trips/TripsScreen.kt      # current trip, next legal status, sync chip
 │       ├── ui/theme/Theme.kt
 │       └── res/                         # values{,-de,-pl,-tr}, themes
 └── core/                        # :core — UI-free domain + data
     └── src/main/java/com/elilaltd/roadwisefleet/core/
-        ├── model/                        # TripStatus, TripCore, models (pure, JVM-tested)
+        ├── model/                        # TripStatus, TripCore, auth/trip models (pure, JVM-tested)
+        ├── auth/                         # AuthController/AuthRules/AuthApi, DeviceAuth (pure rules + seam)
         ├── i18n/                         # Catalog, I18n, Translator, LocaleController
         ├── data/local/                   # Room entities, DAOs, RoadwiseDatabase
         ├── data/remote/ApiClient.kt      # HttpURLConnection, ApiResult
@@ -192,8 +194,9 @@ background-location justification.
   Keystore (StrongBox when available); the private key never leaves the device
   and is never logged; the server stores only the public key (SPKI). Sessions
   are challenge/verify with a single-use, short-TTL nonce; a lost phone is
-  revoked server-side by device credential. A1's `SessionStore` holds the bearer
-  token in private app storage and is the seam A2 replaces.
+  revoked server-side by device credential. `SessionStore` keeps the bearer
+  token, the device `credentialId` and the minimal user fields in private app
+  storage; the password is never persisted.
 - **No secrets in the repo:** the `android-release-check` CI job fails on a
   tracked keystore, a PEM key, a service-account JSON, an inline blob, or a
   signing value not taken from `secrets.`.
@@ -264,6 +267,69 @@ calls `POST /api/auth/device/revoke { credentialId }`; it is idempotent, so the
 call can be retried. After revocation the next `challenge` for that credential
 is refused and the driver signs in on the replacement device with
 password/OTP, which registers a fresh credential.
+
+## 9a.1 Login gate and session lifecycle (#104 reopen)
+
+The app **cannot render the driver shell without a driver session**. The gate
+(`AuthController` in `:core`, composed by `MainActivity`) has three states:
+
+| State | Screen | Entered when |
+| --- | --- | --- |
+| `Restoring` | brand + spinner | app start, while the stored session is read and a device credential (if any) is verified |
+| `SignedOut` | `LoginScreen` | no token, a non-driver refusal, or a device credential that failed/was revoked |
+| `SignedIn` | `DriverShell` | a password login succeeded (role-checked) or the device verify returned a token |
+
+**First run — password login.** `LoginScreen` posts
+`POST /api/auth/login { email, password }` and shows the failure inline:
+`401 -> auth.error.invalid`, `423 -> auth.error.locked`, `429`/`rate_limited`,
+no connection, and `5xx` each have their own sentence. There is no self-signup
+and no password reset (neither is live); the copy points the driver at their
+dispatcher. The password is never stored.
+
+**Role gate.** Only `driver` (fleet) and `solo` (the server's `solo.SOLO_ROLE`)
+may enter; `solo_driver` is accepted as the same account type. Any other role is
+refused with `auth.error.notDriver` ("use the fleet web app"), the session is
+cleared and **no device key is registered** — a fleet manager cannot bind a
+driver shell device to their account. This is a client-side UX gate: every API
+route still authorizes the bearer token server-side, so the gate never replaces
+server authorization.
+
+**Device binding (best effort).** Right after the role check, the app asks
+`KeystoreDeviceKeyMaterial` for the Keystore public key (generating the EC P-256
+keypair on first use) and calls `POST /api/auth/device/register` with
+`{ publicKey, algorithm: "ES256", deviceLabel }`, where the label is
+`"<manufacturer> <model>"` trimmed to the backend's 80 characters. On `201` the
+`credentialId` and label are persisted; on any failure the password session is
+kept and the shell opens with a non-blocking notice
+(`auth.notice.passwordless`). A device whose Keystore is unavailable is never
+locked out.
+
+**Relaunch — passwordless.** With a stored `credentialId`, the gate skips the
+login screen: `POST /auth/device/challenge` -> sign the nonce in the Keystore ->
+`POST /auth/device/verify`. A `401/403/revoked/expired` answer, or a missing
+Keystore key, clears the credential and shows the login screen with
+`auth.notice.signInAgain`. A token without a credential (registration failed at
+login) opens the shell directly — there is nothing to prove, and the server
+still expires the token.
+
+**Sign out.** More > Sign out (confirmed) calls
+`POST /api/auth/device/revoke { credentialId }` **before** clearing, then removes
+the token, `credentialId`, device label and user fields and returns to
+`LoginScreen`. The revoke is best effort: an offline sign-out still clears the
+device and the dispatcher's lost-phone revoke path (§9a) remains available. The
+language choice is deliberately kept.
+
+**Tests.** `AuthRulesTest` pins the role set, the launch decision, the error
+mapping and the label limit; `AuthControllerTest` drives the whole state machine
+with a fake API, a fake Keystore and an in-memory store (first run, restore,
+passwordless success, revoked credential, non-driver refusal, registration
+failure, sign-out with and without a reachable server, empty form). The
+instrumented `KeystoreDeviceKeyMaterialInstrumentedTest` covers the on-device
+keypair: persistence, P-256/ES256, verify-with-public-key-only and the
+cleared-Keystore case.
+
+Diagram: [`diagrams/17-android-auth-flow.mmd`](../diagrams/17-android-auth-flow.mmd)
+(SVG/PNG rendered beside it).
 
 ## 9b. Driver phases and live tracking (A3, board #105)
 

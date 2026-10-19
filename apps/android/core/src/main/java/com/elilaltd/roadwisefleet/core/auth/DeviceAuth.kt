@@ -1,6 +1,5 @@
 package com.elilaltd.roadwisefleet.core.auth
 
-import com.elilaltd.roadwisefleet.core.data.remote.ApiClient
 import com.elilaltd.roadwisefleet.core.data.remote.ApiResult
 import com.elilaltd.roadwisefleet.core.model.DeviceRegistration
 import com.elilaltd.roadwisefleet.core.model.DeviceSession
@@ -17,7 +16,7 @@ import com.elilaltd.roadwisefleet.core.model.DeviceSession
  * returned token) in `SessionStore`.
  */
 class DeviceAuth(
-    private val api: ApiClient,
+    private val api: AuthApi,
     private val keys: DeviceKeyMaterial,
 ) {
     /** Bind this device. Called once, right after the first password/OTP login. */
