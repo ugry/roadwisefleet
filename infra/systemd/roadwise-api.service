@@ -31,6 +31,13 @@ Group=debian
 Environment=HOME=/home/debian
 WorkingDirectory=/opt/roadwisefleet/api
 EnvironmentFile=/opt/roadwisefleet/api/.env
+# PROPOSED, NOT LIVE (board #124, auth email): a second, root-only file so the
+# SMTP credential is 0600 root:root while the service still runs as `debian`.
+# systemd reads it as PID 1 and passes the values in the environment. The `-`
+# prefix keeps the unit startable before the orchestrator's hand-off; the API
+# must then treat email OTP as unavailable. Keys + test: infra/auth-email.md.
+# Add in the owner-approved window together with the restart.
+# EnvironmentFile=-/etc/roadwisefleet/auth-email.env
 ExecStart=/usr/local/bin/pnpm --filter @roadwisefleet/api start
 Restart=always
 RestartSec=5
