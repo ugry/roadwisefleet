@@ -293,7 +293,9 @@ check_repo() {
   for k in "${REQUIRED_KEYS[@]}" "${OPTIONAL_KEYS[@]}"; do
     found=0
     for key in "${example_keys[@]}"; do
-      [[ "$key" == "$k" ]] && found=1
+      if [[ "$key" == "$k" ]]; then
+        found=1
+      fi
     done
     if [[ "$found" -eq 0 ]]; then
       printf 'FAIL %s: %s is missing\n' "$example" "$k"
@@ -308,7 +310,9 @@ check_repo() {
   for key in "${example_keys[@]}"; do
     found=0
     for k in "${REQUIRED_KEYS[@]}" "${OPTIONAL_KEYS[@]}"; do
-      [[ "$key" == "$k" ]] && found=1
+      if [[ "$key" == "$k" ]]; then
+        found=1
+      fi
     done
     if [[ "$found" -eq 0 ]]; then
       printf 'FAIL %s: unexpected key %s (not in the script contract)\n' "$example" "$key"
@@ -481,7 +485,11 @@ STUB
   out="$("$0" --send --to $'a@b.test\nBcc: x@y.test' --env-file "$env_file" 2>&1)"
   rc=$?
   assert_eq "send: a CRLF-injected recipient is refused (rc)" "$rc" "2"
-  assert_eq "send: nothing was sent for the injected recipient" "$([[ -f "$STUB_ARGV" ]] && echo sent || echo not-sent)" "not-sent"
+  if [[ -f "$STUB_ARGV" ]]; then
+    assert_eq "send: nothing was sent for the injected recipient" "sent" "not-sent"
+  else
+    assert_eq "send: nothing was sent for the injected recipient" "not-sent" "not-sent"
+  fi
 
   # 6. a server-side rejection is a loud failure and leaks nothing
   export STUB_EXIT=67
