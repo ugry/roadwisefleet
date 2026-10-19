@@ -25,6 +25,14 @@ pluginManagement {
     }
 }
 
+// Board #122: Robolectric's Android 16 (SDK 36) runtime jar is compiled for
+// Java 21, so :app's unit-test JVM needs a 21 toolchain even though the build
+// itself runs on Java 17. The resolver lets Gradle provision it on CI runners
+// that only install 17.
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {

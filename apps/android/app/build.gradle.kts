@@ -1,4 +1,6 @@
 // :app — the RoadwiseFleet driver application (board #103, AND1-A1).
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -73,6 +75,20 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+}
+
+// Board #122: Robolectric only supports Android 16 (SDK 36) on Java 21 — its
+// `android-all-instrumented-16-robolectric-…` jar is compiled for 21 and
+// DefaultSdkProvider refuses it on older runtimes ("Failed to create a
+// Robolectric sandbox: Android SDK 36 requires Java 21"). The build itself stays
+// on the Java 17 target above; only the test JVM is launched on a 21 toolchain,
+// provisioned by the foojay resolver declared in settings.gradle.kts.
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(
+        javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(21))
+        }
+    )
 }
 
 dependencies {
