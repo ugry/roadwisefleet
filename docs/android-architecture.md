@@ -331,6 +331,50 @@ cleared-Keystore case.
 Diagram: [`diagrams/17-android-auth-flow.mmd`](../diagrams/17-android-auth-flow.mmd)
 (SVG/PNG rendered beside it).
 
+## 9a.2 Email one-time code sign-in (#125)
+
+Owner decision (2026-10-19): no SMS provider and no 10DLC. The passwordless
+channels are **email** (now) and **WhatsApp** (behind a flag, waiting for the
+#124 provider); email/password stays as the fallback.
+
+**Flow.** `LoginScreen` > "Email me a code" →
+`POST /api/auth/otp/email/request` (generic `200`) → `CodeEntry(email)` →
+`POST /api/auth/otp/email/verify` → the same `{ token, user }` payload as
+`/api/auth/login` → the SAME post-login path as a password sign-in: role gate,
+`SessionStore.save`, Keystore key + `POST /api/auth/device/register`, shell.
+`AuthController.completeSignIn()` is the single implementation of that path, so
+the two entry points cannot drift. A failed verify keeps the driver on the code
+screen; a non-driver role is refused and registers no device key.
+
+**State machine.** `AuthState` gains `CodeEntry(email, noticeKey)`.
+`requestCode()` → `CodeEntry`; `verifyCode()` → `SignedIn`; `cancelCode()` →
+`SignedOut`. The code field keeps only digits and caps at six
+(`AuthRules.normalizeCode`), and a short code never reaches the server.
+
+**Copy.** The server answers identically for a known address, an unknown one and
+a throttled resend, so the screen says "If {email} has an account, we sent a
+6-digit code". The resend button counts the server's 60 s gap locally. A wrong
+digit, an expired code and a used code all read the same ("not right, or it has
+expired") because the server refuses to distinguish them. A locked account is
+`423` and maps to the same sentence as a locked password login.
+
+**Availability.** `GET /api/auth/otp/email/status` reports whether the server has
+a working sender (#124). When `configured` is false the app hides "Email me a
+code" — the driver is never sent to a mailbox that will not fill. A failed probe
+leaves the button visible (fail open on the client, fail closed on the server).
+
+**WhatsApp.** `BuildConfig.WHATSAPP_OTP_ENABLED` comes from the Gradle property
+`roadwisefleet.whatsappOtp` (default **false**); when false the button is not
+composed at all. Turning it on before #124 exists only shows the button — no
+endpoint is called until the provider work lands.
+
+**Tests.** `AuthControllerTest` adds the code path: request opens the screen
+without touching the session, empty/malformed address sends nothing, verify
+persists + registers + opens the shell, a wrong code stays on the screen, a
+short code never reaches the server, six-digit normalisation, the 423/429/
+network/5xx mappings, the non-driver refusal and cancel. `AuthRulesTest` pins
+the code error mapping.
+
 ## 9b. Driver phases and live tracking (A3, board #105)
 
 A3 extends the one state machine with the driver-facing phases and makes

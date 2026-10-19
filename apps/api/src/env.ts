@@ -64,4 +64,15 @@ export const env = {
   DEVICE_CHALLENGE_TTL_SECONDS: Number(process.env.DEVICE_CHALLENGE_TTL_SECONDS || 120),
   DEVICE_AUTH_RATE_LIMIT_MAX: Number(process.env.DEVICE_AUTH_RATE_LIMIT_MAX || 30),
   DEVICE_AUTH_RATE_LIMIT_WINDOW_SECONDS: Number(process.env.DEVICE_AUTH_RATE_LIMIT_WINDOW_SECONDS || 60),
+  // Email one-time codes (board task #125). The delivery contract itself
+  // (`AUTH_EMAIL_SMTP_*`, `AUTH_EMAIL_FROM`) is read by `auth/email-transport.js`
+  // from the process environment ONLY: it lives in a 0600 root file (#124) and
+  // is never copied into this object, a response or a log line. These knobs are
+  // the in-process bounds; a code is 6 digits, lives 10 minutes, allows 5 wrong
+  // guesses and cannot be re-sent to the same address for 60 seconds.
+  EMAIL_OTP_RESEND_SECONDS: Number(process.env.EMAIL_OTP_RESEND_SECONDS || 60),
+  EMAIL_OTP_RATE_LIMIT_WINDOW_SECONDS: Number(process.env.EMAIL_OTP_RATE_LIMIT_WINDOW_SECONDS || 15 * 60),
+  EMAIL_OTP_IP_RATE_LIMIT_MAX: Number(process.env.EMAIL_OTP_IP_RATE_LIMIT_MAX || 60),
+  EMAIL_OTP_ADDRESS_RATE_LIMIT_MAX: Number(process.env.EMAIL_OTP_ADDRESS_RATE_LIMIT_MAX || 5),
+  EMAIL_OTP_VERIFY_RATE_LIMIT_MAX: Number(process.env.EMAIL_OTP_VERIFY_RATE_LIMIT_MAX || 20),
 };

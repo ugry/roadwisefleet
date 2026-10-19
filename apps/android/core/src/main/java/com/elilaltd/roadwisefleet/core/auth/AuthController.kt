@@ -2,6 +2,7 @@ package com.elilaltd.roadwisefleet.core.auth
 
 import com.elilaltd.roadwisefleet.core.data.remote.ApiResult
 import com.elilaltd.roadwisefleet.core.model.AuthUser
+import com.elilaltd.roadwisefleet.core.model.PasswordLogin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +14,9 @@ sealed interface AuthState {
 
     /** The login screen. [noticeKey] is an optional sentence (e.g. "sign in again"). */
     data class SignedOut(val noticeKey: String? = null) : AuthState
+
+    /** The 6-digit code screen (board #125). [noticeKey] confirms the send. */
+    data class CodeEntry(val email: String, val noticeKey: String? = null) : AuthState
 
     /** The shell, for a driver. [noticeKey] is a non-blocking banner. */
     data class SignedIn(val user: AuthUser, val noticeKey: String? = null) : AuthState
@@ -26,6 +30,8 @@ sealed interface AuthState {
  *               and the login screen is shown.
  *   signIn()  — password login -> role gate -> persist -> best-effort device
  *               registration (`credentialId` + label) -> shell.
+ *   requestCode() / verifyCode() — the SAME gate and device registration, fed by
+ *               an emailed one-time code instead of a password (board #125).
  *   signOut() — best-effort revoke -> clear session + credential -> login.
  *
  * Everything it calls is an interface, so the whole machine is unit-tested with
@@ -39,6 +45,23 @@ class AuthController(
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Restoring)
     val state: StateFlow<AuthState> = _state.asStateFlow()
+
+    /**
+     * Whether the server has a working email sender (#124). Starts `true` and
+     * only flips when the server says otherwise: a network blip must never hide
+     * a button that works, and a hidden button is the fail-closed UX when the
+     * `AUTH_EMAIL_*` credential is absent.
+     */
+    private val _codeAvailable = MutableStateFlow(true)
+    val codeAvailable: StateFlow<Boolean> = _codeAvailable.asStateFlow()
+
+    /** Ask the server once per login screen; failures leave the state alone. */
+    suspend fun probeCodeAvailability() {
+        when (val result = api.emailOtpAvailable()) {
+            is ApiResult.Ok -> _codeAvailable.value = result.value
+            else -> Unit
+        }
+    }
 
     /** Restore once per app process; later calls are no-ops. */
     suspend fun start() {
@@ -85,19 +108,74 @@ class AuthController(
         val result = api.login(normalizedEmail, password)
         val failure = AuthRules.failureKey(result)
         if (failure != null) return failure
-        val login = (result as ApiResult.Ok).value
+        return completeSignIn((result as ApiResult.Ok).value)
+    }
 
+    /**
+     * Everything after ANY successful first authentication (password or email
+     * code): the role gate, the session, the device key and the shell.
+     */
+    private suspend fun completeSignIn(login: PasswordLogin): String? {
         if (!AuthRules.isDriverRole(login.user.roleId)) {
             session.clear()
             return AuthRules.ERROR_NOT_DRIVER
         }
 
-        // The password session is valid from here on: the app must never be
-        // locked out because the Keystore or the registration call failed.
+        // The session is valid from here on: the app must never be locked out
+        // because the Keystore or the registration call failed.
         session.save(login.token, login.user)
         val notice = registerDevice()
         _state.value = AuthState.SignedIn(login.user, notice)
         return null
+    }
+
+    /**
+     * Ask for a sign-in code (board #125). Returns `null` once the code screen
+     * should be shown, else the catalogue key the login form displays.
+     *
+     * The address is validated locally first: an empty/invalid address never
+     * costs a request. The server's answer is deliberately generic, so success
+     * here means "a code exists if this account does", not "sent".
+     */
+    suspend fun requestCode(email: String): String? {
+        val normalized = email.trim()
+        if (normalized.isEmpty()) return AuthRules.ERROR_REQUIRED
+        if (!normalized.contains('@') || normalized.contains(' ')) return AuthRules.ERROR_CODE_EMAIL
+
+        return when (val result = api.requestEmailCode(normalized)) {
+            is ApiResult.Ok -> {
+                _state.value = AuthState.CodeEntry(normalized, AuthRules.NOTICE_CODE_SENT)
+                null
+            }
+            is ApiResult.NetworkFailure -> AuthRules.ERROR_NETWORK
+            is ApiResult.HttpFailure ->
+                if (result.status == 0) AuthRules.ERROR_NETWORK
+                else AuthRules.requestErrorKey(result.status, result.error)
+        }
+    }
+
+    /**
+     * Redeem the emailed code. Exactly the same post-login work as [signIn]:
+     * role gate, session, best-effort device registration, then the shell.
+     * On failure the app STAYS on the code screen so the driver can retry or
+     * resend — a wrong digit must never drop them back a step.
+     */
+    suspend fun verifyCode(email: String, code: String): String? {
+        val normalizedCode = AuthRules.normalizeCode(code)
+        if (!AuthRules.isCompleteCode(normalizedCode)) return AuthRules.ERROR_CODE
+
+        return when (val result = api.verifyEmailCode(email.trim(), normalizedCode)) {
+            is ApiResult.Ok -> completeSignIn(result.value)
+            is ApiResult.NetworkFailure -> AuthRules.ERROR_NETWORK
+            is ApiResult.HttpFailure ->
+                if (result.status == 0) AuthRules.ERROR_NETWORK
+                else AuthRules.codeErrorKey(result.status, result.error)
+        }
+    }
+
+    /** Leave the code screen for the password form (the code stays valid). */
+    fun cancelCode() {
+        if (_state.value is AuthState.CodeEntry) _state.value = AuthState.SignedOut()
     }
 
     /** Revoke best-effort, then drop the session and return to the login screen. */

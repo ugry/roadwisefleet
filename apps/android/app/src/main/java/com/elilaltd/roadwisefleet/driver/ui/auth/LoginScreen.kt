@@ -21,8 +21,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +61,15 @@ fun LoginScreen(
     versionName: String,
     noticeKey: String?,
     onSignIn: suspend (email: String, password: String) -> String?,
+    // Board #125: passwordless sign-in by emailed code. Hidden when the server
+    // reports no working sender (#124), so the driver is never sent to an inbox
+    // that will not fill.
+    emailCodeEnabled: Boolean = true,
+    onRequestCode: suspend (email: String) -> String? = { null },
+    // WhatsApp OTP is gated behind a build flag until #124 wires the provider.
+    // Default OFF: the button is not composed at all.
+    whatsappEnabled: Boolean = false,
+    onWhatsApp: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var email by rememberSaveable { mutableStateOf("") }
@@ -183,6 +194,37 @@ fun LoginScreen(
                 // Announce the failure to a screen reader without moving focus.
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
             )
+        }
+
+        if (emailCodeEnabled) {
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = {
+                    if (loading) return@TextButton
+                    scope.launch {
+                        loading = true
+                        errorKey = null
+                        errorKey = onRequestCode(email)
+                        loading = false
+                    }
+                },
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(translator.t("auth.otp.useEmailCode"))
+            }
+        }
+
+        if (whatsappEnabled) {
+            OutlinedButton(
+                onClick = onWhatsApp,
+                enabled = !loading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+            ) {
+                Text(translator.t("auth.otp.useWhatsApp"))
+            }
         }
 
         Spacer(Modifier.height(28.dp))
