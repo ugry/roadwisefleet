@@ -38,11 +38,11 @@ test('the supply choice offers five paths plus the off-platform case', () => {
   }
 });
 
-test('only own_carrier and off_platform are bookable today; the rest are marketplace', () => {
+test('only own_carrier and off_platform create the trip directly; the rest are marketplace', () => {
   assert.equal(core.isBookableChoice('own_carrier'), true);
   assert.equal(core.isBookableChoice('off_platform'), true);
   for (const id of ['fleet', 'solo', 'auto', 'recurring']) {
-    assert.equal(core.isBookableChoice(id), false, id + ' must not be bookable yet');
+    assert.equal(core.isBookableChoice(id), false, id + ' must not create the trip directly');
     assert.equal(core.isMarketplaceChoice(id), true, id + ' must report the marketplace phase');
   }
   assert.equal(core.isMarketplaceChoice('own_carrier'), false);
@@ -50,14 +50,25 @@ test('only own_carrier and off_platform are bookable today; the rest are marketp
   assert.equal(core.supplyChoiceInfo('nonsense'), null);
 });
 
-test('a marketplace path answers with an honest notice, never an error or a dead end', () => {
-  const notice = core.marketplaceNotice('fleet');
-  assert.equal(notice.code, 'marketplace_unavailable');
-  assert.equal(notice.task, core.MARKETPLACE_TASK);
-  assert.equal(notice.i18n, 'book.marketplacePending');
-  assert.equal(notice.fallback, 'own_carrier');
-  assert.equal(core.marketplaceNotice('own_carrier'), null);
-  assert.equal(core.marketplaceNotice('nonsense'), null);
+test('the marketplace choices advertise what they now do, never the retired phase flag (#100)', () => {
+  // Board #78 made the marketplace path live, so the wizard copy must not tell
+  // the customer the option is pending. The flag comes from the catalogue, and
+  // the shell must render that key on a marketplace choice.
+  const cat = JSON.parse(readFileSync(new URL('../../../customer/locales/en.json', import.meta.url), 'utf8'));
+  assert.equal(typeof cat['book.marketplaceFlag'], 'string');
+  assert.match(cat['book.marketplaceFlag'], /marketplace/i);
+  assert.equal(/UXF-M1/.test(JSON.stringify(cat)), false, 'no retired UXF-M1 phase copy may remain');
+  assert.equal(Object.hasOwn(cat, 'book.pendingFlag'), false);
+  assert.equal(Object.hasOwn(cat, 'book.marketplacePending'), false);
+  assert.equal(Object.hasOwn(cat, 'book.marketplaceFallback'), false);
+
+  const shell = readFileSync(new URL('../../../customer/customer.js', import.meta.url), 'utf8');
+  assert.match(shell, /book\.marketplaceFlag/, 'the choice card renders the live marketplace flag');
+  assert.equal(/book\.pendingFlag/.test(shell), false);
+
+  // The dead "marketplace opens later" helper is gone from the shared core.
+  assert.equal(Object.hasOwn(core, 'marketplaceNotice'), false);
+  assert.equal(Object.hasOwn(core, 'MARKETPLACE_TASK'), false);
 });
 
 test('a minimal own-carrier booking validates and fills the documented defaults', () => {
