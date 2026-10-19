@@ -524,7 +524,8 @@ export async function marketplaceRoutes(app: FastifyInstance) {
         offers: market.offerCards(offers).map((card) => ({ ...card, load: byId.get(card.loadId) ?? null })),
         // The carrier is notified of an award on its own offers (#78): the win
         // (with the trip) or the decline. Read-only projection of durable state.
-        notifications: market.carrierOutcomeNotifications(offers),
+        // The loads carry `tripId`, so an award notice links to its trip (#112).
+        notifications: market.carrierOutcomeNotifications(offers, loads),
       }),
     );
   });

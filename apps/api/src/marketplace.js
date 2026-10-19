@@ -728,15 +728,32 @@ export function awardOutcomeNotifications({ load, offer, trip, declinedOffers } 
  * The carrier-side notices derived from its own offers: an accepted offer means
  * "your bid won, here is the trip"; a declined one means "this load went
  * elsewhere" (the load itself is not blocked). Durable state, no channel.
+ *
+ * The awarded notice MUST carry the trip the award created: the load row holds
+ * `tripId` from the award transaction, so read it from the load instead of
+ * hardcoding null (QA #112 — the notice could not link to its own trip).
  * @param {any[]} offers
- * @returns {Array<{audience: string, kind: string, loadId: string|null, offerId: string, tripId: null, messageKey: string}>}
+ * @param {any[]} [loads] the offered loads (rows with `id` + `tripId`)
+ * @returns {Array<{audience: string, kind: string, loadId: string|null, offerId: string, tripId: string|null, messageKey: string}>}
  */
-export function carrierOutcomeNotifications(offers) {
+export function carrierOutcomeNotifications(offers, loads) {
+  const loadById = new Map();
+  for (const load of Array.isArray(loads) ? loads : []) {
+    if (load && load.id) loadById.set(load.id, load);
+  }
   const out = [];
   for (const offer of Array.isArray(offers) ? offers : []) {
     if (!offer || !offer.id) continue;
+    const load = loadById.get(offer.loadId) ?? null;
     if (offer.status === 'ACCEPTED') {
-      out.push({ audience: 'carrier', kind: 'awarded', loadId: offer.loadId ?? null, offerId: offer.id, tripId: null, messageKey: 'market.notify.awardedCarrier' });
+      out.push({
+        audience: 'carrier',
+        kind: 'awarded',
+        loadId: offer.loadId ?? null,
+        offerId: offer.id,
+        tripId: (load && load.tripId) || null,
+        messageKey: 'market.notify.awardedCarrier',
+      });
     } else if (offer.status === 'DECLINED') {
       out.push({ audience: 'carrier', kind: 'declined', loadId: offer.loadId ?? null, offerId: offer.id, tripId: null, messageKey: 'market.notify.declinedCarrier' });
     }
