@@ -42,6 +42,7 @@ pilot Postgres and Redis containers (see `pilot-db.md`).
 | Environment | `HOME=/home/debian`; other settings via `EnvironmentFile` (below) |
 | ExecStart | `/usr/local/bin/pnpm --filter @roadwisefleet/api start` (→ `tsx src/server.ts`) |
 | EnvironmentFile | `/opt/roadwisefleet/api/.env` (mode `0600`, owned `debian:debian`) |
+| EnvironmentFile (auth email, **proposed — not live**) | `-/etc/roadwisefleet/auth-email.env` (mode `0600`, `root:root`); the five `AUTH_EMAIL_*` keys and the real-send test are in [`auth-email.md`](./auth-email.md) (board #124) |
 | Bind address / port | `127.0.0.1:8080` (loopback only) |
 | Restart policy | `Restart=always`, `RestartSec=5` |
 | Hardening | `NoNewPrivileges=true` |

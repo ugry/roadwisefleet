@@ -121,6 +121,18 @@ jobs:
       - name: Self-test pilot-backup-verify.sh (board #43)
         run: bash infra/scripts/pilot-backup-verify.sh --self-test
 
+      # Board #124: the auth-email sender's real send can only run on the host
+      # with the mailbox credential, so CI proves the two things that can be
+      # proven without it — the credential-handling rules (0600 file, no secret
+      # in argv or output, refusal on a bad mode or missing key, a loud failure
+      # on rejection) and that the example/runbook/script key contract agrees.
+      # A stub curl records what it was asked to send; nothing leaves the runner.
+      - name: Self-test auth-email-send.sh (board #124)
+        run: bash infra/scripts/auth-email-send.sh --self-test
+
+      - name: Check the auth-email env contract (board #124)
+        run: bash infra/scripts/auth-email-send.sh --check-repo
+
   restore-drill-selftest:
     name: Restore drill self-test (no host, no network)
     runs-on: ubuntu-latest
