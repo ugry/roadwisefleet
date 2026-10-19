@@ -28,6 +28,9 @@
   // The pure create-trip form logic (board task #35, F4), loaded as a classic
   // script before this one. Everything missing here is a no-op, never a crash.
   var DISPATCH = win && win.RoadwiseDispatch ? win.RoadwiseDispatch : {};
+  // The pure self-serve customer lane logic (board task #120), loaded before
+  // this one. Missing here is a no-op, never a crash.
+  var CUST = win && win.RoadwiseCustomers ? win.RoadwiseCustomers : {};
   // The pure trips list/detail shaping (board task #34, F3), loaded before this one.
   var TRIPVIEW = TRIPS || {};
   // The pure dashboard shaping (board task #33, F2), loaded before this one.
@@ -237,6 +240,13 @@
     }
     if (route && route.view === 'dispatch') {
       renderDispatch(outlet);
+      if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
+      if (outlet.focus) outlet.focus();
+      return panel;
+    }
+    if (route && route.view === 'customers') {
+      outlet.innerHTML = '';
+      renderCustomers(outlet, token);
       if (typeof document !== 'undefined') document.title = panel.title + ' — ' + T('brand.name');
       if (outlet.focus) outlet.focus();
       return panel;
@@ -1711,6 +1721,630 @@
         DISPATCH.createTripErrorKey ? DISPATCH.createTripErrorKey(res) : 'error.unexpected',
         detail ? { detail: detail } : null
       );
+    });
+  }
+
+  /* ------------------------------------- self-serve customers (#120) --- */
+
+  /**
+   * The fleet's own customers (board task #120, UXF-O3 lane 1): the people who
+   * never join the platform. A dispatcher quick-adds them here, books their
+   * work as a manual order and repeats that order next week.
+   *
+   * Pure decisions (validation, error keys, payload shape) live in
+   * `lib/customers.js`, so the no-install CI job covers them; this section only
+   * reads the DOM and the network. Tenant scoping is the server's job — the
+   * client never sends an org.
+   */
+  var customersState = { rows: [], equipment: [], orders: [], token: 0, canInvite: false };
+
+  var CUSTOMER_LANGS = [
+    { value: 'en', label: 'English' },
+    { value: 'de', label: 'Deutsch' },
+    { value: 'pl', label: 'Polski' },
+    { value: 'tr', label: 'Türkçe' }
+  ];
+
+  function custNode(outlet, id) {
+    return outlet && outlet.querySelector ? outlet.querySelector('#' + id) : null;
+  }
+
+  /** Show or clear one of this screen's messages (form-level or field-level). */
+  function custMessage(outlet, id, key, params, kind) {
+    setMessage(custNode(outlet, id), key ? T(key, params) : '', kind);
+  }
+
+  /** Walk up from an event target to the nearest element carrying `attr`. */
+  function closestAttr(node, attr) {
+    while (node && node.getAttribute) {
+      if (node.getAttribute(attr)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function renderCustomers(outlet, token) {
+    customersState.token += 1;
+    customersState.rows = [];
+    customersState.equipment = [];
+    customersState.orders = [];
+    // Creating a login is `user:manage` (owner), exactly like the fleet-driver
+    // invite; granting portal access is never offered to a role the server
+    // would refuse anyway.
+    customersState.canInvite = Boolean(APP.canManageUsers && APP.canManageUsers(session.user && session.user.roleId));
+
+    var langOptions = CUSTOMER_LANGS.map(function (lang) {
+      return '<option value="' + escHtml(lang.value) + '">' + escHtml(lang.label) + '</option>';
+    }).join('');
+
+    outlet.innerHTML =
+      '<h1>' + escHtml(T('nav.customers')) + '</h1>' +
+      '<p class="lead">' + escHtml(T('customers.lead')) + '</p>' +
+
+      '<section class="panel">' +
+        '<h2>' + escHtml(T('customers.addTitle')) + '</h2>' +
+        '<form class="dispatch-form" id="customerForm" novalidate>' +
+          '<p class="alert" id="customerMessage" role="alert" hidden></p>' +
+          '<div class="field">' +
+            '<label for="customerName">' + escHtml(T('customers.name')) + '</label>' +
+            '<input id="customerName" type="text" autocomplete="off" required>' +
+            '<p class="field-error" id="customerNameError" hidden></p>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="customerEmail">' + escHtml(T('customers.email')) + '</label>' +
+            '<input id="customerEmail" type="email" autocomplete="off">' +
+            '<p class="field-error" id="customerEmailError" hidden></p>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="customerPhone">' + escHtml(T('customers.phone')) + '</label>' +
+            '<input id="customerPhone" type="tel" autocomplete="off">' +
+            '<p class="field-error" id="customerPhoneError" hidden></p>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="customerLang">' + escHtml(T('customers.lang')) + '</label>' +
+            '<select id="customerLang">' + langOptions + '</select>' +
+          '</div>' +
+          '<div class="form-actions">' +
+            '<span class="helper">' + escHtml(T('customers.addHint')) + '</span>' +
+            '<button class="primary" type="submit" id="customerSubmit">' + escHtml(T('customers.add')) + '</button>' +
+          '</div>' +
+        '</form>' +
+      '</section>' +
+
+      '<section class="panel">' +
+        '<h2>' + escHtml(T('customers.listTitle')) + '</h2>' +
+        '<p class="empty-state" id="customersEmpty">' + escHtml(T('customers.empty')) + '</p>' +
+        '<div class="doc-table-wrap">' +
+          '<table class="trips-table" id="customersTable" hidden>' +
+            '<thead><tr>' +
+              '<th>' + escHtml(T('customers.colName')) + '</th>' +
+              '<th>' + escHtml(T('customers.colContact')) + '</th>' +
+              '<th>' + escHtml(T('customers.colOrders')) + '</th>' +
+              '<th>' + escHtml(T('customers.colActions')) + '</th>' +
+            '</tr></thead>' +
+            '<tbody id="customersTableBody"></tbody>' +
+          '</table>' +
+        '</div>' +
+      '</section>' +
+
+      (customersState.canInvite
+        ? '<section class="panel">' +
+            '<h2>' + escHtml(T('customers.portalTitle')) + '</h2>' +
+            '<p class="lead">' + escHtml(T('customers.portalLead')) + '</p>' +
+            '<form class="dispatch-form" id="inviteForm" novalidate>' +
+              '<p class="alert" id="inviteMessage" role="alert" hidden></p>' +
+              '<div class="field">' +
+                '<label for="inviteCustomer">' + escHtml(T('customers.customer')) + '</label>' +
+                '<select id="inviteCustomer"></select>' +
+                '<p class="field-error" id="inviteCustomerError" hidden></p>' +
+              '</div>' +
+              '<div class="field">' +
+                '<label for="inviteEmail">' + escHtml(T('customers.inviteEmail')) + '</label>' +
+                '<input id="inviteEmail" type="email" autocomplete="off">' +
+                '<p class="field-error" id="inviteEmailError" hidden></p>' +
+              '</div>' +
+              '<div class="field">' +
+                '<label for="invitePassword">' + escHtml(T('customers.invitePassword')) + '</label>' +
+                '<input id="invitePassword" type="password" autocomplete="new-password">' +
+                '<p class="field-error" id="invitePasswordError" hidden></p>' +
+              '</div>' +
+              '<div class="form-actions">' +
+                '<span class="helper">' + escHtml(T('customers.inviteHint')) + '</span>' +
+                '<button class="primary" type="submit" id="inviteSubmit">' + escHtml(T('customers.invite')) + '</button>' +
+              '</div>' +
+            '</form>' +
+          '</section>'
+        : '') +
+
+      '<section class="panel">' +
+        '<h2>' + escHtml(T('customers.orderTitle')) + '</h2>' +
+        '<p class="lead">' + escHtml(T('customers.orderLead')) + '</p>' +
+        '<form class="dispatch-form" id="orderForm" novalidate>' +
+          '<p class="alert" id="orderMessage" role="alert" hidden></p>' +
+          '<div class="field">' +
+            '<label for="orderCustomer">' + escHtml(T('customers.customer')) + '</label>' +
+            '<select id="orderCustomer" required></select>' +
+            '<p class="field-error" id="orderCustomerError" hidden></p>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="orderOrigin">' + escHtml(T('customers.origin')) + '</label>' +
+            '<input id="orderOrigin" type="text" autocomplete="off" required>' +
+            '<p class="field-error" id="orderOriginError" hidden></p>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="orderDestination">' + escHtml(T('customers.destination')) + '</label>' +
+            '<input id="orderDestination" type="text" autocomplete="off" required>' +
+            '<p class="field-error" id="orderDestinationError" hidden></p>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="orderCargo">' + escHtml(T('customers.cargo')) + '</label>' +
+            '<input id="orderCargo" type="text" autocomplete="off">' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="orderPlanned">' + escHtml(T('customers.planned')) + '</label>' +
+            '<input id="orderPlanned" type="datetime-local">' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="orderEquipment">' + escHtml(T('customers.equipment')) + '</label>' +
+            '<select id="orderEquipment"></select>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="orderNotes">' + escHtml(T('customers.notes')) + '</label>' +
+            '<input id="orderNotes" type="text" autocomplete="off">' +
+          '</div>' +
+          '<div class="form-actions">' +
+            '<span class="helper">' + escHtml(T('customers.orderHint')) + '</span>' +
+            '<button class="primary" type="submit" id="orderSubmit">' + escHtml(T('customers.createOrder')) + '</button>' +
+          '</div>' +
+        '</form>' +
+      '</section>' +
+
+      '<section class="panel">' +
+        '<h2>' + escHtml(T('customers.ordersTitle')) + '</h2>' +
+        '<p class="alert" id="ordersMessage" role="alert" hidden></p>' +
+        '<p class="empty-state" id="ordersEmpty">' + escHtml(T('customers.ordersEmpty')) + '</p>' +
+        '<div class="doc-table-wrap">' +
+          '<table class="trips-table" id="ordersTable" hidden>' +
+            '<thead><tr>' +
+              '<th>' + escHtml(T('customers.colRoute')) + '</th>' +
+              '<th>' + escHtml(T('customers.colCustomer')) + '</th>' +
+              '<th>' + escHtml(T('customers.colStatus')) + '</th>' +
+              '<th>' + escHtml(T('customers.colActions')) + '</th>' +
+            '</tr></thead>' +
+            '<tbody id="ordersTableBody"></tbody>' +
+          '</table>' +
+        '</div>' +
+      '</section>';
+
+    var customerForm = custNode(outlet, 'customerForm');
+    if (customerForm) {
+      customerForm.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        submitCustomer(outlet);
+      });
+    }
+    var orderForm = custNode(outlet, 'orderForm');
+    if (orderForm) {
+      orderForm.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        submitFleetOrder(outlet);
+      });
+    }
+    var customerSelect = custNode(outlet, 'orderCustomer');
+    if (customerSelect) customerSelect.addEventListener('change', function () { renderFleetOrders(outlet); });
+
+    var inviteForm = custNode(outlet, 'inviteForm');
+    if (inviteForm) {
+      inviteForm.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        submitCustomerInvite(outlet);
+      });
+    }
+    var inviteSelect = custNode(outlet, 'inviteCustomer');
+    if (inviteSelect) inviteSelect.addEventListener('change', function () { prefillInviteEmail(outlet); });
+
+    var customersBody = custNode(outlet, 'customersTableBody');
+    if (customersBody) {
+      customersBody.addEventListener('click', function (ev) {
+        var invite = closestAttr(ev && ev.target, 'data-invite-customer');
+        if (invite) {
+          pickInviteCustomer(outlet, invite.getAttribute('data-invite-customer'));
+          return;
+        }
+        var button = closestAttr(ev && ev.target, 'data-order-customer');
+        if (!button) return;
+        pickFleetCustomer(outlet, button.getAttribute('data-order-customer'));
+      });
+    }
+    var ordersBody = custNode(outlet, 'ordersTableBody');
+    if (ordersBody) {
+      ordersBody.addEventListener('click', function (ev) {
+        var button = closestAttr(ev && ev.target, 'data-repeat-order');
+        if (!button) return;
+        repeatFleetOrder(outlet, button.getAttribute('data-repeat-order'));
+      });
+    }
+
+    loadCustomers(outlet, customersState.token);
+  }
+
+  function loadCustomers(outlet, loadToken) {
+    return Promise.all([
+      request('/api/fleet/customers', { token: session.token }),
+      request('/api/orders', { token: session.token })
+    ]).then(function (results) {
+      if (loadToken !== customersState.token) return;
+      var list = results[0];
+      if (list.status === 401) { handleExpired(); return; }
+      if (!list.ok) {
+        custMessage(outlet, 'customerMessage', CUST.errorKey ? CUST.errorKey(list.data) : 'error.unexpected');
+        custMessage(outlet, 'ordersMessage', 'customers.loadFailed');
+        return;
+      }
+      customersState.rows = (list.data && list.data.customers) || [];
+      customersState.equipment = (list.data && list.data.equipment) || [];
+      var orders = results[1];
+      if (orders.status === 401) { handleExpired(); return; }
+      customersState.orders = orders.ok && orders.data && orders.data.orders ? orders.data.orders : [];
+      fillCustomerOptions(outlet);
+      fillEquipmentOptions(outlet);
+      fillInviteOptions(outlet);
+      renderCustomerRows(outlet);
+      renderFleetOrders(outlet);
+    });
+  }
+
+  function fillCustomerOptions(outlet) {
+    var select = custNode(outlet, 'orderCustomer');
+    if (!select) return;
+    var kept = fieldValue(outlet, 'orderCustomer');
+    var html = '<option value="">' + escHtml(T('customers.selectCustomer')) + '</option>';
+    for (var i = 0; i < customersState.rows.length; i++) {
+      var row = customersState.rows[i];
+      html += '<option value="' + escHtml(row.id) + '">' + escHtml(CUST.customerLabel ? CUST.customerLabel(row) : row.name) + '</option>';
+    }
+    select.innerHTML = html;
+    if (kept) {
+      var stillThere = false;
+      for (var j = 0; j < customersState.rows.length; j++) if (String(customersState.rows[j].id) === kept) stillThere = true;
+      if (stillThere) select.value = kept;
+    }
+    var submit = custNode(outlet, 'orderSubmit');
+    if (submit) submit.disabled = customersState.rows.length === 0;
+    var orderMessage = custNode(outlet, 'orderMessage');
+    if (!customersState.rows.length) {
+      custMessage(outlet, 'orderMessage', 'customers.noCustomers');
+    } else if (orderMessage && orderMessage.textContent === T('customers.noCustomers')) {
+      // The "add a customer first" hint is stale once one exists; a real
+      // success message is left alone.
+      custMessage(outlet, 'orderMessage', null);
+    }
+  }
+
+  function fillEquipmentOptions(outlet) {
+    var select = custNode(outlet, 'orderEquipment');
+    if (!select) return;
+    var kept = fieldValue(outlet, 'orderEquipment');
+    var html = '<option value="">' + escHtml(T('customers.equipmentNone')) + '</option>';
+    for (var i = 0; i < customersState.equipment.length; i++) {
+      var value = String(customersState.equipment[i]);
+      html += '<option value="' + escHtml(value) + '">' + escHtml(value) + '</option>';
+    }
+    select.innerHTML = html;
+    select.value = kept || '';
+  }
+
+  function renderCustomerRows(outlet) {
+    var body = custNode(outlet, 'customersTableBody');
+    var table = custNode(outlet, 'customersTable');
+    var empty = custNode(outlet, 'customersEmpty');
+    if (!body) return;
+    if (!customersState.rows.length) {
+      body.innerHTML = '';
+      if (table) table.hidden = true;
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (table) table.hidden = false;
+    if (empty) empty.hidden = true;
+    var html = '';
+    for (var i = 0; i < customersState.rows.length; i++) {
+      var customer = customersState.rows[i];
+      var contact = customer.email || customer.whatsappId || T('trips.none');
+      var count = customer.orderCount === null || customer.orderCount === undefined ? 0 : customer.orderCount;
+      var portal = CUST.hasPortalAccess && CUST.hasPortalAccess(customer);
+      var portalAction = '';
+      if (portal) {
+        portalAction = '<span class="badge">' + escHtml(T('customers.portalActive')) + '</span>';
+      } else if (customersState.canInvite) {
+        portalAction = '<button type="button" class="ghost" data-invite-customer="' + escHtml(customer.id) + '">' +
+          escHtml(T('customers.invite')) +
+        '</button>';
+      }
+      html += '<tr>' +
+        '<td>' + escHtml(customer.name) + '</td>' +
+        '<td>' + escHtml(contact) + '</td>' +
+        '<td>' + escHtml(String(count)) + '</td>' +
+        '<td class="table-actions">' +
+          '<button type="button" class="ghost" data-order-customer="' + escHtml(customer.id) + '">' +
+            escHtml(T('customers.newOrder')) +
+          '</button>' +
+          portalAction +
+        '</td>' +
+        '</tr>';
+    }
+    body.innerHTML = html;
+  }
+
+  function renderFleetOrders(outlet) {
+    var body = custNode(outlet, 'ordersTableBody');
+    var table = custNode(outlet, 'ordersTable');
+    var empty = custNode(outlet, 'ordersEmpty');
+    if (!body) return;
+    var selected = fieldValue(outlet, 'orderCustomer');
+    var rows = customersState.orders.filter(function (order) {
+      return !selected || (order.customer && String(order.customer.id) === selected);
+    });
+    if (!rows.length) {
+      body.innerHTML = '';
+      if (table) table.hidden = true;
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (table) table.hidden = false;
+    if (empty) empty.hidden = true;
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+      var order = rows[i];
+      html += '<tr>' +
+        '<td>' + escHtml(order.origin || '') + ' → ' + escHtml(order.destination || '') + '</td>' +
+        '<td>' + escHtml(order.customer ? String(order.customer.name || '') : '') + '</td>' +
+        '<td>' + escHtml(String(order.status || '')) + '</td>' +
+        '<td class="table-actions">' +
+          '<button type="button" class="ghost" data-repeat-order="' + escHtml(order.id) + '">' +
+            escHtml(T('customers.repeat')) +
+          '</button>' +
+        '</td>' +
+        '</tr>';
+    }
+    body.innerHTML = html;
+  }
+
+  /** "New order" on a customer row: select that customer and focus the lane. */
+  function pickFleetCustomer(outlet, customerId) {
+    var select = custNode(outlet, 'orderCustomer');
+    if (select) select.value = customerId || '';
+    renderFleetOrders(outlet);
+    var origin = custNode(outlet, 'orderOrigin');
+    if (origin && origin.focus) origin.focus();
+  }
+
+  function clearCustomerErrors(outlet) {
+    custMessage(outlet, 'customerMessage', null);
+    custMessage(outlet, 'customerNameError', null);
+    custMessage(outlet, 'customerEmailError', null);
+  }
+
+  function resetCustomerForm(outlet) {
+    var ids = ['customerName', 'customerEmail', 'customerPhone'];
+    for (var i = 0; i < ids.length; i++) {
+      var node = custNode(outlet, ids[i]);
+      if (node) node.value = '';
+    }
+    var lang = custNode(outlet, 'customerLang');
+    if (lang) lang.value = 'en';
+  }
+
+  function submitCustomer(outlet) {
+    if (!CUST.validateCustomerForm) return;
+    var check = CUST.validateCustomerForm({
+      name: fieldValue(outlet, 'customerName'),
+      email: fieldValue(outlet, 'customerEmail'),
+      whatsappId: fieldValue(outlet, 'customerPhone'),
+      lang: fieldValue(outlet, 'customerLang')
+    });
+    clearCustomerErrors(outlet);
+    if (!check.ok) {
+      var fieldErrors = { name: 'customerNameError', email: 'customerEmailError' };
+      custMessage(outlet, fieldErrors[check.field] || 'customerMessage', check.key);
+      var input = custNode(outlet, check.field === 'email' ? 'customerEmail' : 'customerName');
+      if (input && input.focus) input.focus();
+      return;
+    }
+    var submit = custNode(outlet, 'customerSubmit');
+    if (submit) submit.disabled = true;
+    request('/api/fleet/customers', { method: 'POST', token: session.token, body: check.body }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (submit) submit.disabled = false;
+      if (res.ok && res.data && res.data.customer) {
+        resetCustomerForm(outlet);
+        custMessage(outlet, 'customerMessage', 'customers.created', { name: String(res.data.customer.name || '') }, 'success');
+        loadCustomers(outlet, customersState.token);
+        return;
+      }
+      custMessage(outlet, 'customerMessage', CUST.errorKey ? CUST.errorKey(res.data) : 'error.unexpected');
+    });
+  }
+
+  function clearFleetOrderErrors(outlet) {
+    custMessage(outlet, 'orderMessage', null);
+    custMessage(outlet, 'orderCustomerError', null);
+    custMessage(outlet, 'orderOriginError', null);
+    custMessage(outlet, 'orderDestinationError', null);
+  }
+
+  function resetFleetOrderLane(outlet) {
+    var ids = ['orderOrigin', 'orderDestination', 'orderCargo', 'orderPlanned', 'orderNotes'];
+    for (var i = 0; i < ids.length; i++) {
+      var node = custNode(outlet, ids[i]);
+      if (node) node.value = '';
+    }
+    var equipment = custNode(outlet, 'orderEquipment');
+    if (equipment) equipment.value = '';
+  }
+
+  function submitFleetOrder(outlet) {
+    if (!CUST.validateOrderForm) return;
+    var check = CUST.validateOrderForm({
+      customerId: fieldValue(outlet, 'orderCustomer'),
+      origin: fieldValue(outlet, 'orderOrigin'),
+      destination: fieldValue(outlet, 'orderDestination'),
+      cargo: fieldValue(outlet, 'orderCargo'),
+      plannedAt: fieldValue(outlet, 'orderPlanned'),
+      equipment: fieldValue(outlet, 'orderEquipment'),
+      notes: fieldValue(outlet, 'orderNotes')
+    });
+    clearFleetOrderErrors(outlet);
+    if (!check.ok) {
+      var fieldErrors = { customerId: 'orderCustomerError', origin: 'orderOriginError', destination: 'orderDestinationError' };
+      var inputs = { customerId: 'orderCustomer', origin: 'orderOrigin', destination: 'orderDestination' };
+      custMessage(outlet, fieldErrors[check.field] || 'orderMessage', check.key);
+      var input = custNode(outlet, inputs[check.field] || '');
+      if (input && input.focus) input.focus();
+      return;
+    }
+    var submit = custNode(outlet, 'orderSubmit');
+    if (submit) submit.disabled = true;
+    request('/api/orders', { method: 'POST', token: session.token, body: check.body }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (submit) submit.disabled = false;
+      if (res.ok && res.data && res.data.order) {
+        resetFleetOrderLane(outlet);
+        custMessage(outlet, 'orderMessage', 'customers.orderCreated', { id: String(res.data.order.id || '') }, 'success');
+        loadCustomers(outlet, customersState.token);
+        return;
+      }
+      custMessage(outlet, 'orderMessage', CUST.errorKey ? CUST.errorKey(res.data) : 'error.unexpected');
+    });
+  }
+
+  function repeatFleetOrder(outlet, orderId) {
+    if (!orderId) return;
+    var buttons = outlet.querySelectorAll ? outlet.querySelectorAll('[data-repeat-order]') : [];
+    for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+    request('/api/orders', { method: 'POST', token: session.token, body: { repeatOf: orderId } }).then(function (res) {
+      for (var j = 0; j < buttons.length; j++) buttons[j].disabled = false;
+      if (res.status === 401) { handleExpired(); return; }
+      if (res.ok && res.data && res.data.order) {
+        custMessage(outlet, 'ordersMessage', 'customers.orderRepeated', { id: String(res.data.order.id || '') }, 'success');
+        loadCustomers(outlet, customersState.token);
+        return;
+      }
+      custMessage(outlet, 'ordersMessage', CUST.errorKey ? CUST.errorKey(res.data) : 'error.unexpected');
+    });
+  }
+
+  /** Customers that still have no portal login (the invite form's options). */
+  function invitableCustomers() {
+    return customersState.rows.filter(function (row) {
+      return !(CUST.hasPortalAccess && CUST.hasPortalAccess(row));
+    });
+  }
+
+  /**
+   * Fill the invite select with the customers that have no portal login yet.
+   * A success message from the last invite is preserved: the list refresh it
+   * triggers must not replace "invited" with "nothing left to invite".
+   */
+  function fillInviteOptions(outlet) {
+    var select = custNode(outlet, 'inviteCustomer');
+    if (!select) return;
+    var kept = fieldValue(outlet, 'inviteCustomer');
+    var rows = invitableCustomers();
+    var html = '<option value="">' + escHtml(T('customers.selectCustomer')) + '</option>';
+    var stillThere = false;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      html += '<option value="' + escHtml(row.id) + '">' + escHtml(CUST.customerLabel ? CUST.customerLabel(row) : row.name) + '</option>';
+      if (String(row.id) === kept) stillThere = true;
+    }
+    select.innerHTML = html;
+    select.value = stillThere ? kept : '';
+    if (kept && !stillThere) {
+      // The selected customer just got access (or left the list): clear the
+      // email it prefilled so the next invite starts clean.
+      var email = custNode(outlet, 'inviteEmail');
+      if (email) email.value = '';
+    }
+    var submit = custNode(outlet, 'inviteSubmit');
+    if (submit) submit.disabled = rows.length === 0;
+    var message = custNode(outlet, 'inviteMessage');
+    var current = message ? message.textContent : '';
+    if (!rows.length) {
+      if (!current || current === T('customers.noInvitable')) custMessage(outlet, 'inviteMessage', 'customers.noInvitable');
+    } else if (current === T('customers.noInvitable')) {
+      custMessage(outlet, 'inviteMessage', null);
+    }
+  }
+
+  /** The chosen customer's contact email, prefilled into the invite form. */
+  function prefillInviteEmail(outlet) {
+    var select = custNode(outlet, 'inviteCustomer');
+    var email = custNode(outlet, 'inviteEmail');
+    if (!select || !email) return;
+    var id = String(select.value || '');
+    var row = null;
+    for (var i = 0; i < customersState.rows.length; i++) {
+      if (String(customersState.rows[i].id) === id) row = customersState.rows[i];
+    }
+    email.value = row && row.email ? String(row.email) : '';
+  }
+
+  /** "Invite" on a customer row: choose that customer and focus the email. */
+  function pickInviteCustomer(outlet, customerId) {
+    var select = custNode(outlet, 'inviteCustomer');
+    if (!select) return;
+    select.value = customerId || '';
+    prefillInviteEmail(outlet);
+    var email = custNode(outlet, 'inviteEmail');
+    if (email && email.focus) email.focus();
+  }
+
+  function clearInviteErrors(outlet) {
+    custMessage(outlet, 'inviteMessage', null);
+    custMessage(outlet, 'inviteCustomerError', null);
+    custMessage(outlet, 'inviteEmailError', null);
+    custMessage(outlet, 'invitePasswordError', null);
+  }
+
+  /**
+   * Give the customer a portal login (board task #120, scope item 4). The
+   * fleet manager sets the temporary password and shares it; no mail is sent
+   * (`#75`/`#79` remain owner-gated), and the response never carries a secret.
+   */
+  function submitCustomerInvite(outlet) {
+    if (!CUST.validateInviteForm) return;
+    var check = CUST.validateInviteForm({
+      customerId: fieldValue(outlet, 'inviteCustomer'),
+      email: fieldValue(outlet, 'inviteEmail'),
+      password: fieldValue(outlet, 'invitePassword')
+    });
+    clearInviteErrors(outlet);
+    if (!check.ok) {
+      var fieldErrors = { customerId: 'inviteCustomerError', email: 'inviteEmailError', password: 'invitePasswordError' };
+      var inputs = { customerId: 'inviteCustomer', email: 'inviteEmail', password: 'invitePassword' };
+      custMessage(outlet, fieldErrors[check.field] || 'inviteMessage', check.key);
+      var input = custNode(outlet, inputs[check.field] || '');
+      if (input && input.focus) input.focus();
+      return;
+    }
+    var submit = custNode(outlet, 'inviteSubmit');
+    if (submit) submit.disabled = true;
+    request('/api/fleet/customers/' + encodeURIComponent(check.customerId) + '/invite', {
+      method: 'POST',
+      token: session.token,
+      body: check.body
+    }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (submit) submit.disabled = false;
+      if (res.ok && res.data && res.data.member) {
+        var password = custNode(outlet, 'invitePassword');
+        if (password) password.value = '';
+        custMessage(outlet, 'inviteMessage', 'customers.invited', { name: String(res.data.member.name || '') }, 'success');
+        loadCustomers(outlet, customersState.token);
+        return;
+      }
+      custMessage(outlet, 'inviteMessage', CUST.errorKey ? CUST.errorKey(res.data) : 'error.unexpected');
     });
   }
 
