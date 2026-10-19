@@ -430,6 +430,16 @@
     return isKnownRole(role) && TRIP_MANAGE_ROLES.indexOf(role) !== -1;
   }
 
+  /**
+   * Does this role hold `user:manage` (so it may create a login — a driver, or
+   * a fleet customer's portal invite)? Deny by default.
+   * @param {unknown} role
+   * @returns {boolean}
+   */
+  function canManageUsers(role) {
+    return isKnownRole(role) && role === 'owner';
+  }
+
   /** @param {unknown} role @returns {boolean} */
   function canOpen(role, pathname) {
     if (!isKnownRole(role)) return false;
@@ -634,6 +644,7 @@
     canOpen: canOpen,
     canReadReports: canReadReports,
     canManageTrips: canManageTrips,
+    canManageUsers: canManageUsers,
     guardDecision: guardDecision,
     navHtml: navHtml,
     panelFor: panelFor,

@@ -96,7 +96,7 @@ export function normalizeFleetCustomer(body) {
  * The customer row the list and the quick-add response expose. Never a raw
  * Prisma row: only the fields the surface renders.
  * @param {any} customer
- * @returns {{ id: string, name: string, email: string|null, whatsappId: string|null, lang: string, orderCount: number|null, createdAt: string|null }}
+ * @returns {{ id: string, name: string, email: string|null, whatsappId: string|null, lang: string, orderCount: number|null, portalAccounts: number|null, createdAt: string|null }}
  */
 export function customerRow(customer) {
   if (!customer) return null;
@@ -107,6 +107,9 @@ export function customerRow(customer) {
     whatsappId: customer.whatsappId ? String(customer.whatsappId) : null,
     lang: String(customer.lang || 'en'),
     orderCount: typeof customer._count?.orders === 'number' ? customer._count.orders : null,
+    // How many logins may act for this customer. 0 means "invite to portal is
+    // still available"; the row is what the screen reads, never a raw count.
+    portalAccounts: typeof customer._count?.accounts === 'number' ? customer._count.accounts : null,
     createdAt: customer.createdAt ? new Date(customer.createdAt).toISOString() : null,
   };
 }

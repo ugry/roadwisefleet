@@ -50,10 +50,17 @@ test('customerRow exposes only the surface fields', () => {
     _count: { orders: 3 },
     secretInternalField: 'never exposed',
   });
-  assert.deepEqual(Object.keys(row).sort(), ['createdAt', 'email', 'id', 'lang', 'name', 'orderCount', 'whatsappId']);
+  assert.deepEqual(Object.keys(row).sort(), ['createdAt', 'email', 'id', 'lang', 'name', 'orderCount', 'portalAccounts', 'whatsappId']);
   assert.equal(row.orderCount, 3);
+  assert.equal(row.portalAccounts, null, 'no account count in this fixture reads as unknown, never as 0');
   assert.equal(row.createdAt, '2026-10-01T08:00:00.000Z');
   assert.equal(fleet.customerRow(null), null);
+});
+
+test('customerRow reports linked logins so the screen knows when to offer an invite', () => {
+  const none = fleet.customerRow({ id: 'c1', name: 'ACME', _count: { orders: 0, accounts: 0 } });
+  assert.equal(none.portalAccounts, 0);
+  assert.equal(fleet.customerRow({ id: 'c2', name: 'ACME', _count: { orders: 1, accounts: 2 } }).portalAccounts, 2);
 });
 
 /* ------------------------------------------------------------ orders --- */

@@ -78,6 +78,8 @@ async function cleanup(): Promise<void> {
   await prisma.customerAddress.deleteMany({ where: { customerId: { in: customerIds } } });
   await prisma.customer.deleteMany({ where: { id: { in: customerIds } } });
   await prisma.auditLog.deleteMany({ where: { orgId: { in: orgs } } });
+  // The invite creates a customer login (no org): drop it by its test email.
+  await prisma.user.deleteMany({ where: { email: { in: ['qa-fc-customer@roadwisefleet.test'] } } });
   await prisma.user.deleteMany({ where: { id: { in: [OWNER_A, OWNER_B, DRIVER_A] } } });
   await prisma.org.deleteMany({ where: { id: { in: orgs } } });
 }
@@ -130,6 +132,7 @@ if (!isReady) {
   test('both writes require a logged-in principal', async () => {
     for (const [url, payload] of [
       ['/api/fleet/customers', { name: 'X' }],
+      ['/api/fleet/customers/x/invite', { email: 'x@y.test', password: 'temp-pass-123' }],
       ['/api/orders', { customerId: 'x', origin: 'A', destination: 'B' }],
     ] as const) {
       const res = await app.inject({ method: 'POST', url, payload });
@@ -283,8 +286,81 @@ if (!isReady) {
     assert.equal(await prisma.order.count({ where: { customerId: customerAId } }), 2);
   });
 
-  test('the fixture state is real while the suite runs (cleanup runs in after)', async () => {
-    assert.equal(await prisma.customer.count({ where: { orgId: ORG_A } }), 1);
+  test('INVITE: tenant scoping, validation, and a working portal login (scope item 4)', async () => {
+    const url = `/api/fleet/customers/${customerAId}/invite`;
+    const invite = { email: 'qa-fc-customer@roadwisefleet.test', password: 'temp-pass-123' };
+
+    // A role without `user:manage` (the driver) is refused before any write.
+    const driver = await app.inject({ method: 'POST', url, headers: bearer(driverA), payload: invite });
+    assert.equal(driver.statusCode, 403, driver.payload);
+    assert.equal(driver.json().error, 'forbidden');
+
+    // TENANT ISOLATION: fleet B cannot invite fleet A's customer — flat 404.
+    const foreign = await app.inject({ method: 'POST', url, headers: bearer(ownerB), payload: invite });
+    assert.equal(foreign.statusCode, 404, foreign.payload);
+    assert.equal(foreign.json().error, 'customer_not_found');
+    assert.equal(await prisma.user.count({ where: { email: invite.email } }), 0, 'nothing was written');
+
+    // A missing/short temporary password is a 400 with the shipped signup keys.
+    const weak = await app.inject({
+      method: 'POST',
+      url,
+      headers: bearer(ownerA),
+      payload: { email: invite.email, password: 'short' },
+    });
+    assert.equal(weak.statusCode, 400, weak.payload);
+    assert.equal(weak.json().field, 'password');
+    assert.equal(weak.json().messageKey, 'signup.error.passwordShort');
+    assert.equal(await prisma.user.count({ where: { email: invite.email } }), 0, 'a refused invite creates no login');
+
+    // The happy path: 201, no secret in the response, the login is customer-scoped.
+    const ok = await app.inject({ method: 'POST', url, headers: bearer(ownerA), payload: invite });
+    assert.equal(ok.statusCode, 201, ok.payload);
+    const member = ok.json().member;
+    assert.equal(member.email, invite.email);
+    assert.equal(member.roleId, 'customer');
+    assert.equal(member.customerId, customerAId);
+    assert.equal('password' in member, false, 'never echo the password');
+    assert.equal('passwordHash' in member, false, 'never echo the hash');
+    assert.equal(ok.payload.includes('temp-pass-123'), false);
+
+    const user = await prisma.user.findUnique({ where: { email: invite.email } });
+    assert.ok(user, 'the login exists');
+    assert.equal(user?.roleId, 'customer');
+    assert.equal(user?.orgId, null, 'a customer login must never carry an org');
+    const link = await prisma.customerAccount.findFirst({ where: { userId: user?.id } });
+    assert.equal(link?.customerId, customerAId, 'linked to the fleet A customer, not another tenant');
+
+    // The temporary password really works, and the login lands in the portal scope.
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: invite.email, password: invite.password },
+    });
+    assert.equal(login.statusCode, 200, login.payload);
+    assert.equal(login.json().user.roleId, 'customer');
+    assert.equal(login.json().user.orgId, null);
+    const portalToken = login.json().token as string;
+    const scope = await app.inject({ method: 'GET', url: '/api/customer/orders', headers: bearer(portalToken) });
+    assert.equal(scope.statusCode, 200, `a customer account reaches only its own surface: ${scope.payload}`);
+    const orgScope = await app.inject({ method: 'GET', url: '/api/trips', headers: bearer(portalToken) });
+    assert.equal(orgScope.statusCode, 403, 'a customer login cannot read fleet A org data');
+
+    // The list now tells the screen this customer has portal access.
+    const list = await app.inject({ method: 'GET', url: '/api/fleet/customers', headers: bearer(ownerA) });
+    const row = (list.json().customers as Array<{ id: string; portalAccounts: number }>).find((c) => c.id === customerAId);
+    assert.equal(row?.portalAccounts, 1);
+    const listB = await app.inject({ method: 'GET', url: '/api/fleet/customers', headers: bearer(ownerB) });
+    assert.equal((listB.json().customers as Array<{ id: string }>).length, 0);
+
+    // A second invite for the same email is a flat 409, never a second row.
+    const duplicate = await app.inject({ method: 'POST', url, headers: bearer(ownerA), payload: invite });
+    assert.equal(duplicate.statusCode, 409, duplicate.payload);
+    assert.equal(duplicate.json().error, 'email_taken');
+    assert.equal(await prisma.customerAccount.count({ where: { customerId: customerAId } }), 1);
+  });
+
+  test('the fixture state is real while the suite runs (cleanup runs in after)', async () => {    assert.equal(await prisma.customer.count({ where: { orgId: ORG_A } }), 1);
     assert.equal(await prisma.customer.count({ where: { orgId: ORG_B } }), 0);
     assert.equal(await prisma.order.count({ where: { customerId: customerAId } }), 2);
 

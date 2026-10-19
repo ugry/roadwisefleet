@@ -84,6 +84,32 @@
   }
 
   /**
+   * Validate the invite-to-portal form (board task #120, scope item 4). The
+   * fleet manager types the customer's temporary password — the same shipped
+   * invite contract as `POST /api/customer/team` and `/api/fleet/drivers`: no
+   * mail is sent and the response never carries a secret.
+   * @returns {{ ok: true, customerId: string, body: object } | { ok: false, field: string, key: string }}
+   */
+  function validateInviteForm(form) {
+    var f = form || {};
+    var customerId = str(f.customerId);
+    if (!customerId) return { ok: false, field: 'customerId', key: 'customers.error.customerRequired' };
+    var email = str(f.email);
+    if (!email) return { ok: false, field: 'email', key: 'signup.error.emailRequired' };
+    if (!EMAIL.test(email)) return { ok: false, field: 'email', key: 'signup.error.emailInvalid' };
+    var password = typeof f.password === 'string' ? f.password : '';
+    if (password.length < 8) return { ok: false, field: 'password', key: 'signup.error.passwordShort' };
+    if (password.length > 200) return { ok: false, field: 'password', key: 'signup.error.passwordLong' };
+    return { ok: true, customerId: customerId, body: { email: email, password: password } };
+  }
+
+  /** A customer has portal access once at least one login is linked to it. */
+  function hasPortalAccess(customer) {
+    if (!customer) return false;
+    return typeof customer.portalAccounts === 'number' && customer.portalAccounts > 0;
+  }
+
+  /**
    * Map an API error body to a catalogue key, mirroring `reasonFor` in the
    * shell: a `messageKey` first, then the server's `error`, then a generic key.
    */
@@ -91,6 +117,7 @@
     if (data && typeof data.messageKey === 'string' && data.messageKey) return data.messageKey;
     if (data && data.error === 'customer_not_found') return 'customers.error.customerNotFound';
     if (data && data.error === 'order_not_found') return 'customers.error.orderNotFound';
+    if (data && data.error === 'email_taken') return 'customers.error.emailTaken';
     if (data && data.error === 'forbidden') return 'error.forbidden';
     if (data && data.error === 'no_org') return 'error.noOrg';
     return 'customers.error.requestFailed';
@@ -99,6 +126,8 @@
   return {
     validateCustomerForm: validateCustomerForm,
     validateOrderForm: validateOrderForm,
+    validateInviteForm: validateInviteForm,
+    hasPortalAccess: hasPortalAccess,
     customerLabel: customerLabel,
     orderSummary: orderSummary,
     errorKey: errorKey

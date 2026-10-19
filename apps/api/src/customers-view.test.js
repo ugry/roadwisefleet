@@ -90,6 +90,43 @@ test('validateOrderForm builds exactly the POST /api/orders contract', () => {
   assert.equal('orgId' in res.body, false);
 });
 
+// --- invite to portal -------------------------------------------------------
+
+test('validateInviteForm requires a customer, an email and an 8-character password', () => {
+  assert.deepEqual(customers.validateInviteForm({}), { ok: false, field: 'customerId', key: 'customers.error.customerRequired' });
+  assert.deepEqual(customers.validateInviteForm({ customerId: 'c1' }), {
+    ok: false,
+    field: 'email',
+    key: 'signup.error.emailRequired',
+  });
+  assert.deepEqual(customers.validateInviteForm({ customerId: 'c1', email: 'nope' }), {
+    ok: false,
+    field: 'email',
+    key: 'signup.error.emailInvalid',
+  });
+  assert.deepEqual(customers.validateInviteForm({ customerId: 'c1', email: 'a@b.de', password: 'short' }), {
+    ok: false,
+    field: 'password',
+    key: 'signup.error.passwordShort',
+  });
+});
+
+test('validateInviteForm posts only the login email and the temporary password', () => {
+  const res = customers.validateInviteForm({ customerId: ' c1 ', email: ' ops@acme.test ', password: 'temp-pass-123' });
+  assert.equal(res.ok, true);
+  assert.equal(res.customerId, 'c1', 'the customer travels in the path, never in the body');
+  assert.deepEqual(res.body, { email: 'ops@acme.test', password: 'temp-pass-123' });
+  assert.equal('orgId' in res.body, false);
+  assert.equal('passwordHash' in res.body, false);
+});
+
+test('hasPortalAccess reads the server count, never a client guess', () => {
+  assert.equal(customers.hasPortalAccess({ portalAccounts: 1 }), true);
+  assert.equal(customers.hasPortalAccess({ portalAccounts: 0 }), false);
+  assert.equal(customers.hasPortalAccess({}), false);
+  assert.equal(customers.hasPortalAccess(null), false);
+});
+
 // --- display helpers --------------------------------------------------------
 
 test('customerLabel and orderSummary never render a raw id', () => {
@@ -110,6 +147,7 @@ test('every API failure maps to a readable catalogue key, never a raw status', (
     [{ error: 'invalid_input', messageKey: 'customers.error.nameRequired' }, 'customers.error.nameRequired'],
     [{ error: 'customer_not_found' }, 'customers.error.customerNotFound'],
     [{ error: 'order_not_found' }, 'customers.error.orderNotFound'],
+    [{ error: 'email_taken', field: 'email' }, 'customers.error.emailTaken'],
     [{ error: 'forbidden' }, 'error.forbidden'],
     [{ error: 'no_org' }, 'error.noOrg'],
     [{ error: 'network' }, 'customers.error.requestFailed'],
@@ -132,6 +170,15 @@ test('the shell loads the customers module before app.js', () => {
   assert.match(APP_JS, /RoadwiseCustomers/);
   assert.match(APP_JS, /CUST\.validateCustomerForm/);
   assert.match(APP_JS, /CUST\.validateOrderForm/);
+  assert.match(APP_JS, /CUST\.validateInviteForm/);
+  assert.match(APP_JS, /\/api\/fleet\/customers\/' \+ encodeURIComponent/);
+});
+
+test('only an owner holds user:manage, so only an owner is offered the invite form', () => {
+  assert.equal(appCore.canManageUsers('owner'), true);
+  assert.equal(appCore.canManageUsers('dispatcher'), false);
+  assert.equal(appCore.canManageUsers('driver'), false);
+  assert.equal(appCore.canManageUsers('nope'), false);
 });
 
 test('the customers route is an implemented view for owners/dispatchers only', () => {
@@ -166,6 +213,11 @@ test('every customers catalogue key used by the module and app.js exists in en.j
   // The success messages interpolate the new name / order id.
   assert.match(CATALOGUE['customers.created'], /\{name\}/);
   assert.match(CATALOGUE['customers.orderCreated'], /\{id\}/);
+  // The invite form reuses the shipped signup rules, so their keys must be in
+  // the app catalogue too (the regex above only scans customers/error keys).
+  for (const key of ['signup.error.emailRequired', 'signup.error.emailInvalid', 'signup.error.passwordShort', 'signup.error.passwordLong']) {
+    assert.ok(key in CATALOGUE, `missing catalogue key: ${key}`);
+  }
 });
 
 test('the server module and the browser module agree on every error message key', () => {

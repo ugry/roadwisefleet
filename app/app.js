@@ -1736,7 +1736,7 @@
    * reads the DOM and the network. Tenant scoping is the server's job — the
    * client never sends an org.
    */
-  var customersState = { rows: [], equipment: [], orders: [], token: 0 };
+  var customersState = { rows: [], equipment: [], orders: [], token: 0, canInvite: false };
 
   var CUSTOMER_LANGS = [
     { value: 'en', label: 'English' },
@@ -1768,6 +1768,10 @@
     customersState.rows = [];
     customersState.equipment = [];
     customersState.orders = [];
+    // Creating a login is `user:manage` (owner), exactly like the fleet-driver
+    // invite; granting portal access is never offered to a role the server
+    // would refuse anyway.
+    customersState.canInvite = Boolean(APP.canManageUsers && APP.canManageUsers(session.user && session.user.roleId));
 
     var langOptions = CUSTOMER_LANGS.map(function (lang) {
       return '<option value="' + escHtml(lang.value) + '">' + escHtml(lang.label) + '</option>';
@@ -1822,6 +1826,35 @@
           '</table>' +
         '</div>' +
       '</section>' +
+
+      (customersState.canInvite
+        ? '<section class="panel">' +
+            '<h2>' + escHtml(T('customers.portalTitle')) + '</h2>' +
+            '<p class="lead">' + escHtml(T('customers.portalLead')) + '</p>' +
+            '<form class="dispatch-form" id="inviteForm" novalidate>' +
+              '<p class="alert" id="inviteMessage" role="alert" hidden></p>' +
+              '<div class="field">' +
+                '<label for="inviteCustomer">' + escHtml(T('customers.customer')) + '</label>' +
+                '<select id="inviteCustomer"></select>' +
+                '<p class="field-error" id="inviteCustomerError" hidden></p>' +
+              '</div>' +
+              '<div class="field">' +
+                '<label for="inviteEmail">' + escHtml(T('customers.inviteEmail')) + '</label>' +
+                '<input id="inviteEmail" type="email" autocomplete="off">' +
+                '<p class="field-error" id="inviteEmailError" hidden></p>' +
+              '</div>' +
+              '<div class="field">' +
+                '<label for="invitePassword">' + escHtml(T('customers.invitePassword')) + '</label>' +
+                '<input id="invitePassword" type="password" autocomplete="new-password">' +
+                '<p class="field-error" id="invitePasswordError" hidden></p>' +
+              '</div>' +
+              '<div class="form-actions">' +
+                '<span class="helper">' + escHtml(T('customers.inviteHint')) + '</span>' +
+                '<button class="primary" type="submit" id="inviteSubmit">' + escHtml(T('customers.invite')) + '</button>' +
+              '</div>' +
+            '</form>' +
+          '</section>'
+        : '') +
 
       '<section class="panel">' +
         '<h2>' + escHtml(T('customers.orderTitle')) + '</h2>' +
@@ -1900,9 +1933,24 @@
     var customerSelect = custNode(outlet, 'orderCustomer');
     if (customerSelect) customerSelect.addEventListener('change', function () { renderFleetOrders(outlet); });
 
+    var inviteForm = custNode(outlet, 'inviteForm');
+    if (inviteForm) {
+      inviteForm.addEventListener('submit', function (ev) {
+        if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+        submitCustomerInvite(outlet);
+      });
+    }
+    var inviteSelect = custNode(outlet, 'inviteCustomer');
+    if (inviteSelect) inviteSelect.addEventListener('change', function () { prefillInviteEmail(outlet); });
+
     var customersBody = custNode(outlet, 'customersTableBody');
     if (customersBody) {
       customersBody.addEventListener('click', function (ev) {
+        var invite = closestAttr(ev && ev.target, 'data-invite-customer');
+        if (invite) {
+          pickInviteCustomer(outlet, invite.getAttribute('data-invite-customer'));
+          return;
+        }
         var button = closestAttr(ev && ev.target, 'data-order-customer');
         if (!button) return;
         pickFleetCustomer(outlet, button.getAttribute('data-order-customer'));
@@ -1940,6 +1988,7 @@
       customersState.orders = orders.ok && orders.data && orders.data.orders ? orders.data.orders : [];
       fillCustomerOptions(outlet);
       fillEquipmentOptions(outlet);
+      fillInviteOptions(outlet);
       renderCustomerRows(outlet);
       renderFleetOrders(outlet);
     });
@@ -2003,6 +2052,15 @@
       var customer = customersState.rows[i];
       var contact = customer.email || customer.whatsappId || T('trips.none');
       var count = customer.orderCount === null || customer.orderCount === undefined ? 0 : customer.orderCount;
+      var portal = CUST.hasPortalAccess && CUST.hasPortalAccess(customer);
+      var portalAction = '';
+      if (portal) {
+        portalAction = '<span class="badge">' + escHtml(T('customers.portalActive')) + '</span>';
+      } else if (customersState.canInvite) {
+        portalAction = '<button type="button" class="ghost" data-invite-customer="' + escHtml(customer.id) + '">' +
+          escHtml(T('customers.invite')) +
+        '</button>';
+      }
       html += '<tr>' +
         '<td>' + escHtml(customer.name) + '</td>' +
         '<td>' + escHtml(contact) + '</td>' +
@@ -2011,6 +2069,7 @@
           '<button type="button" class="ghost" data-order-customer="' + escHtml(customer.id) + '">' +
             escHtml(T('customers.newOrder')) +
           '</button>' +
+          portalAction +
         '</td>' +
         '</tr>';
     }
@@ -2172,6 +2231,120 @@
         return;
       }
       custMessage(outlet, 'ordersMessage', CUST.errorKey ? CUST.errorKey(res.data) : 'error.unexpected');
+    });
+  }
+
+  /** Customers that still have no portal login (the invite form's options). */
+  function invitableCustomers() {
+    return customersState.rows.filter(function (row) {
+      return !(CUST.hasPortalAccess && CUST.hasPortalAccess(row));
+    });
+  }
+
+  /**
+   * Fill the invite select with the customers that have no portal login yet.
+   * A success message from the last invite is preserved: the list refresh it
+   * triggers must not replace "invited" with "nothing left to invite".
+   */
+  function fillInviteOptions(outlet) {
+    var select = custNode(outlet, 'inviteCustomer');
+    if (!select) return;
+    var kept = fieldValue(outlet, 'inviteCustomer');
+    var rows = invitableCustomers();
+    var html = '<option value="">' + escHtml(T('customers.selectCustomer')) + '</option>';
+    var stillThere = false;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      html += '<option value="' + escHtml(row.id) + '">' + escHtml(CUST.customerLabel ? CUST.customerLabel(row) : row.name) + '</option>';
+      if (String(row.id) === kept) stillThere = true;
+    }
+    select.innerHTML = html;
+    select.value = stillThere ? kept : '';
+    if (kept && !stillThere) {
+      // The selected customer just got access (or left the list): clear the
+      // email it prefilled so the next invite starts clean.
+      var email = custNode(outlet, 'inviteEmail');
+      if (email) email.value = '';
+    }
+    var submit = custNode(outlet, 'inviteSubmit');
+    if (submit) submit.disabled = rows.length === 0;
+    var message = custNode(outlet, 'inviteMessage');
+    var current = message ? message.textContent : '';
+    if (!rows.length) {
+      if (!current || current === T('customers.noInvitable')) custMessage(outlet, 'inviteMessage', 'customers.noInvitable');
+    } else if (current === T('customers.noInvitable')) {
+      custMessage(outlet, 'inviteMessage', null);
+    }
+  }
+
+  /** The chosen customer's contact email, prefilled into the invite form. */
+  function prefillInviteEmail(outlet) {
+    var select = custNode(outlet, 'inviteCustomer');
+    var email = custNode(outlet, 'inviteEmail');
+    if (!select || !email) return;
+    var id = String(select.value || '');
+    var row = null;
+    for (var i = 0; i < customersState.rows.length; i++) {
+      if (String(customersState.rows[i].id) === id) row = customersState.rows[i];
+    }
+    email.value = row && row.email ? String(row.email) : '';
+  }
+
+  /** "Invite" on a customer row: choose that customer and focus the email. */
+  function pickInviteCustomer(outlet, customerId) {
+    var select = custNode(outlet, 'inviteCustomer');
+    if (!select) return;
+    select.value = customerId || '';
+    prefillInviteEmail(outlet);
+    var email = custNode(outlet, 'inviteEmail');
+    if (email && email.focus) email.focus();
+  }
+
+  function clearInviteErrors(outlet) {
+    custMessage(outlet, 'inviteMessage', null);
+    custMessage(outlet, 'inviteCustomerError', null);
+    custMessage(outlet, 'inviteEmailError', null);
+    custMessage(outlet, 'invitePasswordError', null);
+  }
+
+  /**
+   * Give the customer a portal login (board task #120, scope item 4). The
+   * fleet manager sets the temporary password and shares it; no mail is sent
+   * (`#75`/`#79` remain owner-gated), and the response never carries a secret.
+   */
+  function submitCustomerInvite(outlet) {
+    if (!CUST.validateInviteForm) return;
+    var check = CUST.validateInviteForm({
+      customerId: fieldValue(outlet, 'inviteCustomer'),
+      email: fieldValue(outlet, 'inviteEmail'),
+      password: fieldValue(outlet, 'invitePassword')
+    });
+    clearInviteErrors(outlet);
+    if (!check.ok) {
+      var fieldErrors = { customerId: 'inviteCustomerError', email: 'inviteEmailError', password: 'invitePasswordError' };
+      var inputs = { customerId: 'inviteCustomer', email: 'inviteEmail', password: 'invitePassword' };
+      custMessage(outlet, fieldErrors[check.field] || 'inviteMessage', check.key);
+      var input = custNode(outlet, inputs[check.field] || '');
+      if (input && input.focus) input.focus();
+      return;
+    }
+    var submit = custNode(outlet, 'inviteSubmit');
+    if (submit) submit.disabled = true;
+    request('/api/fleet/customers/' + encodeURIComponent(check.customerId) + '/invite', {
+      method: 'POST',
+      token: session.token,
+      body: check.body
+    }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (submit) submit.disabled = false;
+      if (res.ok && res.data && res.data.member) {
+        var password = custNode(outlet, 'invitePassword');
+        if (password) password.value = '';
+        custMessage(outlet, 'inviteMessage', 'customers.invited', { name: String(res.data.member.name || '') }, 'success');
+        loadCustomers(outlet, customersState.token);
+        return;
+      }
+      custMessage(outlet, 'inviteMessage', CUST.errorKey ? CUST.errorKey(res.data) : 'error.unexpected');
     });
   }
 

@@ -118,6 +118,32 @@ export async function createCustomerAccount(tx: Tx, input: { hostOrgId: string; 
 }
 
 /**
+ * Invite an EXISTING customer row into the shipper portal (board task #120,
+ * UXF-O3 lane 1). This is the fleet-side reuse of the shipped team invite
+ * (`POST /api/customer/team`) and of `createCustomerAccount`: the same
+ * `User` (customer role, no org) + `CustomerAccount` pair, but the `Customer`
+ * already exists because the fleet quick-added it. The fleet manager sets the
+ * temporary password; nothing is sent by mail.
+ * @param {Tx} tx
+ * @param {{ customerId: string, name: string, email: string, passwordHash: string, lang?: string }} input
+ */
+export async function inviteCustomerAccount(tx: Tx, input: { customerId: string; name: string; email: string; passwordHash: string; lang?: string }) {
+  await ensureRole(tx, customerCore.CUSTOMER_ROLE, customerCore.CUSTOMER_PERMISSIONS);
+  const user = await tx.user.create({
+    data: {
+      roleId: customerCore.CUSTOMER_ROLE,
+      name: input.name,
+      email: input.email,
+      orgId: null,
+      passwordHash: input.passwordHash,
+      lang: input.lang || 'en',
+    },
+  });
+  await tx.customerAccount.create({ data: { userId: user.id, customerId: input.customerId } });
+  return user;
+}
+
+/**
  * A solo truck driver: a one-person carrier org (the marketplace award creates
  * the Trip there), the `solo` login and the profile.
  * @param {Tx} tx

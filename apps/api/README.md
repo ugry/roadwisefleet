@@ -212,8 +212,9 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/drivers` | bearer, `trip:create` | active org drivers (`id`, `name`, `phone`) |
 | `GET /api/trucks` | bearer, `trip:create` | org trucks (`id`, `plate`, `dimensions`, `euroClass`) |
 | `GET /api/customers` | bearer, `trip:create` | org customers (`id`, `name`) |
-| `GET /api/fleet/customers` | bearer, `trip:create` | the `/app/customers` list: the org's customers with `email`, `whatsappId`, `lang`, `orderCount` and `createdAt`, plus the `equipment` vocabulary the order form offers (board task #120) |
+| `GET /api/fleet/customers` | bearer, `trip:create` | the `/app/customers` list: the org's customers with `email`, `whatsappId`, `lang`, `orderCount`, `portalAccounts` and `createdAt`, plus the `equipment` vocabulary the order form offers (board task #120) |
 | `POST /api/fleet/customers` | bearer, `trip:create` | quick-add a customer in the caller's org (`name` required; optional `email`, `whatsappId`/`phone`, `lang` en/de/pl/tr) → `201 { customer }`; validation is a `400` naming the field, never a `500` (board task #120) |
+| `POST /api/fleet/customers/:id/invite` | bearer, `user:manage` | invite an existing fleet customer to the shipper portal: `{ email?, password }` (the email defaults to the customer row; the fleet manager sets an 8–200 char temporary password) → `201 { member }`; creates the customer-role `User` + `CustomerAccount` pair, never returns the password, `409 email_taken` on a duplicate address and a flat `404` for a foreign customer (board task #120) |
 | `POST /api/orders` | bearer, `trip:create` | create the fleet's own manual order for one of its customers: `{ customerId, origin, destination, cargo?, plannedAt?, equipment?, notes? }` → `201 { order }` with an `OrderBooking` (`supplyChoice: "fleet"`), status `BOOKED`; with `repeatOf` it copies that order into a **new** order (optional field overrides). A customer/order from another org is a flat `404` (board task #120) |
 | `POST /api/trips/:id/documents` | bearer, `trip:*` or `pod:upload` + assigned driver | upload a document as JSON base64 (`docType`, `filename`, `mimeType`, `dataBase64`, plus the optional driver capture `capturedAt` + `geo`); stored under `UPLOAD_DIR` with a generated `storageKey`, row `PENDING` → `UPLOADED`; `400` on a bad type/mime/size or a malformed capture (`invalid_capture`), `403` on the wrong role |
 | `GET /api/trips/:id/documents` | bearer, `trip:*` or `trip:read` + assigned driver | the trip's document checklist (`id`, `docType`, `status`, `uploadedAt`, `expiresAt`, `capturedAt`, `capture` — never the `storageKey`) |
@@ -636,17 +637,20 @@ Behaviour:
   and both writes are gated on `trip:create` (a driver gets `403`). Validation
   is shared with the browser (`src/fleet-customers.js` + `app/lib/customers.js`),
   so the form refuses an obviously invalid submit before a request leaves and
-  maps every server failure to a catalogue message. **Not in this task:** the
-  invite-to-portal step — the only invite flow (`POST /api/customer/team`)
-  requires an existing customer-account principal, so a fleet cannot call it;
-  wiring a fleet-side invite is an owner/provider decision (board #75/#79), and
-  no mailer is invented here.
+  maps every server failure to a catalogue message. The **invite-to-portal**
+  step reuses the shipped credential invite (the same `User` + `CustomerAccount`
+  pair as `POST /api/customer/team` and `/api/fleet/drivers`, through
+  `registration-accounts.ts#inviteCustomerAccount`): an owner (`user:manage`,
+  like the driver invite) sets the customer's temporary password and shares it
+  out of band — **no mailer is invented and no provider is involved**, so the
+  `#75`/`#79` owner gates stay untouched. The customer row's `portalAccounts`
+  count is what makes the screen hide the invite once access exists.
 
 Tests: `src/fleet-customers.test.js` + `src/customers-view.test.js` run in the
 no-install CI job; `test/fleet-customer-lane.test.ts` adds the HTTP +
-database checks (201/4xx, auth, role, **tenant isolation**, repeat) under
-`pnpm test:router`; `scratch/verify-customers-view.js` drives the rendered
-screen.
+database checks (201/4xx, auth, role, **tenant isolation**, repeat, the portal
+invite + a real login with the temporary password) under `pnpm test:router`;
+`scratch/verify-customers-view.js` drives the rendered screen.
 
 Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/menus.test.js` +
 `src/dispatch-form.test.js` + `src/assign-form.test.js` + `src/documents-ui.test.js`
