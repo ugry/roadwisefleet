@@ -190,6 +190,15 @@
         });
     }
 
+    /** A catalogue that loaded with no entries is not a language we can speak. */
+    function hasCatalogue(catalogues) {
+      if (!catalogues || typeof catalogues !== 'object') return false;
+      for (var key in catalogues) {
+        if (Object.prototype.hasOwnProperty.call(catalogues, key)) return true;
+      }
+      return false;
+    }
+
     function render(current) {
       var resolved = core.resolveLocaleDetailed({
         requested: core.localeFromSearch(search),
@@ -198,11 +207,24 @@
         org: b.org,
         navigator: navigatorLanguages
       });
-      var locale = current || resolved.locale;
+      var requested = current || resolved.locale;
       var source = current ? 'choice' : resolved.source;
-      return loadBooks(locale).then(function (catalogues) {
+      return loadBooks(requested).then(function (catalogues) {
+        var locale = requested;
+        var fellBack = false;
+        // A missing or failed catalogue must never leave the page claiming a
+        // language it is not speaking (`<html lang="de">` around English copy).
+        // The switcher selection and the document language follow the language
+        // actually rendered; the request is still reported for diagnostics.
+        if (locale !== core.DEFAULT_LOCALE && !hasCatalogue(catalogues[locale])) {
+          locale = core.DEFAULT_LOCALE;
+          source = 'fallback';
+          fellBack = true;
+        }
         var i18n = core.createI18n({ catalogs: catalogues, locale: locale });
         i18n.source = source;
+        i18n.requestedLocale = requested;
+        i18n.fellBack = fellBack;
         i18n.html = switcherHtml({ t: i18n.t, current: locale });
         if (doc) {
           if (doc.documentElement && typeof doc.documentElement.setAttribute === 'function') {
