@@ -260,6 +260,10 @@
   "trips.status.POD_UPLOADED": "POD hochgeladen",
   "trips.status.INVOICED": "Berechnet",
   "trips.status.SETTLED": "Abgerechnet",
+  "trips.status.REFUSED": "Bei Abholung abgelehnt",
+  "trips.status.BREAKDOWN": "Fahrzeugpanne",
+  "trips.status.DELAYED": "Verzögert",
+  "trips.status.CUSTOMS_HOLD": "Zollstop",
   "trips.status.CANCELLED": "Storniert",
 
   "docs.lead": "Dokumente werden pro Tour verwaltet. Wählen Sie unten eine Tour, um ihre Papiere hochzuladen, die Pflichtdokumente zu prüfen und vom Fahrer gesendete Dokumente zu bestätigen oder abzulehnen.",
@@ -452,5 +456,17 @@
   "customers.error.dateInvalid": "Geben Sie ein gültiges Datum ein.",
   "customers.error.windowOrder": "Das Lieferfenster kann nicht vor seinem Beginn enden.",
   "customers.error.equipmentUnknown": "Wählen Sie Ausrüstung aus der Liste.",
-  "customers.error.requestFailed": "Das hat nicht geklappt. Versuchen Sie es erneut."
+  "customers.error.requestFailed": "Das hat nicht geklappt. Versuchen Sie es erneut.",
+  "disruption.title": "Störung melden",
+  "disruption.intro": "Erfassen Sie das Problem, wenn die Fahrt nicht wie geplant fortgesetzt werden kann. Jede Beendigung hat genau einen dokumentierten Weg zurück.",
+  "disruption.action.REFUSED": "Bei Abholung ablehnen",
+  "disruption.action.BREAKDOWN": "Panne melden",
+  "disruption.action.DELAYED": "Verzögerung melden",
+  "disruption.action.CUSTOMS_HOLD": "In den Zollstop geben",
+  "disruption.resume": "Fahrt fortsetzen",
+  "disruption.hint.REFUSED": "Ladung bei Abholung abgelehnt. Beim Fortsetzen wird die Fahrt zu den neu ausgehandelten Bedingungen geladen.",
+  "disruption.hint.BREAKDOWN": "Fahrzeugpanne. Beim Fortsetzen startet die Fahrt neu, sobald Bergung oder ein Fahrzeugtausch organisiert ist.",
+  "disruption.hint.DELAYED": "Unterwegs verzögert. Beim Fortsetzen kehrt die Fahrt in den Status „Auf Fahrt“ zurück; der Kunde sieht die Verzögerung, keine erfundene Ankunftszeit.",
+  "disruption.hint.CUSTOMS_HOLD": "Wegen Zollpapieren angehalten. Beim Fortsetzen kehrt die Fahrt in den Status „Bei Lieferung“ zurück, sobald die Dokumente freigegeben sind.",
+  "disruption.changed": "Fahrtstatus ist jetzt {status}."
 }

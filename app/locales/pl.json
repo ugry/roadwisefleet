@@ -260,6 +260,10 @@
   "trips.status.POD_UPLOADED": "POD przesłany",
   "trips.status.INVOICED": "Zafakturowany",
   "trips.status.SETTLED": "Rozliczony",
+  "trips.status.REFUSED": "Odmowa przy załadunku",
+  "trips.status.BREAKDOWN": "Awaria pojazdu",
+  "trips.status.DELAYED": "Opóźniony",
+  "trips.status.CUSTOMS_HOLD": "Zatrzymanie celne",
   "trips.status.CANCELLED": "Anulowany",
 
   "docs.lead": "Dokumenty są zarządzane dla każdego kursu. Wybierz kurs poniżej, aby przesłać jego papiery, sprawdzić wymagane dokumenty i zweryfikować lub odrzucić to, co przesłał kierowca.",
@@ -452,5 +456,17 @@
   "customers.error.dateInvalid": "Podaj prawidłową datę.",
   "customers.error.windowOrder": "Okno dostawy nie może kończyć się przed rozpoczęciem.",
   "customers.error.equipmentUnknown": "Wybierz wyposażenie z listy.",
-  "customers.error.requestFailed": "To się nie udało. Spróbuj ponownie."
+  "customers.error.requestFailed": "To się nie udało. Spróbuj ponownie.",
+  "disruption.title": "Zgłoś zakłócenie",
+  "disruption.intro": "Zapisz problem, gdy kurs nie może być kontynuowany zgodnie z planem. Każde zakończenie ma dokładnie jedną udokumentowaną drogę powrotu.",
+  "disruption.action.REFUSED": "Odmów przy załadunku",
+  "disruption.action.BREAKDOWN": "Zgłoś awarię",
+  "disruption.action.DELAYED": "Zgłoś opóźnienie",
+  "disruption.action.CUSTOMS_HOLD": "Zgłoś zatrzymanie celne",
+  "disruption.resume": "Wznów kurs",
+  "disruption.hint.REFUSED": "Ładunek odrzucony przy załadunku. Wznowienie ładuje kurs na nowo wynegocjowanych warunkach.",
+  "disruption.hint.BREAKDOWN": "Awaria pojazdu. Wznowienie uruchamia kurs ponownie, gdy zorganizowany zostanie hol lub wymiana ciągnika.",
+  "disruption.hint.DELAYED": "Opóźnienie w trasie. Wznowienie przywraca kurs do statusu „W trasie”; klient widzi opóźnienie, nigdy wymyślony czas przyjazdu.",
+  "disruption.hint.CUSTOMS_HOLD": "Zatrzymanie z powodu dokumentów celnych. Wznowienie przywraca kurs do statusu „Na dostawie”, gdy dokumenty zostaną zwolnione.",
+  "disruption.changed": "Status kursu to teraz {status}."
 }

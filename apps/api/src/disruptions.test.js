@@ -113,6 +113,9 @@ test('both surfaces load the shared table and use it', () => {
 test('every ending has a human label in every surface catalogue', () => {
   const catalogues = {
     'app/locales/en.json': 'trips.status.',
+    'app/locales/de.json': 'trips.status.',
+    'app/locales/pl.json': 'trips.status.',
+    'app/locales/tr.json': 'trips.status.',
     'solo/locales/en.json': 'status.',
     'customer/locales/en.json': 'status.',
     'pilot/locales/en.json': 'status.',

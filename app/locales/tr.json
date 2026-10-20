@@ -260,6 +260,10 @@
   "trips.status.POD_UPLOADED": "POD yüklendi",
   "trips.status.INVOICED": "Faturalandı",
   "trips.status.SETTLED": "Mutabakat yapıldı",
+  "trips.status.REFUSED": "Teslim almada reddedildi",
+  "trips.status.BREAKDOWN": "Araç arızası",
+  "trips.status.DELAYED": "Gecikmede",
+  "trips.status.CUSTOMS_HOLD": "Gümrük beklemesi",
   "trips.status.CANCELLED": "İptal edildi",
 
   "docs.lead": "Belgeler sefer bazında yönetilir. Evraklarını yüklemek, gerekli belgeleri kontrol etmek ve sürücünün gönderdiklerini doğrulamak veya reddetmek için aşağıdan bir sefer seçin.",
@@ -452,5 +456,17 @@
   "customers.error.dateInvalid": "Geçerli bir tarih girin.",
   "customers.error.windowOrder": "Teslimat aralığı başlangıcından önce bitemez.",
   "customers.error.equipmentUnknown": "Listeden ekipman seçin.",
-  "customers.error.requestFailed": "Bu işlem gerçekleşmedi. Tekrar deneyin."
+  "customers.error.requestFailed": "Bu işlem gerçekleşmedi. Tekrar deneyin.",
+  "disruption.title": "Aksaklık bildir",
+  "disruption.intro": "Sefer planlandığı gibi sürdürülemiyorsa sorunu kaydedin. Her sonlanmanın tam olarak bir belgelenmiş geri dönüş yolu vardır.",
+  "disruption.action.REFUSED": "Teslim almada reddet",
+  "disruption.action.BREAKDOWN": "Arıza bildir",
+  "disruption.action.DELAYED": "Gecikme bildir",
+  "disruption.action.CUSTOMS_HOLD": "Gümrük beklemesine al",
+  "disruption.resume": "Seferi sürdür",
+  "disruption.hint.REFUSED": "Yük teslim almada reddedildi. Sürdürmek, seferi yeniden görüşülen koşullarla yükler.",
+  "disruption.hint.BREAKDOWN": "Araç arızalandı. Sürdürmek, kurtarma veya araç değişimi ayarlandığında seferi yeniden başlatır.",
+  "disruption.hint.DELAYED": "Yolda gecikme. Sürdürmek seferi taşıma durumuna döndürür; müşteri gecikmeyi görür, uydurma bir varış saati değil.",
+  "disruption.hint.CUSTOMS_HOLD": "Gümrük evrakı nedeniyle bekletiliyor. Sürdürmek, belgeler serbest bırakıldığında seferi teslimat durumuna döndürür.",
+  "disruption.changed": "Sefer durumu artık {status}."
 }
