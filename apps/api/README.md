@@ -19,8 +19,8 @@ pilot seed, minimal token auth and the core trip loop are wired.
   (repo-root dir, separate from the production `web/`). Its UI strings — EN/DE/PL/TR
   — live in `pilot/locales/` (see "Internationalisation" below).
 - `../../app/` — the Fleet Manager application served by this API under `/app/`
-  (board task #32, see "Fleet Manager app" below). Its English catalogue lives in
-  `app/locales/en.json`.
+  (board task #32, see "Fleet Manager app" below). Its catalogues — EN/DE/PL/TR —
+  live in `app/locales/`.
 - `../../customer/` — the customer portal served by this API under `/c/`
   (board task #74, see "Customer portal" below) — a separate, mobile-first
   surface, not part of the dispatcher app. Its English catalogue lives in
@@ -576,10 +576,17 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   `POST /api/trips` payload (including the optional `plannedAt`, board task #66),
   and the API-error-to-catalogue-key mapping. Loaded as
   a classic script in the browser and by `src/dispatch-form.test.js` in CI.
-- `app/locales/en.json` — the English catalogue. The shell reuses the pilot's
-  `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime (board task #6), so the
-  language hook and switcher already exist; EN ships first and additional
-  catalogues are drop-in files.
+- `app/locales/{en,de,pl,tr}.json` — the Fleet Manager catalogues (QA defect #68).
+  The shell reuses the pilot's `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime
+  (board task #6), so the language hook and switcher already exist and the
+  additional catalogues are drop-in files. Every catalogue covers exactly the
+  English key set (`src/i18n.test.js` fails on a missing locale file, a missing or
+  extra key, a changed `{placeholder}`, or a catalogue that is just English
+  copied), and the files are served under `/app/locales/` like any other app asset
+  (`test/app-shell.test.ts`). The boot refuses to claim a language it cannot
+  speak: when a catalogue does not load, the switcher and `<html lang>` follow the
+  language actually rendered (English) instead of leaving `<html lang="de">`
+  around English copy.
 
 Behaviour:
 

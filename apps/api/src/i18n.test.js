@@ -29,6 +29,8 @@ import {
 import pilotI18n from '../../../pilot/lib/i18n.js';
 import i18nUi from '../../../pilot/lib/i18n-ui.js';
 import driverCore from '../../../pilot/lib/driver-core.js';
+import { TRIP_STATUSES } from './trip-status.js';
+import { DOC_TYPES } from './documents.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -407,4 +409,123 @@ test('the driver core ships keys, not English labels', () => {
   const indicator = driverCore.syncIndicator([], { online: true });
   assert.equal(indicator.labelKey, 'driver.sync.synced');
   assert.ok(!('label' in indicator), 'the sync chip label moved into the catalogue');
+});
+
+// --- 6. the Fleet Manager (/app/) catalogues (QA defect #68) ----------------
+//
+// The app shipped only `app/locales/en.json` while `app/app.js` booted the
+// shared loader against `/app/locales/`: DE/PL/TR answered 404, the loader
+// mapped the failure to `{}` and the translator fell back to English
+// silently — `<html lang="de">` around English copy. These tests are the
+// missing gate: a supported locale without an app catalogue, or a key the app
+// renders that a catalogue does not carry, fails the build.
+
+const APP_LOCALES = 'app/locales';
+const APP_SOURCES = ['app/index.html', 'app/app.js', 'app/lib/app-core.js', 'app/lib/trips.js'];
+
+/** @type {Record<string, Record<string, string>>} */
+const APP_CATALOGS = {};
+for (const locale of SUPPORTED_LOCALES) {
+  APP_CATALOGS[locale] = JSON.parse(read(`${APP_LOCALES}/${locale}.json`));
+}
+
+const placeholders = (text) => [...String(text).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+
+test('the Fleet Manager ships a catalogue for every supported locale', () => {
+  const files = readdirSync(resolve(root, APP_LOCALES)).filter((f) => f.endsWith('.json')).sort();
+  assert.deepEqual(files, ['de.json', 'en.json', 'pl.json', 'tr.json'], 'every /app/ locale needs a catalogue');
+});
+
+test('each Fleet Manager catalogue covers the English key set exactly', () => {
+  const enKeys = Object.keys(APP_CATALOGS.en);
+  assert.ok(enKeys.length > 400, `the app catalogue should be large, found ${enKeys.length}`);
+  for (const locale of SUPPORTED_LOCALES) {
+    const keys = Object.keys(APP_CATALOGS[locale]);
+    assert.deepEqual(keys.filter((k) => !(k in APP_CATALOGS.en)), [], `${locale}.json has keys English does not define`);
+    assert.deepEqual(enKeys.filter((k) => !(k in APP_CATALOGS[locale])), [], `${locale}.json is missing keys`);
+    for (const [key, value] of Object.entries(APP_CATALOGS[locale])) {
+      assert.equal(typeof value, 'string', `${locale}:${key} must be a string`);
+      assert.ok(value.trim().length > 0, `${locale}:${key} must not be empty`);
+      assert.deepEqual(placeholders(value), placeholders(APP_CATALOGS.en[key]), `${locale}:${key} changed its placeholders`);
+    }
+  }
+});
+
+test('the Fleet Manager catalogues are translations, not copies of English', () => {
+  const enKeys = Object.keys(APP_CATALOGS.en);
+  for (const locale of SUPPORTED_LOCALES) {
+    if (locale === DEFAULT_LOCALE) continue;
+    const translated = enKeys.filter((key) => APP_CATALOGS[locale][key] !== APP_CATALOGS.en[key]);
+    assert.ok(
+      translated.length / enKeys.length > 0.85,
+      `${locale}.json looks like a copy of English (${translated.length}/${enKeys.length} keys differ)`
+    );
+    assert.notEqual(APP_CATALOGS[locale]['login.title'], APP_CATALOGS.en['login.title'], `${locale} login title`);
+    assert.notEqual(APP_CATALOGS[locale]['nav.trips'], APP_CATALOGS.en['nav.trips'], `${locale} nav label`);
+  }
+  assert.equal(APP_CATALOGS.de['nav.trips'], 'Touren');
+  assert.equal(APP_CATALOGS.pl['nav.trips'], 'Kursy');
+  assert.equal(APP_CATALOGS.tr['nav.trips'], 'Seferler');
+});
+
+test('every translation key the Fleet Manager renders exists in every catalogue', () => {
+  const keys = new Set();
+  for (const source of APP_SOURCES.map(read)) {
+    for (const m of source.matchAll(/data-i18n(?:-[a-z-]+)?="([^"]+)"/g)) keys.add(m[1]);
+    for (const m of source.matchAll(/\bT\('([A-Za-z0-9_.]+)'/g)) keys.add(m[1]);
+  }
+  // `T('trips.status.' + code)` is a dynamic key: the truncated prefix is
+  // checked through the real status/doctype lists below.
+  for (const key of [...keys]) if (key.endsWith('.')) keys.delete(key);
+  assert.ok(keys.size > 150, `expected the app to reference a lot of keys, found ${keys.size}`);
+
+  // Families the app renders from data, not from a literal key.
+  for (const status of TRIP_STATUSES) keys.add(`trips.status.${status}`);
+  for (const type of DOC_TYPES) keys.add(`trips.doctype.${type}`);
+  // `documents.js` writes these four statuses (`PENDING`/`UPLOADED` internally,
+  // `VERIFIED`/`REJECTED` through the API).
+  for (const status of ['PENDING', 'UPLOADED', 'VERIFIED', 'REJECTED']) keys.add(`trips.docstatus.${status}`);
+  for (const category of ['fuel', 'toll', 'food', 'other']) keys.add(`trips.expense.${category}`);
+
+  for (const locale of SUPPORTED_LOCALES) {
+    const missing = [...keys].filter((key) => !(key in APP_CATALOGS[locale]));
+    assert.deepEqual(missing, [], `${locale}.json is missing keys the Fleet Manager renders`);
+  }
+});
+
+test('the app boot never claims a language it has no catalogue for', async () => {
+  const mount = { innerHTML: '', querySelector: () => null };
+  const doc = stubDoc([{ attrs: { 'data-i18n': 'common.signIn' } }]);
+  const response = await i18nUi.init({
+    doc,
+    mount,
+    search: '?lang=de',
+    storage: { getItem: () => null, setItem: () => undefined },
+    // The 404 the defect shipped: only English is available.
+    loadCatalog: (locale) => Promise.resolve(locale === 'en' ? APP_CATALOGS.en : {}),
+  });
+  assert.equal(response.locale, 'en', 'no German catalogue means no German page');
+  assert.equal(response.requestedLocale, 'de');
+  assert.equal(response.fellBack, true);
+  assert.equal(response.source, 'fallback');
+  assert.equal(doc.documentElement.attrs.lang, 'en', '<html lang> must state the language actually rendered');
+  assert.equal(doc.els[0].textContent, 'Sign in');
+  assert.match(mount.innerHTML, /<option value="en" selected>/, 'the switcher marks the rendered language');
+  assert.equal((mount.innerHTML.match(/ selected/g) || []).length, 1);
+
+  // The positive control: with the catalogue present the same boot is German.
+  const deMount = { innerHTML: '', querySelector: () => null };
+  const de = await i18nUi.init({
+    doc: stubDoc([{ attrs: { 'data-i18n': 'common.signIn' } }]),
+    mount: deMount,
+    search: '?lang=de',
+    storage: { getItem: () => null, setItem: () => undefined },
+    loadCatalog: (locale) => Promise.resolve(APP_CATALOGS[locale] || {}),
+  });
+  assert.equal(de.locale, 'de');
+  assert.equal(de.fellBack, false);
+  assert.equal(de.t('common.signIn'), 'Anmelden');
+  assert.equal(de.t('login.title'), 'Bei Fleet Manager anmelden');
+  assert.equal(de.t('trips.status.DELIVERED'), 'Geliefert');
+  assert.match(deMount.innerHTML, /<option value="de" selected>/, 'the switcher marks German');
 });

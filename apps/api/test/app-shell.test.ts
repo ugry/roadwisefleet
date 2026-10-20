@@ -121,6 +121,24 @@ test('a missing asset 404s as JSON — HTML is never served as JavaScript', asyn
   }
 });
 
+// QA #68: `/app/locales/de.json` (and pl/tr) answered 404 on the live site, so
+// the switcher showed Deutsch while the page stayed English.
+test('every shipped locale catalogue is served to the Fleet Manager', async () => {
+  const english = await app.inject({ method: 'GET', url: '/app/locales/en.json' });
+  assert.equal(english.statusCode, 200);
+  const enKeys = Object.keys(JSON.parse(english.payload)).sort();
+  assert.ok(enKeys.length > 400, `expected the full app catalogue, found ${enKeys.length} keys`);
+
+  for (const locale of ['de', 'pl', 'tr']) {
+    const res = await app.inject({ method: 'GET', url: `/app/locales/${locale}.json` });
+    assert.equal(res.statusCode, 200, `GET /app/locales/${locale}.json must not 404`);
+    assert.match(String(res.headers['content-type']), /application\/json/);
+    const catalogue = JSON.parse(res.payload);
+    assert.deepEqual(Object.keys(catalogue).sort(), enKeys, `${locale}.json must cover the English key set`);
+    assert.notEqual(catalogue['login.title'], JSON.parse(english.payload)['login.title'], `${locale} must be translated`);
+  }
+});
+
 test('traversal and dotfiles never escape the app root', async () => {
   for (const url of [
     '/app/../package.json',
