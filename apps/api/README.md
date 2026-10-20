@@ -19,8 +19,8 @@ pilot seed, minimal token auth and the core trip loop are wired.
   (repo-root dir, separate from the production `web/`). Its UI strings — EN/DE/PL/TR
   — live in `pilot/locales/` (see "Internationalisation" below).
 - `../../app/` — the Fleet Manager application served by this API under `/app/`
-  (board task #32, see "Fleet Manager app" below). Its English catalogue lives in
-  `app/locales/en.json`.
+  (board task #32, see "Fleet Manager app" below). Its catalogues — EN/DE/PL/TR —
+  live in `app/locales/`.
 - `../../customer/` — the customer portal served by this API under `/c/`
   (board task #74, see "Customer portal" below) — a separate, mobile-first
   surface, not part of the dispatcher app. Its English catalogue lives in
@@ -197,7 +197,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/device/challenge` | — (public) | issue a single-use nonce for a credential: `{ challengeId, nonce, algorithm, expiresAt }`; per-IP rate-limited; `404 credential_not_found`, `403 credential_revoked` |
 | `POST /api/auth/device/verify` | — (public) | verify the detached ECDSA signature over the nonce and return the same `{ token, user }` shape as login; `401 challenge_used` / `challenge_expired` / `invalid_signature`, `403 credential_revoked` |
 | `POST /api/auth/device/revoke` | bearer | revoke a device (lost phone / logout); the credential's driver or an admin (`user:manage`/`trip:*`); idempotent |
-| `POST /api/auth/otp/email/request` | — (public) | mail a 6-digit sign-in code (board task #125). The body is **constant** — `{ ok, expiresInSeconds, resendAfterSeconds }` — for a known address, an unknown one, a throttled resend and an unconfigured sender, so it cannot enumerate accounts. Per-IP and per-address windows (`429 rate_limited`), 60 s send gap, `400 invalid_email` only for a malformed address |
+| `POST /api/auth/otp/email/request` | — (public) | mail a 6-digit sign-in code (board task #125). The body is **constant** — `{ ok, expiresInSeconds, resendAfterSeconds }` — for a known address, an unknown one, a throttled resend and an unconfigured sender, so it cannot enumerate accounts; the latency is constant too (the send happens after the reply). Per-IP and per-address windows (`429 rate_limited`), 60 s send gap, `400 invalid_email` only for a malformed address |
 | `POST /api/auth/otp/email/verify` | — (public) | redeem the code (`{ email, code }`) and return the SAME `{ token, user }` shape as `/api/auth/login`; the device key is registered by the app afterwards. A wrong digit, an expired code, a used code and an unknown address are all `401 invalid_code`; five wrong guesses burn the code; a locked account is `423` only after a correct code |
 | `POST /api/auth/email/confirm/request` | bearer | mail a confirmation code to the caller's own address (same service, purpose `verify`) |
 | `POST /api/auth/email/confirm/verify` | bearer | redeem it; sets `User.emailVerifiedAt` and returns `{ ok, emailVerifiedAt }`. A sign-in code can never be used here (the purpose is bound into the HMAC) |
@@ -576,10 +576,17 @@ Static, dependency-free, no build step and no CDN, served by the API itself
   `POST /api/trips` payload (including the optional `plannedAt`, board task #66),
   and the API-error-to-catalogue-key mapping. Loaded as
   a classic script in the browser and by `src/dispatch-form.test.js` in CI.
-- `app/locales/en.json` — the English catalogue. The shell reuses the pilot's
-  `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime (board task #6), so the
-  language hook and switcher already exist; EN ships first and additional
-  catalogues are drop-in files.
+- `app/locales/{en,de,pl,tr}.json` — the Fleet Manager catalogues (QA defect #68).
+  The shell reuses the pilot's `pilot/lib/i18n.js` + `pilot/lib/i18n-ui.js` runtime
+  (board task #6), so the language hook and switcher already exist and the
+  additional catalogues are drop-in files. Every catalogue covers exactly the
+  English key set (`src/i18n.test.js` fails on a missing locale file, a missing or
+  extra key, a changed `{placeholder}`, or a catalogue that is just English
+  copied), and the files are served under `/app/locales/` like any other app asset
+  (`test/app-shell.test.ts`). The boot refuses to claim a language it cannot
+  speak: when a catalogue does not load, the switcher and `<html lang>` follow the
+  language actually rendered (English) instead of leaving `<html lang="de">`
+  around English copy.
 
 Behaviour:
 
@@ -1641,13 +1648,25 @@ Public entry point: a visitor registers a fleet and is signed in immediately.
   an error or a log line. No mail dependency was added.
 - **No enumeration.** Every request body is byte-identical and every verify
   failure is `401 invalid_code`; the app's copy says "If {email} has an account…".
+  The **timing** is identical too: `POST /api/auth/otp/email/request` answers
+  after the same single address lookup for a known and an unknown address, then
+  mints+sends on the injected scheduler (`buildServer({ otpSchedule })`; the
+  production default is fire-and-forget with the error captured). Awaiting the
+  SMTP round trip only for existing accounts — as the first cut did — left a
+  measurable latency gap (~500 ms with a slow transport) even with identical
+  bodies. `POST /api/auth/email/confirm/request` still awaits delivery: it is
+  authenticated, mails only the caller's own address and wants a finished
+  attempt before the app starts its resend timer.
 - **Tests.** `src/email-otp.test.js`, `src/auth/email-transport.test.js` and
   `src/auth/smtp-client.test.js` run in the no-install CI job;
   `test/email-otp.test.ts` (`pnpm test:router`, DB-backed, own `qa-otp-org`
   fixture) covers send → single-use verify → token → `/api/auth/me`, the resend
   gap, the unknown address, the attempt cap, expiry, the 429 window, email
-  confirmation (including a login code being refused there) and the fail-closed
-  sender.
+  confirmation (including a login code being refused there), the fail-closed
+  sender, and the timing property (a 500 ms fake transport; the request answers
+  in <250 ms for both a known and an unknown address, and the message is
+  delivered after the reply). Every "was anything sent?" assertion drains the
+  scheduler first, so none of them is vacuous.
 - **Not live yet.** A real send needs the `#124` mailbox + credential in
   `/etc/roadwisefleet/auth-email.env`; until then the app hides the button
   (`GET /api/auth/otp/email/status` → `configured: false`). WhatsApp OTP is

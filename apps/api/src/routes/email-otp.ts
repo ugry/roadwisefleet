@@ -37,6 +37,11 @@ import {
  *     unknown address (and the same 429 for either when the address bucket is
  *     full); `verify` answers 401 `invalid_code` for every failure — unknown
  *     address, no code, expired, used, locked, wrong code.
+ *   - NO timing oracle either: the body alone cannot distinguish the two, so the
+ *     request handler answers after the SAME single address lookup in both
+ *     branches and mints/sends in the background. Awaiting the SMTP round trip
+ *     only for existing accounts (as this route first did) left a measurable
+ *     latency gap even with identical bodies.
  *   - the code is never stored or logged, only its HMAC;
  *   - one code per (address, purpose): requesting again replaces the previous
  *     row, so an old code stops working the moment a new one is sent;
@@ -66,6 +71,13 @@ export interface EmailOtpRouteOptions {
   sender?: { configured: boolean; sendCode: (args: { to: string; code: string; purpose: string }) => Promise<{ sent: boolean; reason?: string }> };
   /** Defaults to `console.warn`; never receives an address or a code. */
   log?: (event: string, detail?: Record<string, unknown>) => void;
+  /**
+   * Runs one mint+send task OUTSIDE the response path. Injected because the
+   * DB-backed test has to wait for the background work before it can assert on
+   * the delivered message; the production default is fire-and-forget with the
+   * error captured (a failed send must never reject the request).
+   */
+  schedule?: (task: () => Promise<void>) => void;
 }
 
 /**
@@ -86,6 +98,12 @@ export async function emailOtpRoutes(app: FastifyInstance, options: EmailOtpRout
     console.warn(`[${event}]`, detail ?? {});
   });
   const auth = requireAuth(env.AUTH_SECRET);
+  const schedule = options.schedule ?? ((task: () => Promise<void>) => {
+    void task().catch((err: unknown) => {
+      // Never a recipient, never a code: just the failure class.
+      log('auth.email.send_failed', { reason: (err as Error)?.name ?? 'error' });
+    });
+  });
 
   /**
    * Bound one address + one client before any database work. Returns the reply
@@ -206,8 +224,10 @@ export async function emailOtpRoutes(app: FastifyInstance, options: EmailOtpRout
     }
 
     const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-    if (user) await issueCode(email, PURPOSE_LOGIN);
-    // Known and unknown addresses get byte-identical bodies and statuses.
+    // Known and unknown addresses get byte-identical bodies and statuses, and
+    // the response must also take the same TIME for both: the mint + SMTP round
+    // trip happens after the reply, so neither branch waits on delivery.
+    if (user) schedule(() => issueCode(email, PURPOSE_LOGIN));
     return reply.send({ ...GENERIC_SENT });
   });
 
@@ -281,6 +301,9 @@ export async function emailOtpRoutes(app: FastifyInstance, options: EmailOtpRout
     const email = normalizeEmail(record?.email);
     if (!record || !isValidEmail(email)) return reply.code(400).send({ error: 'no_email' });
 
+    // Awaited on purpose: this surface is authenticated and only ever mails the
+    // caller's OWN address, so there is nothing to enumerate and the app wants
+    // to know the send attempt finished before it starts its resend timer.
     await issueCode(email, PURPOSE_VERIFY);
     return reply.send({ ...GENERIC_SENT });
   });
