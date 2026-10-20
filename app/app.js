@@ -51,6 +51,9 @@
   // this one and shared with the customer portal, so the two live surfaces
   // cannot disagree about phases or the "not started yet" state.
   var LIVE = win && win.RoadwiseLiveTracking ? win.RoadwiseLiveTracking : {};
+  // The alternate-ending table (board task #127, UXF-O4), loaded before this one
+  // from `/pilot/lib/disruptions.js`; shared with the solo surface.
+  var DISRUPT = win && win.RoadwiseDisruptions ? win.RoadwiseDisruptions : {};
   // The shared document rules / checklist owner (board task #4), loaded before
   // this one from `/pilot/lib/driver-core.js`. The documents UI never restates
   // the POD gate — it asks this module.
@@ -577,6 +580,7 @@
 
     html += livePanelHtml(trip);
     html += assignBoxHtml(trip);
+    html += disruptionBoxHtml(trip);
     html += '<h2 class="section-title">' + esc(T('trips.timeline')) + '</h2>' + timelineHtml(trip.statusEvents || []);
     html += documentsPanelHtml(trip);
     html += trackingPanelHtml(trip);
@@ -1031,6 +1035,87 @@
     });
   }
 
+  /* --------------------------------------- alternate endings (UXF-O4) --- */
+
+  /**
+   * The dispatcher's designed exits (board task #127, diagram 07 A3–A6). The
+   * table of endings, sources and the one recovery edge is the shared
+   * `pilot/lib/disruptions.js`, also used by the solo surface; this section only
+   * paints the buttons the current status allows and posts the move.
+   *
+   * A trip in an ending offers exactly its documented recovery (e.g. DELAYED →
+   * IN_TRANSIT). The server re-validates source, actor and tenancy, so the
+   * panel can never widen what the API accepts.
+   */
+  function disruptionBoxHtml(trip) {
+    if (!(APP.canManageTrips && APP.canManageTrips(session.user && session.user.roleId))) return '';
+    var actions = DISRUPT.actionsFrom ? DISRUPT.actionsFrom(trip && trip.status, { carrier: true }) : [];
+    if (!actions.length) return '';
+    var current = DISRUPT.ending ? DISRUPT.ending(trip.status) : null;
+    var html = '<h2 class="section-title">' + esc(T('disruption.title')) + '</h2>' +
+      '<p class="alert" id="disruptionMessage" role="alert" hidden></p>' +
+      '<p class="muted">' + esc(T(current ? 'disruption.hint.' + current.status : 'disruption.intro')) + '</p>' +
+      '<div class="form-actions">';
+    for (var i = 0; i < actions.length; i += 1) {
+      var action = actions[i];
+      var key = action.kind === 'resume' ? 'disruption.resume' : 'disruption.action.' + action.to;
+      html += '<button class="' + (action.kind === 'resume' ? 'primary' : 'ghost') + '" type="button"' +
+        ' data-ending-to="' + esc(action.to) + '" data-ending-kind="' + esc(action.kind) + '">' +
+        esc(T(key)) + '</button>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function loadDisruptionControl(outlet, route_, trip, flash) {
+    var box = outlet.querySelector ? outlet.querySelector('#disruptionMessage') : null;
+    if (box && flash && flash.key === 'disruption.changed') {
+      box.textContent = T(flash.key, flash.params);
+      box.className = 'alert success';
+      box.hidden = false;
+    }
+    var buttons = outlet.querySelectorAll ? outlet.querySelectorAll('button[data-ending-to]') : [];
+    for (var i = 0; i < buttons.length; i += 1) {
+      (function (button) {
+        button.addEventListener('click', function () {
+          submitEnding(outlet, route_, trip, button);
+        });
+      })(buttons[i]);
+    }
+  }
+
+  function submitEnding(outlet, route_, trip, button) {
+    var to = button && button.getAttribute ? button.getAttribute('data-ending-to') : '';
+    if (!to) return;
+    // Only the verified carrier side sees these buttons; the server still
+    // re-checks (`trip:*`, tenancy, source status) and is the authority.
+    if (!(APP.canManageTrips && APP.canManageTrips(session.user && session.user.roleId))) return;
+    button.disabled = true;
+    request('/api/trips/' + encodeURIComponent(trip.id) + '/status', {
+      method: 'POST',
+      token: session.token,
+      body: { status: to },
+    }).then(function (res) {
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        button.disabled = false;
+        var box = outlet.querySelector ? outlet.querySelector('#disruptionMessage') : null;
+        if (box) {
+          box.textContent = errorText(res);
+          box.className = 'alert';
+          box.hidden = false;
+        }
+        return;
+      }
+      var next = ++renderToken;
+      renderTripDetail(outlet, route_, next, {
+        key: 'disruption.changed',
+        params: { status: T('trips.status.' + to) },
+        kind: 'success',
+      });
+    });
+  }
+
   function renderTripDetail(outlet, route_, token, flash) {
     var id = route_ && route_.params ? route_.params.id : '';
     outlet.innerHTML =
@@ -1058,6 +1143,7 @@
       var trip = (res.data && res.data.trip) || {};
       box.innerHTML = tripDetailHtml(trip);
       loadAssignControl(outlet, route_, trip);
+      loadDisruptionControl(outlet, route_, trip, flash);
       loadDocumentsControl(outlet, route_, trip, flash);
       loadTrackingControl(outlet, trip);
       loadLiveTrackingControl(outlet, trip);

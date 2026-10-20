@@ -32,11 +32,18 @@
  * Time is always evaluated in UTC: "today" is the current UTC calendar day.
  */
 
-/** Trips in these statuses are done — excluded from the active-trips KPI. */
-export const TERMINAL_STATUSES = ['SETTLED', 'CANCELLED'];
+import { TERMINAL_STATUSES as TRIP_TERMINAL_STATUSES, TRIP_STATUSES } from './trip-status.js';
 
-/** The complement of TERMINAL_STATUSES: what "active trips" counts. */
-export const ACTIVE_STATUSES = ['DRAFT', 'ASSIGNED', 'LOADED', 'IN_TRANSIT', 'DELIVERED', 'POD_UPLOADED', 'INVOICED'];
+/** Trips in these statuses are done — excluded from the active-trips KPI. */
+export const TERMINAL_STATUSES = [...TRIP_TERMINAL_STATUSES];
+
+/**
+ * The complement of TERMINAL_STATUSES: what "active trips" counts. Derived
+ * from the one state machine, so every phase (EN_ROUTE / AT_PICKUP /
+ * AT_DELIVERY) and every alternate ending (board task #127) is counted and a
+ * new status can never silently drop out of the KPI.
+ */
+export const ACTIVE_STATUSES = TRIP_STATUSES.filter((status) => !TERMINAL_STATUSES.includes(status));
 
 /** Trips in these statuses count as delivered for the on-time KPI. */
 export const DELIVERED_STATUSES = ['DELIVERED', 'POD_UPLOADED', 'INVOICED', 'SETTLED'];

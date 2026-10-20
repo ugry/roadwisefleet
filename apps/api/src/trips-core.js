@@ -20,12 +20,13 @@
  * `auth/permissions.js#loadRolePermissions`.
  */
 
-import { canCreateTrip, canTransitionTrip } from './auth/permissions.js';
+import { canCreateTrip, canTransitionTrip, hasPermission } from './auth/permissions.js';
 import {
   ACTIVE_ASSIGNMENT_STATUSES,
   canTransition,
   isActiveAssignment,
   isTripStatus,
+  requiresCarrierActor,
   START_TRIP_STATUS,
 } from './trip-status.js';
 import { hasPodDocument } from './documents.js';
@@ -209,6 +210,16 @@ export async function transitionTrip(prisma, { orgId, tripId, to, actor, now }) 
   if (!isTripStatus(target)) return { ok: false, error: 'invalid_status' };
   if (!canTransition(from, target)) {
     return { ok: false, error: 'invalid_transition', from, to: target };
+  }
+
+  // Board task #127 (UXF-O4): the alternate endings follow diagram 07's
+  // "who can move what". An employed driver may report REFUSED / BREAKDOWN on
+  // their own trip; DELAYED, CUSTOMS_HOLD and every recovery decision belong to
+  // the carrier side (`trip:*` — owner, dispatcher, or a solo driver acting as
+  // their own carrier). A driver trying one gets the same 403 as any other
+  // capability denial, and nothing is written.
+  if (requiresCarrierActor(from, target) && !hasPermission(actor?.permissions, 'trip:*')) {
+    return { ok: false, error: 'forbidden' };
   }
 
   // Board task #3: a trip can only reach POD_UPLOADED once a POD/eCMR document

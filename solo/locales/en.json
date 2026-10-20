@@ -31,6 +31,10 @@
   "status.LOADED": "Loaded",
   "status.IN_TRANSIT": "In transit",
   "status.DELIVERED": "Delivered",
+  "status.REFUSED": "Refused at pickup",
+  "status.BREAKDOWN": "Vehicle breakdown",
+  "status.DELAYED": "Delayed",
+  "status.CUSTOMS_HOLD": "Customs hold",
   "status.POD_UPLOADED": "POD uploaded",
   "status.INVOICED": "Invoiced",
   "status.SETTLED": "Settled",
@@ -252,5 +256,10 @@
   "solo.error.offer_closed": "That offer is closed.",
   "solo.error.offer_expired": "That offer has expired.",
   "solo.error.pod_required": "Upload a proof of delivery before this step.",
-  "solo.error.driver_busy": "Finish your current job first — a driver can only hold one active job."
+  "solo.error.driver_busy": "Finish your current job first — a driver can only hold one active job.",
+  "solo.jobs.ending.REFUSED": "Refuse at pickup",
+  "solo.jobs.ending.BREAKDOWN": "Report breakdown",
+  "solo.jobs.ending.DELAYED": "Report delay",
+  "solo.jobs.ending.CUSTOMS_HOLD": "Put on customs hold",
+  "solo.jobs.resume": "Resume the trip"
 }

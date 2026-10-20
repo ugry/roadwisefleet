@@ -66,8 +66,22 @@ POD_UPLOADED → INVOICED → SETTLED`
 with the design-level pre-trip path `DRAFT → CONFIRMED → (POSTED → OFFERS → AWARDED) → ASSIGNED`.
 **Start Trip** moves `ASSIGNED → EN_ROUTE` and sets **`Trip.tracking = true`**; `DELIVERED` turns
 tracking off again (board #105). Exactly one active assignment per driver. Exits:
-`EXPIRED · CANCELLED · REFUSED · BREAKDOWN · DELAYED · CUSTOMS HOLD · DAMAGE CLAIM`.
+`EXPIRED · CANCELLED · REFUSED · BREAKDOWN · DELAYED · CUSTOMS_HOLD · DAMAGE_CLAIM`.
 Who may move what is written on diagram 07.
+
+The four execution exits (**A3–A6**, board #127) are implemented in the API with
+exactly the diagram's source and recovery edge:
+
+| Ending | From | Recovery |
+| --- | --- | --- |
+| `REFUSED` | `AT_PICKUP` | `LOADED` (renegotiated terms) |
+| `BREAKDOWN` | `EN_ROUTE` | `EN_ROUTE` (recovery / truck swap) |
+| `DELAYED` | `IN_TRANSIT` | `IN_TRANSIT` (back on schedule) |
+| `CUSTOMS_HOLD` | `AT_DELIVERY` | `AT_DELIVERY` (documents released) |
+
+An employed driver may report `REFUSED`/`BREAKDOWN` on their own trip; the
+carrier side (`trip:*`) sets `DELAYED`/`CUSTOMS_HOLD` and decides every recovery.
+`EXPIRED` and `DAMAGE_CLAIM` remain design-only (not in this build).
 
 ## Menu inventory (summary — full trees in diagram 08 / `09-menus-v2`)
 - **Sign-up — three account types:** **Customer** (free) · **Fleet** (manager creates the org,

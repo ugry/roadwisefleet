@@ -8,11 +8,19 @@ import {
   DRIVER_PHASES,
   START_TRIP_STATUS,
   ACTIVE_ASSIGNMENT_STATUSES,
+  DISRUPTION_STATUSES,
+  DISRUPTION_SOURCES,
+  DISRUPTION_RESUME,
   isTripStatus,
   nextStatuses,
   canTransition,
   isTerminal,
   isActiveAssignment,
+  isDisruption,
+  resumeStatus,
+  endingsFrom,
+  recoveryFor,
+  requiresCarrierActor,
 } from './trip-status.js';
 
 // The documented state machine (docs/diagrams-data-menu-flow.md §7) as
@@ -34,6 +42,16 @@ const VALID_TRANSITIONS = [
   ['INVOICED', 'SETTLED'],
   ['DRAFT', 'CANCELLED'],
   ['ASSIGNED', 'CANCELLED'],
+  // Diagram 07 A3–A6 (board task #127): the alternate endings and their one
+  // documented recovery edge each.
+  ['AT_PICKUP', 'REFUSED'],
+  ['REFUSED', 'LOADED'],
+  ['EN_ROUTE', 'BREAKDOWN'],
+  ['BREAKDOWN', 'EN_ROUTE'],
+  ['IN_TRANSIT', 'DELAYED'],
+  ['DELAYED', 'IN_TRANSIT'],
+  ['AT_DELIVERY', 'CUSTOMS_HOLD'],
+  ['CUSTOMS_HOLD', 'AT_DELIVERY'],
 ];
 
 test('accepts every documented transition', () => {
@@ -133,7 +151,10 @@ test('exposes each status exactly once', () => {
       'ASSIGNED',
       'AT_DELIVERY',
       'AT_PICKUP',
+      'BREAKDOWN',
       'CANCELLED',
+      'CUSTOMS_HOLD',
+      'DELAYED',
       'DELIVERED',
       'DRAFT',
       'EN_ROUTE',
@@ -141,6 +162,7 @@ test('exposes each status exactly once', () => {
       'IN_TRANSIT',
       'LOADED',
       'POD_UPLOADED',
+      'REFUSED',
       'SETTLED',
     ],
   );
@@ -177,15 +199,15 @@ test('the driver phase chain walks one legal step at a time', () => {
   }
 });
 
-test('Start Trip is EN_ROUTE and EN_ROUTE is only reachable from ASSIGNED', () => {
+test('Start Trip is EN_ROUTE; only ASSIGNED and a breakdown recovery lead there', () => {
   assert.equal(START_TRIP_STATUS, 'EN_ROUTE');
   const sources = TRIP_STATUSES.filter((status) => canTransition(status, 'EN_ROUTE'));
-  assert.deepEqual(sources, ['ASSIGNED']);
+  assert.deepEqual(sources, ['ASSIGNED', 'BREAKDOWN']);
   // A phase cannot be skipped on the new sub-path.
   assert.equal(canTransition('EN_ROUTE', 'LOADED'), false, 'must pass through AT_PICKUP');
 });
 
-test('the active-assignment statuses are the in-flight driver phases', () => {
+test('the active-assignment statuses are the in-flight states, disruptions included', () => {
   assert.deepEqual([...ACTIVE_ASSIGNMENT_STATUSES], [
     'ASSIGNED',
     'EN_ROUTE',
@@ -193,6 +215,10 @@ test('the active-assignment statuses are the in-flight driver phases', () => {
     'LOADED',
     'IN_TRANSIT',
     'AT_DELIVERY',
+    'REFUSED',
+    'BREAKDOWN',
+    'DELAYED',
+    'CUSTOMS_HOLD',
   ]);
   for (const status of ACTIVE_ASSIGNMENT_STATUSES) {
     assert.equal(isActiveAssignment(status), true, `${status} is active`);
@@ -200,4 +226,61 @@ test('the active-assignment statuses are the in-flight driver phases', () => {
   for (const status of ['DRAFT', 'DELIVERED', 'POD_UPLOADED', 'INVOICED', 'SETTLED', 'CANCELLED', 'NOPE', null]) {
     assert.equal(isActiveAssignment(status), false, `${String(status)} is not active`);
   }
+});
+
+// --- alternate endings (board task #127, UXF-O4) ----------------------------
+
+test('every diagram-07 ending has exactly its documented source and recovery', () => {
+  assert.deepEqual([...DISRUPTION_STATUSES], ['REFUSED', 'BREAKDOWN', 'DELAYED', 'CUSTOMS_HOLD']);
+  for (const ending of DISRUPTION_STATUSES) {
+    const sources = TRIP_STATUSES.filter((status) => canTransition(status, ending));
+    assert.deepEqual(sources, [...DISRUPTION_SOURCES[ending]], `${ending} sources`);
+    assert.equal(resumeStatus(ending), DISRUPTION_RESUME[ending], `${ending} recovery`);
+    assert.equal(isDisruption(ending), true);
+    assert.equal(isTerminal(ending), false, `${ending} is resumable, not terminal`);
+    assert.deepEqual([...nextStatuses(ending)], [DISRUPTION_RESUME[ending]]);
+  }
+});
+
+test('an ending cannot be entered from any other status', () => {
+  const illegal = [
+    ['DRAFT', 'REFUSED'],
+    ['ASSIGNED', 'REFUSED'],
+    ['LOADED', 'REFUSED'],
+    ['ASSIGNED', 'BREAKDOWN'],
+    ['AT_PICKUP', 'BREAKDOWN'],
+    ['LOADED', 'DELAYED'],
+    ['AT_DELIVERY', 'DELAYED'],
+    ['IN_TRANSIT', 'CUSTOMS_HOLD'],
+    ['AT_PICKUP', 'CUSTOMS_HOLD'],
+    ['DELIVERED', 'DELAYED'],
+  ];
+  for (const [from, to] of illegal) {
+    assert.equal(canTransition(from, to), false, `${from} -> ${to} must be rejected`);
+  }
+});
+
+test('endingsFrom / recoveryFor expose only the documented actions', () => {
+  assert.deepEqual([...endingsFrom('AT_PICKUP')], ['REFUSED']);
+  assert.deepEqual([...endingsFrom('EN_ROUTE')], ['BREAKDOWN']);
+  assert.deepEqual([...endingsFrom('IN_TRANSIT')], ['DELAYED']);
+  assert.deepEqual([...endingsFrom('AT_DELIVERY')], ['CUSTOMS_HOLD']);
+  assert.deepEqual([...endingsFrom('DRAFT')], []);
+  assert.deepEqual(recoveryFor('DELAYED'), { from: 'DELAYED', to: 'IN_TRANSIT' });
+  assert.equal(recoveryFor('IN_TRANSIT'), null);
+  assert.equal(resumeStatus('CANCELLED'), null);
+});
+
+test('an employed driver may report REFUSED/BREAKDOWN but never decide a recovery', () => {
+  for (const status of DISRUPTION_STATUSES) {
+    assert.equal(requiresCarrierActor(status, DISRUPTION_RESUME[status]), true, `${status} recovery is the carrier's`);
+  }
+  assert.equal(requiresCarrierActor('AT_PICKUP', 'REFUSED'), false);
+  assert.equal(requiresCarrierActor('EN_ROUTE', 'BREAKDOWN'), false);
+  assert.equal(requiresCarrierActor('IN_TRANSIT', 'DELAYED'), true);
+  assert.equal(requiresCarrierActor('AT_DELIVERY', 'CUSTOMS_HOLD'), true);
+  // Normal moves are unaffected by the disruption rule.
+  assert.equal(requiresCarrierActor('ASSIGNED', 'EN_ROUTE'), false);
+  assert.equal(requiresCarrierActor('IN_TRANSIT', 'DELIVERED'), false);
+  assert.equal(requiresCarrierActor('DRAFT', 'REFUSED'), false, 'an illegal move is not reclassified');
 });

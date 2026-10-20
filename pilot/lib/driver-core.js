@@ -34,17 +34,30 @@
   var TRANSITIONS = {
     DRAFT: ['ASSIGNED', 'CANCELLED'],
     ASSIGNED: ['EN_ROUTE', 'LOADED', 'CANCELLED'],
-    EN_ROUTE: ['AT_PICKUP'],
-    AT_PICKUP: ['LOADED'],
+    EN_ROUTE: ['AT_PICKUP', 'BREAKDOWN'],
+    AT_PICKUP: ['LOADED', 'REFUSED'],
     LOADED: ['IN_TRANSIT'],
-    IN_TRANSIT: ['AT_DELIVERY', 'DELIVERED'],
-    AT_DELIVERY: ['DELIVERED'],
+    IN_TRANSIT: ['AT_DELIVERY', 'DELIVERED', 'DELAYED'],
+    AT_DELIVERY: ['DELIVERED', 'CUSTOMS_HOLD'],
     DELIVERED: ['POD_UPLOADED'],
     POD_UPLOADED: ['INVOICED'],
     INVOICED: ['SETTLED'],
     SETTLED: [],
+    // Board task #127 (diagram 07 A3–A6): the mirror must carry the alternate
+    // endings and their one recovery edge each, or the parity guard fails.
+    REFUSED: ['LOADED'],
+    BREAKDOWN: ['EN_ROUTE'],
+    DELAYED: ['IN_TRANSIT'],
+    CUSTOMS_HOLD: ['AT_DELIVERY'],
     CANCELLED: [],
   };
+
+  /**
+   * The endings this (employed) driver may set. The server refuses the rest and
+   * every recovery edge with 403; the card must not offer them. A solo driver is
+   * their own carrier and is served by the solo surface, not this PWA.
+   */
+  var DRIVER_REPORTABLE_ENDINGS = ['REFUSED', 'BREAKDOWN'];
 
   /** Mirrors `DOC_TYPES` in `apps/api/src/documents.js`. */
   var DOC_TYPES = [
@@ -103,6 +116,27 @@
 
   function isTerminal(status) {
     return nextLegalStatuses(status).length === 0;
+  }
+
+  /** @param {unknown} status @returns {boolean} */
+  function isEndingStatus(status) {
+    return ['REFUSED', 'BREAKDOWN', 'DELAYED', 'CUSTOMS_HOLD'].indexOf(String(status || '')) !== -1;
+  }
+
+  /**
+   * The moves an employed driver may actually perform from `status`: the legal
+   * transitions minus the carrier-only ones (DELAYED / CUSTOMS_HOLD and every
+   * recovery edge). The server enforces the same rule with 403; this only stops
+   * the card offering a button that cannot work (board task #127).
+   * @param {unknown} status
+   * @returns {string[]}
+   */
+  function driverStatusActions(status) {
+    var current = String(status || '');
+    if (isEndingStatus(current)) return [];
+    return nextLegalStatuses(current).filter(function (to) {
+      return DRIVER_REPORTABLE_ENDINGS.indexOf(to) !== -1 || !isEndingStatus(to);
+    });
   }
 
   function requiresConfirmation(to) {
@@ -237,7 +271,7 @@
       checklist: checklist,
       requiredMissing: requiredMissing(documents),
       podSatisfied: podSatisfied(documents),
-      nextStatuses: nextLegalStatuses(status),
+      nextStatuses: driverStatusActions(status),
       updatedAt: events.length ? events[events.length - 1].happenedAt || null : null,
     };
   }
@@ -489,6 +523,8 @@
     CONFIRM_STATUSES: CONFIRM_STATUSES,
     MAX_USABLE_ACCURACY_M: MAX_USABLE_ACCURACY_M,
     nextLegalStatuses: nextLegalStatuses,
+    driverStatusActions: driverStatusActions,
+    isEndingStatus: isEndingStatus,
     isTerminal: isTerminal,
     requiresConfirmation: requiresConfirmation,
     isKnownDocType: isKnownDocType,
