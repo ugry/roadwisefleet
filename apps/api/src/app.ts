@@ -36,9 +36,11 @@ const pilotRoot = resolve(here, '../../../pilot');
  * `emailSender` is a test seam for the email-OTP route (board task #125): the
  * DB-backed router test injects a fake that records what was delivered, so the
  * endpoints are exercised without a real SMTP credential. Production passes
- * nothing and the route builds the env-configured sender.
+ * nothing and the route builds the env-configured sender. `otpSchedule` is the
+ * companion seam for the route's background mint+send: the test passes a
+ * scheduler it can drain, so it never races the fake transport.
  */
-export function buildServer(options: { emailSender?: any } = {}) {
+export function buildServer(options: { emailSender?: any; otpSchedule?: (task: () => Promise<void>) => void } = {}) {
   // `routerOptions.maxParamLength` must exceed a real tracking token (~203
   // chars); the Fastify default (100) returned 414 before the handler ran.
   const app = Fastify(serverOptions());
@@ -61,7 +63,7 @@ export function buildServer(options: { emailSender?: any } = {}) {
   app.register(deviceAuthRoutes, { prefix: '/api' });
   // Email one-time codes (board task #125): passwordless sign-in codes and email
   // confirmation, delivered through the #124 SMTP contract.
-  app.register(emailOtpRoutes, { prefix: '/api', sender: options.emailSender });
+  app.register(emailOtpRoutes, { prefix: '/api', sender: options.emailSender, schedule: options.otpSchedule });
   app.register(waitlistRoutes, { prefix: '/api' });
   app.register(tripRoutes, { prefix: '/api' });
   app.register(dashboardRoutes, { prefix: '/api' });
