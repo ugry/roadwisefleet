@@ -506,3 +506,162 @@ test('a driver cannot be double-booked across active assignments', async () => {
   );
   assert.equal(await driverHasActiveTrip(prisma, { orgId: 'org1', driverId: null }), false);
 });
+
+
+// --- alternate endings (board task #127, UXF-O4) ---------------------------
+
+/** Walk a fresh trip from DRAFT to `source` and return its id. */
+async function tripAt(prisma, source) {
+  const created = await createTrip(prisma, {
+    orgId: 'org1',
+    body: { orderId: 'o1', driverId: 'd1' },
+    actor: OWNER,
+  });
+  const id = created.trip.id;
+  for (const step of source) {
+    const moved = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: step, actor: OWNER });
+    assert.equal(moved.ok, true, `fixture step ${step} failed: ${JSON.stringify(moved)}`);
+  }
+  return id;
+}
+
+test('each diagram-07 ending is reachable from its documented source and resumes once', async () => {
+  const cases = [
+    { ending: 'REFUSED', source: ['ASSIGNED', 'EN_ROUTE', 'AT_PICKUP'], resume: 'LOADED' },
+    { ending: 'BREAKDOWN', source: ['ASSIGNED', 'EN_ROUTE'], resume: 'EN_ROUTE' },
+    { ending: 'DELAYED', source: ['ASSIGNED', 'EN_ROUTE', 'AT_PICKUP', 'LOADED', 'IN_TRANSIT'], resume: 'IN_TRANSIT' },
+    {
+      ending: 'CUSTOMS_HOLD',
+      source: ['ASSIGNED', 'EN_ROUTE', 'AT_PICKUP', 'LOADED', 'IN_TRANSIT', 'AT_DELIVERY'],
+      resume: 'AT_DELIVERY',
+    },
+  ];
+  for (const c of cases) {
+    const prisma = makeFakePrisma();
+    const id = await tripAt(prisma, c.source);
+    const moved = await transitionTrip(prisma, {
+      orgId: 'org1',
+      tripId: id,
+      to: c.ending,
+      actor: DISPATCHER,
+    });
+    assert.equal(moved.ok, true, `${c.ending}: ${JSON.stringify(moved)}`);
+    assert.equal(moved.trip.status, c.ending);
+
+    // The audit event names the actor and both statuses.
+    const event = prisma.state.events[prisma.state.events.length - 1];
+    assert.deepEqual(
+      { from: event.fromStatus, to: event.toStatus, actor: event.actorId },
+      { from: c.source[c.source.length - 1], to: c.ending, actor: 'disp' },
+      `${c.ending} writes an audit event`,
+    );
+
+    const resumed = await transitionTrip(prisma, {
+      orgId: 'org1',
+      tripId: id,
+      to: c.resume,
+      actor: DISPATCHER,
+    });
+    assert.equal(resumed.ok, true, `${c.ending} resumes to ${c.resume}`);
+    assert.equal(resumed.trip.status, c.resume);
+    // The recovery step is a single documented edge: after it, a *different*
+    // ending is not reachable from the recovered status.
+    const other = c.ending === 'DELAYED' ? 'CUSTOMS_HOLD' : 'DELAYED';
+    const extra = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: other, actor: DISPATCHER });
+    assert.equal(extra.ok, false, `${c.resume} -> ${other} must be refused`);
+    assert.equal(extra.error, 'invalid_transition');
+  }
+});
+
+test('an ending cannot be set from the wrong source status', async () => {
+  const prisma = makeFakePrisma();
+  const id = await tripAt(prisma, ['ASSIGNED']);
+  for (const to of ['REFUSED', 'BREAKDOWN', 'DELAYED', 'CUSTOMS_HOLD']) {
+    const result = await transitionTrip(prisma, { orgId: 'org1', tripId: id, to, actor: OWNER });
+    assert.equal(result.ok, false, `${to} from ASSIGNED must be refused`);
+    assert.equal(result.error, 'invalid_transition');
+    assert.equal(result.from, 'ASSIGNED');
+  }
+  assert.equal((await prisma.trip.findFirst({ where: { id } })).status, 'ASSIGNED', 'nothing was written');
+});
+
+test('an employed driver may report REFUSED/BREAKDOWN but not decide a recovery or a carrier ending', async () => {
+  // REFUSED: the assigned driver reports it.
+  const refusedPrisma = makeFakePrisma();
+  const refusedId = await tripAt(refusedPrisma, ['ASSIGNED', 'EN_ROUTE', 'AT_PICKUP']);
+  const reported = await transitionTrip(refusedPrisma, {
+    orgId: 'org1',
+    tripId: refusedId,
+    to: 'REFUSED',
+    actor: DRIVER1,
+  });
+  assert.equal(reported.ok, true, JSON.stringify(reported));
+
+  // The same driver cannot resume (that is the carrier's renegotiated terms).
+  const driverResume = await transitionTrip(refusedPrisma, {
+    orgId: 'org1',
+    tripId: refusedId,
+    to: 'LOADED',
+    actor: DRIVER1,
+  });
+  assert.deepEqual(driverResume, { ok: false, error: 'forbidden' });
+  assert.equal((await refusedPrisma.trip.findFirst({ where: { id: refusedId } })).status, 'REFUSED');
+
+  // BREAKDOWN: the assigned driver reports it from EN_ROUTE.
+  const breakdownPrisma = makeFakePrisma();
+  const breakdownId = await tripAt(breakdownPrisma, ['ASSIGNED', 'EN_ROUTE']);
+  assert.equal(
+    (await transitionTrip(breakdownPrisma, {
+      orgId: 'org1',
+      tripId: breakdownId,
+      to: 'BREAKDOWN',
+      actor: DRIVER1,
+    })).ok,
+    true,
+  );
+
+  // DELAYED / CUSTOMS_HOLD are carrier decisions, not driver reports.
+  const delayedPrisma = makeFakePrisma();
+  const delayedId = await tripAt(delayedPrisma, [
+    'ASSIGNED', 'EN_ROUTE', 'AT_PICKUP', 'LOADED', 'IN_TRANSIT',
+  ]);
+  assert.deepEqual(
+    await transitionTrip(delayedPrisma, { orgId: 'org1', tripId: delayedId, to: 'DELAYED', actor: DRIVER1 }),
+    { ok: false, error: 'forbidden' },
+  );
+  assert.equal((await delayedPrisma.trip.findFirst({ where: { id: delayedId } })).status, 'IN_TRANSIT');
+
+  const customsPrisma = makeFakePrisma();
+  const customsId = await tripAt(customsPrisma, [
+    'ASSIGNED', 'EN_ROUTE', 'AT_PICKUP', 'LOADED', 'IN_TRANSIT', 'AT_DELIVERY',
+  ]);
+  assert.deepEqual(
+    await transitionTrip(customsPrisma, { orgId: 'org1', tripId: customsId, to: 'CUSTOMS_HOLD', actor: DRIVER1 }),
+    { ok: false, error: 'forbidden' },
+  );
+
+  // A different driver can report nothing on this trip at all.
+  assert.equal(
+    (await transitionTrip(breakdownPrisma, {
+      orgId: 'org1',
+      tripId: breakdownId,
+      to: 'REFUSED',
+      actor: DRIVER2,
+    })).error,
+    'forbidden',
+  );
+});
+
+test('a solo driver (trip:* as their own carrier) may set every ending and resume', async () => {
+  const SOLO = { userId: 'd1', permissions: ['trip:*'] };
+  const prisma = makeFakePrisma();
+  const id = await tripAt(prisma, ['ASSIGNED', 'EN_ROUTE', 'AT_PICKUP', 'LOADED', 'IN_TRANSIT']);
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'DELAYED', actor: SOLO })).ok,
+    true,
+  );
+  assert.equal(
+    (await transitionTrip(prisma, { orgId: 'org1', tripId: id, to: 'IN_TRANSIT', actor: SOLO })).ok,
+    true,
+  );
+});

@@ -657,6 +657,11 @@ export const ACTIVE_JOB_STATUSES = Object.freeze([
   'LOADED',
   'IN_TRANSIT',
   'AT_DELIVERY',
+  // Board task #127: a disrupted trip still holds its driver.
+  'REFUSED',
+  'BREAKDOWN',
+  'DELAYED',
+  'CUSTOMS_HOLD',
 ]);
 
 /**

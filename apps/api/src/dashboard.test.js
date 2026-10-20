@@ -10,6 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { TRIP_STATUSES } from './trip-status.js';
 import {
   ACTIVE_STATUSES,
   ALERT_LIMIT,
@@ -24,11 +25,8 @@ import {
   toNumber,
 } from './dashboard.js';
 
-/** The nine states of the merged trip state machine (`trip-status.js`). */
-const ALL_STATUSES = [
-  'DRAFT', 'ASSIGNED', 'LOADED', 'IN_TRANSIT',
-  'DELIVERED', 'POD_UPLOADED', 'INVOICED', 'SETTLED', 'CANCELLED',
-];
+/** Every state of the merged trip state machine (`trip-status.js`). */
+const ALL_STATUSES = [...TRIP_STATUSES];
 
 test('active and terminal statuses partition the whole state machine', () => {
   const union = [...ACTIVE_STATUSES, ...TERMINAL_STATUSES].sort();

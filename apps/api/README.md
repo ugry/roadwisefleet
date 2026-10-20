@@ -836,8 +836,9 @@ before the phases existed keep working. `CANCELLED` is still reachable only from
   `20261001183000_add_trip_tracking` adds the two columns (additive: one
   defaulted boolean, one nullable timestamp).
 - **Exactly one active assignment per driver.** The statuses
-  `ASSIGNED, EN_ROUTE, AT_PICKUP, LOADED, IN_TRANSIT, AT_DELIVERY` are "in
-  flight"; a transition into one of them, or an `assign`, for a driver who
+  `ASSIGNED, EN_ROUTE, AT_PICKUP, LOADED, IN_TRANSIT, AT_DELIVERY` plus the
+  four alternate endings are "in flight"; a transition into one of them, or an
+  `assign`, for a driver who
   already has another in-flight trip is refused with `409 driver_busy`
   (`driverHasActiveTrip` in `trips-core.js`). A trip that is `DRAFT` (nothing
   started) or `DELIVERED`+ (only back-office work left) does not occupy the
@@ -857,6 +858,50 @@ Pure logic: `src/trip-status.js` (`TRANSITIONS`, `DRIVER_PHASES`,
 persisted tracking, non-assigned driver 403, illegal move 400, double-booking
 409). The Android mirror is pinned by `TripCoreTest.kt` and the locale parity
 guard `apps/android/tools/check-locales.mjs`.
+
+### Alternate endings (board task #127, UXF-O4)
+Diagram 07 (`docs/ux-flows/07-trip-state-machine.mmd`) A3–A6 are now real states
+of the same machine, not missing transitions:
+
+```
+AT_PICKUP   → REFUSED       cargo not as described     REFUSED      → LOADED
+EN_ROUTE    → BREAKDOWN     driver reports a problem   BREAKDOWN    → EN_ROUTE
+IN_TRANSIT  → DELAYED       traffic / rest / weather   DELAYED      → IN_TRANSIT
+AT_DELIVERY → CUSTOMS_HOLD  paperwork problem          CUSTOMS_HOLD → AT_DELIVERY
+```
+
+Each ending has **exactly one** source status and **exactly one** documented
+recovery edge — `src/trip-status.js` (`DISRUPTION_STATUSES`,
+`DISRUPTION_SOURCES`, `DISRUPTION_RESUME`) is the table and
+`nextStatuses`/`canTransition` reject everything else. None is terminal:
+`DELAYED` is resumable, and the other three are resumable only along their one
+recovery edge. All four count as an active assignment, so a disrupted trip still
+holds its driver (`409 driver_busy` for a second job).
+
+- **Actor rule.** An employed driver may report `REFUSED` / `BREAKDOWN` on their
+  own trip; `DELAYED`, `CUSTOMS_HOLD` and **every** recovery decision belong to
+  the carrier side (`trip:*` — owner, dispatcher, or a solo driver acting as
+  their own carrier). `requiresCarrierActor` in `trip-status.js` is enforced in
+  `transitionTrip`, so a driver gets `403 forbidden` and nothing is written.
+- **Audit.** Every accepted move writes the existing `StatusEvent`
+  (`fromStatus`, `toStatus`, `actorId`, `happenedAt`) in the same transaction as
+  the status update; no schema change was needed.
+- **Surfaces.** The Fleet Manager trip detail renders the exits its current
+  status allows (and the one recovery while disrupted) from
+  `pilot/lib/disruptions.js`, shared with the solo `/s/` jobs list. The public
+  tracking page labels every ending and adds one factual next-step sentence
+  (`TRACK_DISRUPTION_NOTES`) — no invented money and no invented ETA.
+- **Tests.** `src/trip-status.test.js` and `src/trips-core.test.js` cover the
+  table, the actor rule and the audit event without a DB;
+  `src/disruptions.test.js` pins the shared UI table to the server and checks
+  every catalogue label; `test/disruptions.test.ts` (`pnpm test:router`) proves
+  each ending and recovery over HTTP against the DB, the illegal-source `400`s,
+  the driver `403`s and tenant isolation (`404`).
+
+Known follow-up (not in this change): the Android driver shell mirrors the
+transitions in `apps/android/.../TripStatus.kt`; it has no REFUSED/BREAKDOWN
+report action yet, so an Android driver cannot file one. That surface is not
+part of #127's acceptance.
 
 ### Documents UI (board task #37, FAv1-F6)
 The trip-detail screen now carries the documents panel the API already backed

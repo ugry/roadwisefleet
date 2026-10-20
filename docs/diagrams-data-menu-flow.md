@@ -238,7 +238,22 @@ stateDiagram-v2
     ASSIGNED --> CANCELLED
     CANCELLED --> [*]
     SETTLED --> [*]
+    AT_PICKUP --> REFUSED: cargo not as described
+    REFUSED --> LOADED: renegotiated terms
+    EN_ROUTE --> BREAKDOWN: driver reports a problem
+    BREAKDOWN --> EN_ROUTE: recovery / truck swap
+    IN_TRANSIT --> DELAYED: traffic / rest / weather
+    DELAYED --> IN_TRANSIT: back on schedule
+    AT_DELIVERY --> CUSTOMS_HOLD: paperwork problem
+    CUSTOMS_HOLD --> AT_DELIVERY: documents released
 ```
+
+The four alternate endings (A3–A6 of `docs/ux-flows/07-trip-state-machine.mmd`,
+board task #127) are `REFUSED`, `BREAKDOWN`, `DELAYED`, `CUSTOMS_HOLD`. Each has
+exactly one source status and one documented recovery edge; none is terminal.
+An employed driver may report `REFUSED`/`BREAKDOWN` on their own trip; the
+carrier side (`trip:*` — owner, dispatcher, or a solo driver acting as their own
+carrier) sets `DELAYED`/`CUSTOMS_HOLD` and decides every recovery.
 
 ---
 

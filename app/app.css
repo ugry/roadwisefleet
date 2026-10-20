@@ -366,6 +366,12 @@ table.trips-table tr.clickable:hover { background: oklch(0.98 0.003 250); }
 .status.s-INVOICED,
 .status.s-SETTLED { color: var(--accent-deep); border-color: var(--accent-deep); }
 .status.s-CANCELLED { color: var(--danger); border-color: var(--danger); }
+/* Board task #127 (UXF-O4): alternate endings read as a warning, not as a
+   completed or a failed trip — the trip is paused, not closed. */
+.status.s-REFUSED,
+.status.s-BREAKDOWN,
+.status.s-DELAYED,
+.status.s-CUSTOMS_HOLD { color: var(--warn-text, #8a4b00); border-color: var(--warn-text, #8a4b00); }
 
 .muted { color: var(--muted); font-size: 13px; }
 .empty { color: var(--muted); font-size: 13px; }

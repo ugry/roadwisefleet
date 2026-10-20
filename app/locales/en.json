@@ -260,6 +260,10 @@
   "trips.status.POD_UPLOADED": "POD uploaded",
   "trips.status.INVOICED": "Invoiced",
   "trips.status.SETTLED": "Settled",
+  "trips.status.REFUSED": "Refused at pickup",
+  "trips.status.BREAKDOWN": "Vehicle breakdown",
+  "trips.status.DELAYED": "Delayed",
+  "trips.status.CUSTOMS_HOLD": "Customs hold",
   "trips.status.CANCELLED": "Cancelled",
 
   "docs.lead": "Documents are managed per trip. Pick a trip below to upload its paperwork, check the required documents and verify or reject what a driver sent.",
@@ -452,5 +456,17 @@
   "customers.error.dateInvalid": "Enter a valid date.",
   "customers.error.windowOrder": "The delivery window cannot end before it starts.",
   "customers.error.equipmentUnknown": "Choose equipment from the list.",
-  "customers.error.requestFailed": "That did not go through. Try again."
+  "customers.error.requestFailed": "That did not go through. Try again.",
+  "disruption.title": "Report a disruption",
+  "disruption.intro": "Record the problem when the trip cannot continue as planned. Each ending has one documented way back.",
+  "disruption.action.REFUSED": "Refuse at pickup",
+  "disruption.action.BREAKDOWN": "Report breakdown",
+  "disruption.action.DELAYED": "Report delay",
+  "disruption.action.CUSTOMS_HOLD": "Put on customs hold",
+  "disruption.resume": "Resume the trip",
+  "disruption.hint.REFUSED": "Cargo refused at pickup. Resuming loads the trip under the renegotiated terms.",
+  "disruption.hint.BREAKDOWN": "Vehicle broken down. Resuming restarts the trip once recovery or a truck swap is arranged.",
+  "disruption.hint.DELAYED": "Delayed in transit. Resuming returns the trip to in transit; the customer sees the delay, never an invented ETA.",
+  "disruption.hint.CUSTOMS_HOLD": "Held for customs paperwork. Resuming returns the trip to at delivery once the documents are released.",
+  "disruption.changed": "Trip status is now {status}."
 }

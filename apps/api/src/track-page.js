@@ -32,7 +32,26 @@ export const TRACK_STATUS_LABELS = Object.freeze({
   POD_UPLOADED: 'POD uploaded',
   INVOICED: 'Invoiced',
   SETTLED: 'Settled',
+  // Board task #127 (UXF-O4): the alternate endings customer copy. Wording is
+  // deliberately factual — no money, no ETA the carrier has not given.
+  REFUSED: 'Refused at pickup',
+  BREAKDOWN: 'Vehicle breakdown',
+  DELAYED: 'Delayed',
+  CUSTOMS_HOLD: 'Customs hold',
   CANCELLED: 'Cancelled',
+});
+
+/**
+ * The next-step sentence for a disrupted shipment. Board task #127: the public
+ * page must show a truthful state and what happens next — never an invented
+ * delivery estimate or a money figure (the payload carries neither).
+ * @type {Readonly<Record<string, string>>}
+ */
+export const TRACK_DISRUPTION_NOTES = Object.freeze({
+  REFUSED: 'The load was refused at pickup because it did not match the booking. Your carrier is reviewing the options with you.',
+  BREAKDOWN: 'The vehicle has broken down. Your carrier is arranging recovery and will contact you.',
+  DELAYED: 'This shipment is delayed. Your carrier will share an updated schedule with you.',
+  CUSTOMS_HOLD: 'This shipment is being held for customs paperwork. Your carrier is handling the documents.',
 });
 
 /**
@@ -81,6 +100,7 @@ export function trackPageHtml() {
   .tl-when{font-size:12px;color:var(--muted)}
   .msg{margin:0;padding:12px 14px;border-radius:10px;font-size:14px}
   .msg.err{background:oklch(0.96 0.04 25);color:oklch(0.45 0.16 25)}
+  .msg.note{margin:10px 0 0;background:oklch(0.97 0.03 70);color:oklch(0.38 0.09 70);border:1px solid oklch(0.9 0.06 70)}
   .flag{display:inline-block;font-size:13px;font-weight:600;padding:3px 9px;border-radius:999px}
   .flag.yes{background:oklch(0.94 0.05 155);color:var(--ok-text)}
   .flag.no{background:oklch(0.95 0.01 258);color:var(--muted-text)}
@@ -122,6 +142,8 @@ export function trackPageHtml() {
   // Board task #117 (C): the page speaks in words, not status tokens. The map is
   // the exported TRACK_STATUS_LABELS, so a new phase cannot ship unlabelled.
   var STATUS_LABELS = ${JSON.stringify(TRACK_STATUS_LABELS)};
+  // Board task #127: one sentence of next-step copy per alternate ending.
+  var DISRUPTION_NOTES = ${JSON.stringify(TRACK_DISRUPTION_NOTES)};
 
   function statusLabel(s) {
     if (!s) return 'Unknown';
@@ -130,7 +152,7 @@ export function trackPageHtml() {
 
   function statusClass(s) {
     if (s === 'DELIVERED' || s === 'POD_UPLOADED' || s === 'INVOICED' || s === 'SETTLED') return 'status done';
-    if (s === 'CANCELLED') return 'status pending';
+    if (s === 'CANCELLED' || DISRUPTION_NOTES[s]) return 'status pending';
     return 'status';
   }
 
@@ -157,6 +179,9 @@ export function trackPageHtml() {
         '<span class="' + statusClass(t.status) + '">' + esc(statusLabel(t.status)) + '</span>' +
         '<div class="route">' + esc(route.origin || '?') + ' → ' + esc(route.destination || '?') + '</div>' +
         (route.cargo ? '<div class="muted">' + esc(route.cargo) + '</div>' : '') +
+        (DISRUPTION_NOTES[t.status]
+          ? '<p class="msg note">' + esc(DISRUPTION_NOTES[t.status]) + '</p>'
+          : '') +
         '<dl class="kv">' +
           '<dt>Vehicle position</dt><dd>' + esc(position) + '</dd>' +
           '<dt>Estimated arrival</dt><dd>Not available yet</dd>' +

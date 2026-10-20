@@ -11,7 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TRACK_STATUS_LABELS, trackPageHtml } from './track-page.js';
+import { TRACK_DISRUPTION_NOTES, TRACK_STATUS_LABELS, trackPageHtml } from './track-page.js';
 import { TRIP_STATUSES } from './trip-status.js';
 
 test('every trip status has a human label that is not the raw token', () => {
@@ -50,4 +50,23 @@ test('the page still parses and keeps its inline-only, noindex shape', () => {
   // `new Function` throws on a syntax error, which is what we care about here.
   assert.doesNotThrow(() => new Function(inline[0][2]));
   assert.match(html, /<meta name="robots" content="noindex/);
+});
+
+test('each alternate ending renders a truthful next step, and no invented money or ETA (#127)', () => {
+  const html = trackPageHtml();
+  const m = /var DISRUPTION_NOTES = (\{[\s\S]*?\});/.exec(html);
+  assert.ok(m, 'the page must embed DISRUPTION_NOTES');
+  assert.deepEqual(JSON.parse(m[1]), { ...TRACK_DISRUPTION_NOTES });
+  assert.deepEqual(
+    Object.keys(TRACK_DISRUPTION_NOTES).sort(),
+    ['BREAKDOWN', 'CUSTOMS_HOLD', 'DELAYED', 'REFUSED'],
+    'every diagram-07 ending A3–A6 has a sentence',
+  );
+  for (const [status, note] of Object.entries(TRACK_DISRUPTION_NOTES)) {
+    assert.ok(note.length > 20, `${status} note must say something`);
+    assert.doesNotMatch(note, /\d/, `${status} note must not invent a number (money or ETA)`);
+    assert.doesNotMatch(note, /€|\bEUR\b|invoice|refund|fee/i, `${status} note must not invent money`);
+  }
+  assert.ok(html.includes('DISRUPTION_NOTES[t.status]'), 'the note must be rendered for the current status');
+  assert.ok(html.includes("DISRUPTION_NOTES[s]"), 'a disruption is styled as a pending state');
 });

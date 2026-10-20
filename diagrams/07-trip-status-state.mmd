@@ -11,3 +11,13 @@ stateDiagram-v2
     ASSIGNED --> CANCELLED
     CANCELLED --> [*]
     SETTLED --> [*]
+    %% Alternate endings A3–A6 (board task #127): one documented source,
+    %% one documented recovery edge each. They are paused states, not terminals.
+    AT_PICKUP --> REFUSED: cargo not as described
+    REFUSED --> LOADED: renegotiated terms
+    EN_ROUTE --> BREAKDOWN: driver reports a problem
+    BREAKDOWN --> EN_ROUTE: recovery / truck swap
+    IN_TRANSIT --> DELAYED: traffic / rest / weather
+    DELAYED --> IN_TRANSIT: back on schedule
+    AT_DELIVERY --> CUSTOMS_HOLD: paperwork problem
+    CUSTOMS_HOLD --> AT_DELIVERY: documents released

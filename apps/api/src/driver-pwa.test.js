@@ -409,3 +409,23 @@ test('no secret is baked into the driver surface', () => {
     assert.ok(!/AUTH_SECRET|TRACK_LINK_SECRET|Bearer\s+[A-Za-z0-9._-]{20,}|passwordHash/.test(source), `${name} must not contain a secret`);
   }
 });
+
+// --- alternate endings (board task #127, UXF-O4) ----------------------------
+
+test('the driver card offers only the endings an employed driver may set', () => {
+  // From AT_PICKUP the server accepts REFUSED from the assigned driver, so the
+  // card offers it; the recovery (LOADED) is the carrier's and is not offered.
+  assert.deepEqual(driverCore.driverStatusActions('AT_PICKUP'), ['LOADED', 'REFUSED']);
+  assert.deepEqual(driverCore.driverStatusActions('EN_ROUTE'), ['AT_PICKUP', 'BREAKDOWN']);
+  // DELAYED / CUSTOMS_HOLD are carrier decisions: never on the driver's card.
+  assert.deepEqual(driverCore.driverStatusActions('IN_TRANSIT'), ['AT_DELIVERY', 'DELIVERED']);
+  assert.deepEqual(driverCore.driverStatusActions('AT_DELIVERY'), ['DELIVERED']);
+  // A disrupted trip offers the driver nothing at all (the carrier resumes it).
+  for (const ending of ['REFUSED', 'BREAKDOWN', 'DELAYED', 'CUSTOMS_HOLD']) {
+    assert.deepEqual(driverCore.driverStatusActions(ending), [], ending);
+    assert.equal(driverCore.isEndingStatus(ending), true);
+  }
+  assert.equal(driverCore.isEndingStatus('IN_TRANSIT'), false);
+  assert.deepEqual(driverCore.buildTourCard(trip({ status: 'REFUSED' })).nextStatuses, []);
+  assert.deepEqual(driverCore.buildTourCard(trip({ status: 'AT_PICKUP' })).nextStatuses, ['LOADED', 'REFUSED']);
+});

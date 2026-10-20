@@ -17,6 +17,11 @@ import * as CORE from './lib/solo-core.js';
 
 window.RoadwiseSolo = CORE;
 
+// The alternate-ending table (board task #127, UXF-O4), loaded as a classic
+// script before this module; shared with the Fleet Manager. A solo driver is
+// their own carrier, so they may set every ending and take every recovery.
+const DISRUPT = window.RoadwiseDisruptions || {};
+
 const TOKEN_KEY = 'rwf.solo.token';
 const USER_KEY = 'rwf.solo.user';
 const PANELS = ['feed', 'load', 'offers', 'beacon', 'verify', 'jobs', 'customers', 'profile'];
@@ -376,6 +381,15 @@ function jobsView() {
           // Board task #117 (B): a solo driver has no fleet driver PWA, so the
           // POD_UPLOADED step is completed here. Render the capture control at
           // exactly the job the server gate would otherwise block.
+          // Board task #127: the designed exits are real actions, not a hidden
+          // API call. The table is shared with the Fleet Manager, so the two
+          // surfaces cannot offer different endings; the server re-validates.
+          const endings = (DISRUPT.actionsFrom ? DISRUPT.actionsFrom(job.status, { carrier: true }) : [])
+            .map(
+              (a) =>
+                `<button type="button" class="${a.kind === 'resume' ? '' : 'ghost'}" data-action="ending" data-id="${esc(job.id)}" data-to="${esc(a.to)}">${esc(t(a.kind === 'resume' ? 'solo.jobs.resume' : 'solo.jobs.ending.' + a.to))}</button>`,
+            )
+            .join('');
           const pod = CORE.needsPodCapture(job.status)
             ? `
           <form data-form="pod" data-id="${esc(job.id)}" class="pod-capture">
@@ -392,6 +406,7 @@ function jobsView() {
           <p class="muted">${esc(job.customer || '')} · ${esc(eur(job.rateEur))} · ${esc(t('solo.jobs.payment'))}: ${esc(pay)}</p>
           <div class="actions">
             ${next ? `<button type="button" data-action="advance" data-id="${esc(job.id)}" data-to="${esc(next)}">${esc(t('solo.jobs.advance'))} ${esc(t(CORE.statusKey(next)))}</button>` : ''}
+            ${endings}
             <button type="button" data-action="track-link" data-id="${esc(job.id)}">${esc(t('solo.jobs.share'))}</button>
           </div>
           ${pod}
@@ -932,7 +947,7 @@ $('panel').addEventListener('click', (event) => {
         flash('feed', reasonFor(err));
         render('feed');
       });
-  } else if (action === 'advance') {
+  } else if (action === 'advance' || action === 'ending') {
     advanceJob(id, target.getAttribute('data-to'));
   } else if (action === 'track-link') {
     shareJob(id);
