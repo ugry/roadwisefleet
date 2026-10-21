@@ -3,6 +3,7 @@ package com.elilaltd.roadwisefleet.driver.ui.auth
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -179,8 +180,10 @@ class AuthOtpUiTest {
 
         composeRule.onNodeWithText(translator.t("auth.otp.error.code")).assertIsDisplayed()
         composeRule.onNodeWithText(translator.t("auth.otp.submit")).assertIsDisplayed()
-        composeRule.onNodeWithText(translator.t("auth.otp.codeLabel"), substring = true)
-            .assertIsDisplayed()
+        // Still exactly one code field: the form was not swapped for the login screen.
+        // (The label text is matched twice — the field node merges its own label —
+        // so count the editable nodes instead of matching the label.)
+        composeRule.onAllNodes(hasSetTextAction()).assertCountEquals(1)
     }
 
     @Test
