@@ -16,6 +16,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as solo from '../../../solo/lib/solo-core.js';
+import { DRIVER_PHASES, TRANSITIONS } from './trip-status.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
@@ -359,10 +360,43 @@ test('walletSummary counts jobs, earned/paid/outstanding', () => {
 
 test('nextStatusAfter walks the display chain and stops at the end', () => {
   assert.equal(solo.nextStatusAfter('DRAFT'), 'ASSIGNED');
-  assert.equal(solo.nextStatusAfter('ASSIGNED'), 'LOADED');
+  assert.equal(solo.nextStatusAfter('ASSIGNED'), 'EN_ROUTE');
+  assert.equal(solo.nextStatusAfter('EN_ROUTE'), 'AT_PICKUP');
+  assert.equal(solo.nextStatusAfter('AT_PICKUP'), 'LOADED');
+  assert.equal(solo.nextStatusAfter('IN_TRANSIT'), 'AT_DELIVERY');
+  assert.equal(solo.nextStatusAfter('AT_DELIVERY'), 'DELIVERED');
   assert.equal(solo.nextStatusAfter('DELIVERED'), 'POD_UPLOADED');
   assert.equal(solo.nextStatusAfter('POD_UPLOADED'), null);
   assert.equal(solo.nextStatusAfter('BOGUS'), null);
+});
+
+test('the solo display chain carries every driver phase (QA #124)', () => {
+  // The reduced chain (`ASSIGNED → LOADED → IN_TRANSIT → DELIVERED`) skipped the
+  // one transition that turns live tracking on and both arrival instants, so a
+  // solo trip never set `Trip.tracking` and its customer link had no position.
+  assert.deepEqual(solo.SOLO_STATUS_CHAIN, ['DRAFT', ...DRIVER_PHASES]);
+  for (const phase of ['EN_ROUTE', 'AT_PICKUP', 'AT_DELIVERY']) {
+    assert.ok(solo.SOLO_STATUS_CHAIN.includes(phase), `${phase} must be walkable on the solo surface`);
+  }
+});
+
+test('every step the solo chain offers is a legal server transition', () => {
+  const chain = solo.SOLO_STATUS_CHAIN;
+  for (let i = 0; i < chain.length - 1; i += 1) {
+    const from = chain[i];
+    const to = chain[i + 1];
+    assert.ok(TRANSITIONS[from].includes(to), `${from} → ${to} must be a legal trip transition`);
+  }
+});
+
+test('every solo chain status has a human label in the solo catalogue', () => {
+  const catalogue = JSON.parse(readFileSync(resolve(repoRoot, 'solo/locales/en.json'), 'utf8'));
+  for (const status of solo.SOLO_STATUS_CHAIN) {
+    const key = solo.statusKey(status);
+    assert.equal(typeof catalogue[key], 'string', `solo/locales/en.json is missing ${key}`);
+    assert.ok(catalogue[key].length > 0, `${key} must not be empty`);
+    assert.notEqual(catalogue[key], status, `${key} must not render the raw token`);
+  }
 });
 
 /* -------------------------------------------------- POD capture (board #117) */

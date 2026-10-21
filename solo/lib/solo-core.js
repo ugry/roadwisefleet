@@ -130,8 +130,27 @@ export const BID_REQUIRES_VERIFICATION = false;
  * `apps/api/src/trip-status.js` (the server is the source of truth and rejects
  * an illegal move with 400 `invalid_transition`); this map only decides which
  * single primary button the solo surface offers.
+ *
+ * QA #124: the chain must carry EVERY driver phase, not a reduced one. `EN_ROUTE`
+ * is the only transition that turns live tracking on (`trips-core.js`), and
+ * `AT_PICKUP` / `AT_DELIVERY` are the arrival instants the timeline and the
+ * on-time KPI read — skipping them left a solo trip with `tracking = false`
+ * for its whole life (every GPS batch `409 tracking_off`) and a customer track
+ * link without a position. `solo-core.test.js` deep-equals this list against
+ * `trip-status.js#DRIVER_PHASES` and checks every step is a legal transition,
+ * so the two cannot drift apart again.
  */
-export const SOLO_STATUS_CHAIN = ['DRAFT', 'ASSIGNED', 'LOADED', 'IN_TRANSIT', 'DELIVERED', 'POD_UPLOADED'];
+export const SOLO_STATUS_CHAIN = [
+  'DRAFT',
+  'ASSIGNED',
+  'EN_ROUTE',
+  'AT_PICKUP',
+  'LOADED',
+  'IN_TRANSIT',
+  'AT_DELIVERY',
+  'DELIVERED',
+  'POD_UPLOADED',
+];
 
 /* --------------------------------------------------------------- helpers --- */
 

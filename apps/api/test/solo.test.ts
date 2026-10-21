@@ -372,13 +372,54 @@ if (!ready) {
     assert.equal(trip?.driverId, soloUserId, 'the solo driver is the trip driver');
   });
 
-  test('the driver executes the statuses, uploads a POD and the wallet shows payment', async () => {
-    for (const status of ['ASSIGNED', 'LOADED', 'IN_TRANSIT', 'DELIVERED']) {
+  test('the driver executes the full phase chain, tracking starts at EN_ROUTE and the track link follows it (QA #124)', async () => {
+    const move = async (status: string) => {
       const res = await app.inject({ method: 'POST', url: `/api/trips/${awardedTripId}/status`, headers: bearer(soloToken), payload: { status } });
       assert.equal(res.statusCode, 200, `${status}: ${res.payload}`);
-    }
+    };
+
+    await move('ASSIGNED');
+    // QA #124: the solo chain skipped this step, so `Trip.tracking` stayed false
+    // for the trip's whole life and every GPS batch was refused `tracking_off`.
+    await move('EN_ROUTE');
+    const startedTrip = await prisma.trip.findUnique({ where: { id: awardedTripId } });
+    assert.equal(startedTrip?.tracking, true, 'EN_ROUTE is the Start-Trip transition — tracking is on');
+    assert.ok(startedTrip?.trackingStartedAt, 'the start instant is kept for the timeline');
+
+    const ping = await app.inject({
+      method: 'POST',
+      url: `/api/trips/${awardedTripId}/gps`,
+      headers: bearer(soloToken),
+      payload: { points: [{ id: 'solo-gps-1', lat: 52.5, lng: 13.4, at: new Date(Date.now() - 30_000).toISOString(), accuracyM: 9 }] },
+    });
+    assert.equal(ping.statusCode, 202, ping.payload);
+
+    // The customer link the solo driver shares must carry that position.
+    const link = await app.inject({ method: 'POST', url: `/api/trips/${awardedTripId}/track-link`, headers: bearer(soloToken) });
+    assert.equal(link.statusCode, 201, link.payload);
+    const publicRead = await app.inject({ method: 'GET', url: `/api/track/${link.json().link.token}` });
+    assert.equal(publicRead.statusCode, 200, publicRead.payload);
+    assert.equal(publicRead.json().tracking.tracking, true, 'the public read reports live tracking');
+    assert.ok(publicRead.json().tracking.lastKnownPosition, 'the public read carries the last position');
+
+    await move('AT_PICKUP');
+    await move('LOADED');
+    await move('IN_TRANSIT');
+    await move('AT_DELIVERY');
+    await move('DELIVERED');
+
     const delivered = await prisma.trip.findUnique({ where: { id: awardedTripId } });
     assert.ok(delivered?.deliveredAt, 'the delivery time is recorded');
+    assert.equal(delivered?.tracking, false, 'delivery ends live tracking');
+
+    const late = await app.inject({
+      method: 'POST',
+      url: `/api/trips/${awardedTripId}/gps`,
+      headers: bearer(soloToken),
+      payload: { points: [{ id: 'solo-gps-2', lat: 52.6, lng: 13.5, at: new Date(Date.now() - 10_000).toISOString() }] },
+    });
+    assert.equal(late.statusCode, 409, late.payload);
+    assert.equal(late.json().error, 'tracking_off');
 
     // POD_UPLOADED is gated on a real POD document.
     const tooEarly = await app.inject({ method: 'POST', url: `/api/trips/${awardedTripId}/status`, headers: bearer(soloToken), payload: { status: 'POD_UPLOADED' } });
