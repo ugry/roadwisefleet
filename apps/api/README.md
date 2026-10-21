@@ -158,7 +158,8 @@ role and the profile → an UNVERIFIED driver browses the board **and** bids (ow
 refused → the trust marks stay truthful per paper (`pending` while in review) and
 flip to `verified` only after a real review → the driver bids, the shipper awards
 and the `Trip` lands in the driver's org with the driver assigned → the driver
-executes the statuses,
+executes the full phase chain (tracking turns on at `EN_ROUTE`, a GPS point shows
+on the public link, and `DELIVERED` turns it off again),
 uploads a POD (the `pod_required` gate included) and the wallet shows the payment
 status → a quick job for the driver's OWN customer (no shipper account) creates
 an order + trip and mints a **working** public tracking link → the beacon and the
@@ -1432,6 +1433,25 @@ and the next creation is accepted. The pure rule lives in
 `solo-core.js#quickJobConflict` / `activeJob` (with a drift guard against
 `ACTIVE_ASSIGNMENT_STATUSES`), and `/s/` disables the new-job form, explains the
 state, and refuses in the submit handler as well.
+
+**Execution chain — the solo surface walks every driver phase (QA defect
+ugry/roadwisefleet#124).** `solo-core.js#SOLO_STATUS_CHAIN` is
+`DRAFT → ASSIGNED → EN_ROUTE → AT_PICKUP → LOADED → IN_TRANSIT → AT_DELIVERY →
+DELIVERED → POD_UPLOADED`, i.e. `trip-status.js#DRIVER_PHASES` behind `DRAFT`.
+That is not cosmetic: `EN_ROUTE` is the **only** transition that sets
+`Trip.tracking = true` (`trips-core.js`), so the former reduced chain
+(`ASSIGNED → LOADED → IN_TRANSIT → DELIVERED`) meant a solo job never started
+live tracking — every `POST /api/trips/:id/gps` answered `409 tracking_off` and
+the customer's `/track/<token>` link carried `lastKnownPosition: null` for the
+trip's whole life. `AT_PICKUP` / `AT_DELIVERY` are also the arrival instants the
+timeline and the on-time KPI read. The three phases were restored on the
+**surface**, not by changing the state machine: the API already allowed them for
+a solo token. `solo-core.test.js` deep-equals the chain against `DRIVER_PHASES`,
+checks every step is a legal `TRANSITIONS` edge, and requires a catalogue label
+for each status (a missing key rendered the raw token on the button); the
+DB-backed `test/solo.test.ts` walks the whole chain and asserts tracking on after
+`EN_ROUTE`, an accepted GPS point visible on the public link, and `409
+tracking_off` after `DELIVERED`.
 
 **Surface.** `/s/` is a single-column mobile-first app: loads (filters + saved
 searches), load detail + bid, my offers, beacon, verification, jobs, customers and
