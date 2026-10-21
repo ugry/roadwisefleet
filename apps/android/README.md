@@ -66,7 +66,10 @@ session exists; the shell is only reachable from `AuthState.SignedIn`.
 
 Contract and threat notes: `docs/android-architecture.md` §9a/§9a.1/§9a.2; flow:
 `diagrams/17-android-auth-flow.mmd`. JVM tests: `AuthRulesTest`,
-`AuthControllerTest`; on-device: `KeystoreDeviceKeyMaterialInstrumentedTest`.
+`AuthControllerTest`; on-device: `KeystoreDeviceKeyMaterialInstrumentedTest`,
+`AuthOtpUiTest` (the #125 UI gate — WhatsApp is not composed while the flag is
+off, "Email me a code" only with a configured sender, six-digit form, resend
+countdown, error and loading states).
 
 ## Build
 
