@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # RoadwiseFleet — share-token surface guard (board eila/tasks#75, UXF-O1).
 #
-# The board #75 guest surfaces are specified to carry a capability token in the
-# URL path: /track/<token> for the tracking page, and /s/<token> for the
-# POD/eCMR download and the invoice view (the latter two were never
-# implemented). Two things must hold for every location that can carry a token:
+# The board #75 guest surfaces carry a capability token in the URL path:
+# /track/<token> for the tracking page, /s/<token> — which became the
+# solo-driver shell — and /g/<scope>/<token> for the POD/eCMR download and the
+# invoice view (board #132, the app half of #75; it has its own prefix because
+# /s/ and /track/ each belong to another surface). Two things must hold for
+# every location that can carry a token:
 #
 #   1. the surface is rate-limited by the dedicated `rwf_share` zone (a token
 #      that can be enumerated is not a capability), and
@@ -14,11 +16,11 @@
 #      outlives the link's expiry and its revocation.
 #
 # Board #91 semantics note: /s/ is now the solo-driver shell (board #77/#87) and
-# NOT the #75 document/invoice route (that API route was never implemented).
-# It is deliberately KEPT on `rwf_share` + the token-free log: the board #75
-# review decided not to relax a merged guard, and /s/ is still the prefix the
-# token route was specified under. Read SHARE_LOCATIONS as "locations that can
-# carry a share token", not "the three #75 surfaces".
+# NOT the #75 document/invoice route. It is deliberately KEPT on `rwf_share` +
+# the token-free log: the board #75 review decided not to relax a merged guard.
+# The `/s/` live probe therefore accepts a 200 only when the answer IS the solo
+# shell (text/html, no attachment, no cookie) — a 200 carrying document bytes or
+# a cookie stays a FAIL.
 #
 # Two independent jobs:
 #
@@ -28,8 +30,9 @@
 #
 #   --live (run on elilavps2 / any host with curl): probe a random token and
 #   assert the acceptance-relevant behaviour — a share shell answers without
-#   setting a cookie, an unknown token is a clear 404/410 (never data), and a
-#   rapid loop trips the 429. Prints the transcript.
+#   setting a cookie, an unknown token is a clear 404/410 (never data), the
+#   guest document/invoice surface never answers an unknown token with a 200,
+#   and a rapid loop trips the 429. Prints the transcript.
 #
 # Usage:
 #   bash infra/checks/share-link-check.sh             # repo consistency (CI)
@@ -59,10 +62,11 @@ RATE_LOOP="${RWF_RATE_LOOP:-60}"
 FORBIDDEN_LOG_VARS='(\$request([^a-zA-Z0-9_]|$)|\$request_uri|\$uri([^a-zA-Z0-9_]|$)|\$document_uri|\$args([^a-zA-Z0-9_]|$)|\$query_string|\$http_referer|\$http_user_agent)'
 # Locations that can carry a share token (see the board #91 semantics note in
 # the header): /track/ = the board #75 tracking page; /s/ = the solo-driver
-# shell today, kept on rwf_share + the token-free log because the #75
-# document/invoice route was specified under this prefix and the merged guard
-# must not be relaxed.
-SHARE_LOCATIONS=("/track/" "/s/")
+# shell; /g/ = the guest document + invoice views (board #132, UXF-O1a — the
+# app half of #75 that needed no provider). /g/ arrived last, so it is the only
+# one whose token route actually exists; /s/ is kept on the guard because the
+# merged board #75 review decided not to relax it.
+SHARE_LOCATIONS=("/track/" "/s/" "/g/")
 
 fails=0
 warns=0
@@ -197,8 +201,16 @@ status_for() { # url -> status code
   "$CURL_BIN" -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null
 }
 
+header_value() { # headers, name -> value (last match, CR stripped)
+  printf '%s\n' "$1" | grep -i -m1 "^$2:" | cut -d: -f2- | tr -d '\r' | sed 's/^[[:space:]]*//'
+}
+
+status_of() { # headers -> 3-digit status ("" when absent)
+  printf '%s\n' "$1" | grep -m1 -oE 'HTTP/[0-9.]+ [0-9]+' | awk '{print $2}'
+}
+
 run_live() {
-  local tok shell_h api_h api_status s_h s_status i code got429
+  local tok shell_h api_h api_status s_h s_status s_type s_disp scope g_h g_status i code got429
 
   printf 'RoadwiseFleet share-link probe — %s\n' "$(date -u '+%Y-%m-%d %H:%M:%SZ')"
   printf 'base: %s\n' "$BASE_URL"
@@ -235,23 +247,54 @@ run_live() {
     fail "GET /api/track/<random> set a cookie"
   fi
 
-  # 3. /s/: the solo-driver shell (board #87) is what answers here now; the #75
-  #    document/invoice token route was never implemented. The invariant that
-  #    still matters is that an unknown path never returns data with a 200.
+  # 3. /s/: the solo-driver shell (board #87) answers here. A 200 is acceptable
+  #    ONLY when it is that shell — text/html, no attachment, no cookie — and an
+  #    unknown path may also be a 404/410. Anything else (document bytes, a PDF,
+  #    a cookie, a 5xx) stays a FAIL: this is the "never 200 with data" invariant.
   s_h="$(headers_for "$BASE_URL/s/$tok")"
-  s_status="$(printf '%s\n' "$s_h" | grep -m1 -oE 'HTTP/[0-9.]+ [0-9]+' | awk '{print $2}')"
+  s_status="$(status_of "$s_h")"
+  s_type="$(header_value "$s_h" 'content-type')"
+  s_disp="$(header_value "$s_h" 'content-disposition')"
   if [ "$s_status" = "404" ] || [ "$s_status" = "410" ]; then
     ok "GET /s/<random> -> $s_status (unknown path; no share token is exposed)"
-    if [ "$s_status" = "404" ]; then
-      warn "/s/<random> is a 404 — that path is not a solo asset, and the #75 document/invoice route was never implemented (expected state)"
+  elif [ "$s_status" = "200" ]; then
+    if printf '%s\n' "$s_h" | grep -qiE '^set-cookie:'; then
+      fail "GET /s/<random> -> 200 but it SET A COOKIE — a guest path must never set one"
+    elif [ -n "$s_disp" ]; then
+      fail "GET /s/<random> -> 200 with Content-Disposition ($s_disp) — that is a document download, not the solo shell"
+    else
+      case "$s_type" in
+        text/html*)
+          ok "GET /s/<random> -> 200 (the solo-driver shell: text/html, no cookie, no attachment)"
+          ;;
+        *)
+          fail "GET /s/<random> -> 200 '${s_type:-no content-type}' — a 200 here must be the text/html solo shell (board #91), never data"
+          ;;
+      esac
     fi
   elif [ -z "$s_status" ]; then
     warn "GET /s/<random> produced no response (surface not routed yet)"
   else
-    fail "GET /s/<random> -> $s_status (want 404/410 for an unknown path, never 200 with data)"
+    fail "GET /s/<random> -> $s_status (want 404/410 for an unknown path, or 200 with the solo shell)"
   fi
 
-  # 4. the rate limit trips under a simple loop.
+  # 4. /g/: the guest document + invoice surface (board #132). An unknown token
+  #    must be a clear 404/410 — never a 200 and never a document body — and it
+  #    must not set a cookie. This is the acceptance row board #75 carried.
+  for scope in document invoice; do
+    g_h="$(headers_for "$BASE_URL/g/$scope/$tok")"
+    g_status="$(status_of "$g_h")"
+    if [ "$g_status" = "404" ] || [ "$g_status" = "410" ]; then
+      ok "GET /g/$scope/<random> -> $g_status (unknown token: no document, no existence leak)"
+    else
+      fail "GET /g/$scope/<random> -> ${g_status:-no response} (want 404/410; a 200 would be an auth bypass)"
+    fi
+    if printf '%s\n' "$g_h" | grep -qiE '^set-cookie:'; then
+      fail "GET /g/$scope/<random> set a cookie — the guest view must need no account and no cookie"
+    fi
+  done
+
+  # 5. the rate limit trips under a simple loop.
   got429=0
   i=0
   while [ "$i" -lt "$RATE_LOOP" ]; do
@@ -307,7 +350,7 @@ limit_req_zone $binary_remote_addr zone=rwf_share:10m rate=10r/s;
 limit_req_status 429;
 map $uri $rwf_share_path {
     default         $uri;
-    ~^/(track|s)/   /$1/<token>;
+    ~^/(track|s|g)/ /$1/<token>;
 }
 log_format rwf_share '$remote_addr - $remote_user [$time_local] '
                      '"$request_method $rwf_share_path $server_protocol" '
@@ -321,7 +364,7 @@ limit_req_zone $binary_remote_addr zone=rwf_share:10m rate=10r/s;
 limit_req_status 429;
 map $uri $rwf_share_path {
     default         $uri;
-    ~^/(track|s)/   /$1/<token>;
+    ~^/(track|s|g)/ /$1/<token>;
 }
 log_format rwf_share '$remote_addr "$request" $status $http_referer';
 EOF
@@ -336,6 +379,11 @@ server {
         proxy_pass http://127.0.0.1:8080;
     }
     location /s/ {
+        limit_req zone=rwf_share burst=20 nodelay;
+        access_log /var/log/nginx/roadwisefleet-share.access.log rwf_share;
+        proxy_pass http://127.0.0.1:8080;
+    }
+    location /g/ {
         limit_req zone=rwf_share burst=20 nodelay;
         access_log /var/log/nginx/roadwisefleet-share.access.log rwf_share;
         proxy_pass http://127.0.0.1:8080;
@@ -412,6 +460,8 @@ case "$*" in
   *-w*)
     case "$url" in
       */api/track/*) echo 404 ;;
+      */g/document/*) echo 404 ;;
+      */g/invoice/*) echo 404 ;;
       */track/*) echo 429 ;;
       *) echo 404 ;;
     esac
@@ -419,8 +469,9 @@ case "$*" in
   *)
     case "$url" in
       */api/track/*) printf 'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n' ;;
+      */g/document/*|*/g/invoice/*) printf 'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n' ;;
       */track/*) printf 'HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex, nofollow\r\n\r\n' ;;
-      */s/*) printf 'HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n' ;;
+      */s/*) printf 'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n' ;;
       *) printf 'HTTP/1.1 200 OK\r\n\r\n' ;;
     esac
     ;;
@@ -442,7 +493,9 @@ EOF
   contains "the no-cookie result is recognised" "$out" "sets no cookie"
   contains "the unknown token 404 is recognised" "$out" "unknown/expired/revoked = clear not-found"
   contains "the rate limit result is recognised" "$out" "rate limit holds"
-  contains "the unimplemented /s/ token route warns" "$out" "document/invoice route was never implemented"
+  contains "the solo shell at /s/ is accepted" "$out" "the solo-driver shell: text/html, no cookie, no attachment"
+  contains "an unknown /g/ document token is a clear not-found" "$out" "GET /g/document/<random> -> 404"
+  contains "an unknown /g/ invoice token is a clear not-found" "$out" "GET /g/invoice/<random> -> 404"
 
   # 5. a cookie-setting shell with a 200 API must FAIL (the two worst outcomes).
   cat > "$st/curl-bad" <<'EOF'
@@ -471,6 +524,47 @@ EOF
   expect "a cookie-setting, 200-API surface fails (rc)" 1 "$rc"
   contains "the cookie is reported" "$out" "set a cookie"
   contains "the 200 on an unknown token is reported" "$out" "a 200 would be an auth bypass"
+
+  # 6. a /g/ 200 (a document leak) and an /s/ 200 that is a document download
+  #    must both FAIL — the assertion board #75/#132 actually care about.
+  cat > "$st/curl-leak" <<'EOF'
+#!/usr/bin/env bash
+url="${!#}"
+case "$*" in
+  *-w*)
+    case "$url" in
+      */api/track/*) echo 404 ;;
+      */g/*) echo 200 ;;
+      */track/*) echo 429 ;;
+      *) echo 404 ;;
+    esac
+    ;;
+  *)
+    case "$url" in
+      */api/track/*) printf 'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n' ;;
+      */g/document/*) printf 'HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename="pod.pdf"\r\n\r\n' ;;
+      */g/invoice/*) printf 'HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Disposition: inline\r\n\r\n' ;;
+      */track/*) printf 'HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex, nofollow\r\n\r\n' ;;
+      */s/*) printf 'HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment\r\n\r\n' ;;
+      *) printf 'HTTP/1.1 200 OK\r\n\r\n' ;;
+    esac
+    ;;
+esac
+EOF
+  chmod +x "$st/curl-leak"
+
+  fails=0
+  warns=0
+  CURL_BIN="$st/curl-leak"
+  BASE_URL="https://example.test"
+  RATE_LOOP=5
+  run_live > "$st/out" 2>&1
+  rc=$?
+  out="$(cat "$st/out")"
+  expect "a leaked /g/ document fails (rc)" 1 "$rc"
+  contains "the /g/ 200 is named a bypass" "$out" "GET /g/document/<random> -> 200"
+  contains "the /g/ 200 names the auth bypass" "$out" "a 200 would be an auth bypass"
+  contains "the /s/ download is named" "$out" "that is a document download, not the solo shell"
 
   printf '\nself-test: %d passed, %d failed\n' "$pass" "$failed"
   if [ "$failed" -gt 0 ]; then

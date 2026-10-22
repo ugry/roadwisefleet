@@ -10,6 +10,12 @@
  *
  *   trackSecret = HMAC-SHA256(key = AUTH_SECRET, msg = "roadwisefleet/track-link/v1")
  *
+ * Guest document / invoice shares (board task #132, UXF-O1a) reuse the **same**
+ * primitive and the same derived key — only the token `sub` carries a scope
+ * prefix (`share:document:<id>~<version>` / `share:invoice:<id>~<version>`) and
+ * the version is the owning trip's `trackLinkVersion`. A tracking token has no
+ * scope prefix, so it can never decode as a document token and vice versa.
+ *
  * Revocation has two levels (board task #39, F8):
  *   - global: rotate the signing secret — either `AUTH_SECRET` itself or the
  *     dedicated `TRACK_LINK_SECRET` override. Every outstanding link dies.
@@ -163,9 +169,160 @@ export function verifyTrackLink(token, { authSecret, secret, now } = {}) {
   // A session token must never verify as a tracking link (different key already
   // prevents it; this is defence in depth if a key is ever shared by mistake).
   if (payload.org !== null || payload.role !== null || payload.name !== null) return null;
+  // A scoped guest-share token (document/invoice, board #132) must never open
+  // the tracking surface: the scope is part of the signed `sub`.
+  if (payload.sub.startsWith(SHARE_SUB_PREFIX)) return null;
   const { tripId, version } = decodeTrackSub(payload.sub);
   if (!tripId) return null;
   return { tripId, version, iat: payload.iat, exp: payload.exp };
+}
+
+// --- guest document / invoice shares (board task #132, UXF-O1a) -------------
+
+/**
+ * Prefix that marks a share token `sub` as scoped to one document or invoice.
+ * Tracking tokens keep the original unscoped `sub` (`<tripId>[~<version>]`), so
+ * every link minted before this feature still verifies.
+ */
+export const SHARE_SUB_PREFIX = 'share:';
+
+/**
+ * The guest surfaces that carry a document id. `document` serves POD / eCMR
+ * (and any other non-invoice attachment) as a download; `invoice` serves a
+ * `Document` row with `docType = 'invoice'` inline.
+ */
+export const GUEST_SCOPES = Object.freeze(['document', 'invoice']);
+
+/**
+ * Is `value` one of the guest scopes?
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isGuestScope(value) {
+  return typeof value === 'string' && GUEST_SCOPES.includes(value);
+}
+
+/**
+ * Encode the scoped `sub` for a document/invoice token:
+ * `share:<scope>:<documentId>[~<version>]`. The id is a cuid, so the colons and
+ * the `~` separator are unambiguous.
+ * @param {unknown} scope
+ * @param {unknown} documentId
+ * @param {unknown} version
+ * @returns {string}
+ * @throws {TypeError} when the scope or the id is invalid
+ */
+export function encodeShareSub(scope, documentId, version) {
+  if (!isGuestScope(scope)) throw new TypeError('scope must be one of ' + GUEST_SCOPES.join(', '));
+  const id = typeof documentId === 'string' ? documentId.trim() : '';
+  if (id.length === 0) throw new TypeError('documentId is required');
+  return `${SHARE_SUB_PREFIX}${scope}:${encodeTrackSub(id, version)}`;
+}
+
+/**
+ * Decode a scoped `sub` back to `{ scope, documentId, version }`. Returns
+ * `null` for anything that is not a well-formed scoped sub (an unscoped
+ * tracking sub included). Never throws on untrusted input.
+ * @param {unknown} sub
+ * @returns {{ scope: string, documentId: string, version: number } | null}
+ */
+export function decodeShareSub(sub) {
+  if (typeof sub !== 'string' || !sub.startsWith(SHARE_SUB_PREFIX)) return null;
+  const rest = sub.slice(SHARE_SUB_PREFIX.length);
+  const idx = rest.indexOf(':');
+  if (idx <= 0 || idx === rest.length - 1) return null;
+  const scope = rest.slice(0, idx);
+  if (!isGuestScope(scope)) return null;
+  const encodedId = rest.slice(idx + 1);
+  // A scoped id must not itself carry another scope prefix.
+  if (encodedId.startsWith(SHARE_SUB_PREFIX)) return null;
+  const { tripId, version } = decodeTrackSub(encodedId);
+  if (!tripId) return null;
+  return { scope, documentId: tripId, version };
+}
+
+/**
+ * Mint a guest document/invoice token. Same key, TTL and deterministic MAC as
+ * the trip link — only the scoped `sub` differs. `version` is the owning trip's
+ * `trackLinkVersion`, which is what makes a shipment-link revoke revoke every
+ * document link of that shipment too.
+ * @param {{ scope?: unknown, documentId?: unknown, version?: unknown, authSecret?: unknown, secret?: unknown, ttlSeconds?: unknown, now?: number }} [args]
+ * @returns {{ token: string, expiresAt: string, ttlSeconds: number, version: number }}
+ * @throws {TypeError} when the scope or the document id is missing
+ */
+export function signShareLink({ scope, documentId, version, authSecret, secret, ttlSeconds, now } = {}) {
+  if (!isGuestScope(scope)) throw new TypeError('scope must be one of ' + GUEST_SCOPES.join(', '));
+  if (typeof documentId !== 'string' || documentId.trim().length === 0) {
+    throw new TypeError('documentId is required');
+  }
+  const ttl =
+    Number.isFinite(ttlSeconds) && /** @type {number} */ (ttlSeconds) > 0
+      ? Math.floor(/** @type {number} */ (ttlSeconds))
+      : DEFAULT_TRACK_TTL_SECONDS;
+  const issuedAt = typeof now === 'number' ? now : Math.floor(Date.now() / 1000);
+  const key = deriveTrackSecret(authSecret, { override: secret });
+  const v = Number.isFinite(version) && /** @type {number} */ (version) > 0
+    ? Math.floor(/** @type {number} */ (version))
+    : 0;
+  const token = signToken({ sub: encodeShareSub(scope, documentId.trim(), v) }, key, {
+    ttlSeconds: ttl,
+    now: issuedAt,
+  });
+  return {
+    token,
+    expiresAt: new Date((issuedAt + ttl) * 1000).toISOString(),
+    ttlSeconds: ttl,
+    version: v,
+  };
+}
+
+/**
+ * Verify a guest token **for one expected scope**. Returns `null` for a
+ * malformed / tampered / expired / rotated token, a token of another scope
+ * (an invoice token on `/g/document/…`), and a tracking token. The returned
+ * version is checked against the owning trip by the caller.
+ * @param {unknown} token
+ * @param {{ scope?: unknown, authSecret?: unknown, secret?: unknown, now?: number }} [opts]
+ * @returns {{ scope: string, documentId: string, version: number, iat: number, exp: number } | null}
+ */
+export function verifyShareLink(token, { scope, authSecret, secret, now } = {}) {
+  if (!isGuestScope(scope)) return null;
+  let key;
+  try {
+    key = deriveTrackSecret(authSecret, { override: secret });
+  } catch {
+    return null;
+  }
+  const at = typeof now === 'number' ? now : Math.floor(Date.now() / 1000);
+  const payload = verifyToken(token, key, { now: at });
+  if (!payload || typeof payload.sub !== 'string' || payload.sub.length === 0) return null;
+  if (payload.org !== null || payload.role !== null || payload.name !== null) return null;
+  const decoded = decodeShareSub(payload.sub);
+  if (!decoded) return null;
+  // Wrong-scope rejection: the expected scope is chosen by the ROUTE, never by
+  // the token, so a document token cannot be replayed on the invoice surface.
+  if (decoded.scope !== scope) return null;
+  return {
+    scope: decoded.scope,
+    documentId: decoded.documentId,
+    version: decoded.version,
+    iat: payload.iat,
+    exp: payload.exp,
+  };
+}
+
+/**
+ * Build the guest URL for a scope. Origin-relative without `baseUrl`.
+ * @param {unknown} baseUrl
+ * @param {unknown} scope
+ * @param {unknown} token
+ * @returns {string}
+ */
+export function publicGuestUrl(baseUrl, scope, token) {
+  if (!isGuestScope(scope)) throw new TypeError('scope must be one of ' + GUEST_SCOPES.join(', '));
+  const path = `/g/${scope}/${encodeURIComponent(String(token ?? ''))}`;
+  const base = typeof baseUrl === 'string' ? baseUrl.trim().replace(/\/+$/, '') : '';
+  return base ? base + path : path;
 }
 
 /**

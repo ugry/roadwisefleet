@@ -14,6 +14,7 @@ import { dashboardRoutes } from './routes/dashboard.js';
 import { referenceRoutes } from './routes/reference.js';
 import { documentRoutes } from './routes/documents.js';
 import { trackPageRoutes, trackRoutes } from './routes/track.js';
+import { documentShareRoutes, guestShareRoutes } from './routes/guest-share.js';
 import { appRoutes } from './routes/app.js';
 import { customerAppRoutes } from './routes/customer-app.js';
 import { customerRoutes } from './routes/customer.js';
@@ -89,6 +90,13 @@ export function buildServer(options: { emailSender?: any; otpSchedule?: (task: (
   // Public customer tracking page: root path `/track/:token` (no auth, not
   // under /pilot/), so a shared link reads like a customer-facing URL.
   app.register(trackPageRoutes);
+
+  // Guest document + invoice share views (board task #132, UXF-O1a): their own
+  // prefix `/g/<scope>/<token>` (no auth) plus the authenticated mint/read
+  // endpoints under /api. `/s/` is the solo shell and `/track/` the tracking
+  // link, so this surface never reuses either location.
+  app.register(guestShareRoutes);
+  app.register(documentShareRoutes, { prefix: '/api' });
 
   // Fleet Manager (board task #32, FAv1-F1): the authenticated app shell at
   // `/app/`, plus its SPA fallback. Files come from <repo>/app; the app talks to

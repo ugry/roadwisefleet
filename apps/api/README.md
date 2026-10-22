@@ -230,6 +230,10 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `DELETE /api/trips/:id/track-link` | bearer, `trip:*` | revoke this trip's link: bumps `Trip.trackLinkVersion`, so every token already handed out for this trip `404`s while other trips are untouched; `{ revoked: true, link: null }` |
 | `GET /api/track/:token` | — | public tracking payload — route, status, timeline, last known position, ETA placeholder, POD flag; **no PII**; invalid/expired/rotated/revoked token → `404 invalid_token` |
 | `GET /api/track/:token/stream` | — | public SSE stream of one trip's GPS points for the read-only share link (board task #106); the signed token is the capability, and an invalid/revoked/expired token is a flat `404` |
+| `GET /g/document/<token>` | — | guest download of one POD/eCMR (`Content-Disposition: attachment`), no cookie, noindex + no-store; unknown/expired/revoked/wrong-scope token → `404 invalid_token` (board task #132) |
+| `GET /g/invoice/<token>` | — | guest invoice view (`Content-Disposition: inline`), same token contract and reject paths as `/g/document/…` (board task #132) |
+| `POST /api/documents/:id/share-link` | bearer, `trip:*` | mint a guest document/invoice link (`201 { link: { scope, token, url, expiresAt, ttlSeconds } }`); requires a live shipment link (`409 no_active_link`) and a shareable status (`409 document_not_shareable`); another org's document is `404` (board task #132) |
+| `GET /api/documents/:id/share-link` | bearer, `trip:*` | the document's current guest link, recomputed from the trip's persisted mint window (`{ link }`, or `{ link: null }`) |
 | `GET /track/:token` | — | public tracking HTML page (self-contained, no build step) for the shared link; `x-robots-tag: noindex, nofollow` |
 | `GET /pilot/*` | — | pilot-only web surface from `<repo>/pilot` (same origin, no build step) |
 | `GET /app` | — | `302` to `/app/` (the Fleet Manager mount point) |
@@ -447,10 +451,57 @@ FST_ERR_MAX_PARAM_LENGTH` before the handler runs. Guarded by
 `src/track-router.test.js` (dependency-free, runs in CI) and
 `test/track-router.test.ts` (`pnpm test:router`, real `app.inject()`).
 
-> Deployment note: production nginx currently proxies only `/api/` and `/pilot/`
-> to the API, so `/track/:token` needs a `location /track/` block (with the
-> noindex header) before the link is reachable on roadwisefleet.com. Filed as an
-> infra request; the API side is complete and testable on the loopback.
+> Deployment note: production nginx proxies `/track/` today; `/g/` (below) needs
+> its own `location /g/` block before the guest document views are reachable on
+> roadwisefleet.com. Filed as an infra request; the API side is complete and
+> testable on the loopback.
+
+### Guest document + invoice shares (board task #132, UXF-O1a)
+The provider-independent half of board #75: a POD, eCMR or invoice can be shown
+to a guest (a consignee, a customer's accountant) with **no account, no session
+and no cookie** — through a signed link on its own prefix, `/g/<scope>/<token>`
+(`/s/` is the solo-driver shell, `/track/` the tracking link).
+
+| Route | Auth | What it answers |
+| --- | --- | --- |
+| `GET /g/document/<token>` | none | the stored POD / eCMR bytes, `Content-Disposition: attachment` |
+| `GET /g/invoice/<token>` | none | the stored invoice, `Content-Disposition: inline` |
+| `POST /api/documents/:id/share-link` | bearer, `trip:*` | mint: `201 { link: { scope, token, url, expiresAt, ttlSeconds } }` |
+| `GET /api/documents/:id/share-link` | bearer, `trip:*` | the current link, or `null` |
+
+The token **reuses** `src/track-link.js` — same HMAC-SHA256 key (derived from
+`AUTH_SECRET` / `TRACK_LINK_SECRET`), same 30-day TTL, same determinism. Only
+the `sub` differs: `share:document:<id>~<version>` /
+`share:invoice:<id>~<version>`, where `version` is the **owning trip's**
+`trackLinkVersion`. There is no new table and no new column, and no second
+storage root: bytes come from `env.UPLOAD_DIR` through `resolveWithin` +
+`createReadStream`, the same helper the upload route writes with.
+
+Consequences, all pinned by tests:
+
+- **revocation by shipment:** `DELETE /api/trips/:id/track-link` bumps
+  `trackLinkVersion`, so every document link of that shipment stops verifying;
+  a re-minted shipment link does not revive an old document token.
+- **per-document revocation:** only `UPLOADED` / `VERIFIED` documents are
+  served; `PENDING` and `REJECTED` are a flat 404, and a rejected document
+  cannot be re-minted (`409 document_not_shareable`).
+- **scope isolation:** a tracking token never opens a document and a document
+  token never opens tracking; an invoice token on `/g/document/…` (and the
+  reverse) is a 404 — the expected scope is chosen by the route, never by the
+  token. A token for document A carries A's id inside the MAC, so it cannot
+  fetch B.
+- **no existence leak:** unknown / malformed / expired / rotated / wrong-scope
+  tokens are all `404 { "error": "invalid_token" }`, with `x-robots-tag:
+  noindex, nofollow`, `cache-control: no-store` and no `Set-Cookie`.
+- **mint preconditions:** a live shipment link is required (the guest link
+  lives inside that share window; otherwise `409 no_active_link`), the caller
+  needs `trip:*`, and the document is resolved through `trip.orgId`, so another
+  org's document is a 404.
+
+Logic is in `src/guest-share.js` (pure: scope/type/status rules, headers, read
+model, `mintDocumentLink`) and `src/routes/guest-share.ts` (HTTP). Covered by
+`src/guest-share.test.js` (dependency-free — runs in the no-install CI job) and
+`test/guest-share.test.ts` (`pnpm test:router`: real bytes, real DB, `app.inject()`).
 
 ## Pilot web surface (`/pilot/`)
 The API serves the static pilot pages from the repo-root `pilot/` directory via

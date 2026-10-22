@@ -15,7 +15,7 @@
 #      the markup allows (the /app/ mistake, board #69).
 #
 # This check reads the repo site config and asserts, for every public API-served
-# surface (/pilot/, /app/, /c/, /s/, /track/, /api/, and the exact entry points
+# surface (/pilot/, /app/, /c/, /s/, /track/, /g/, /api/, and the exact entry points
 # /signup and /login): a proxying location to 127.0.0.1:8080, a rate-limit zone,
 # and a header-snippet include. It also asserts the no-slash 301 for /pilot,
 # /app, /c and /s, and — for the no-inline-code surfaces /app/, /c/ and /s/ —
@@ -177,6 +177,7 @@ check_site() {
   check_location "/c/"     "GET /c/"     "roadwisefleet-headers-app.conf"
   check_location "/s/"     "GET /s/"     "roadwisefleet-headers-app.conf"
   check_location "/track/" "GET /track/" ""
+  check_location "/g/"     "GET /g/"     ""
   check_location "/api/"   "GET /api/"   ""
 
   # Board #93: the public entry points the landing page links to. Exact
@@ -266,6 +267,11 @@ server {
     location /track/ {
         limit_req zone=rwf_share burst=20 nodelay;
         include /etc/nginx/snippets/roadwisefleet-headers-pilot.conf;
+        proxy_pass http://127.0.0.1:8080;
+    }
+    location /g/ {
+        limit_req zone=rwf_share burst=20 nodelay;
+        include /etc/nginx/snippets/roadwisefleet-headers-api.conf;
         proxy_pass http://127.0.0.1:8080;
     }
     location /api/ {
