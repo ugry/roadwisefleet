@@ -207,6 +207,27 @@ test('no catalogue value is empty, and the language hook is wired EN-first', () 
   assert.match(APP_JS, /RoadwiseI18nUI|i18nUI\.init/);
 });
 
+test('boot applies the catalogue before restoring the session (QA #49)', () => {
+  // The defect: `/api/auth/me` could win the race, render the dashboard, and the
+  // catalogue apply then re-rendered it — two GET /api/dashboard on one cold
+  // load. Serialising the two removes the second fetch without dropping the
+  // re-render a language change still needs (asserted below).
+  const bootStart = APP_JS.indexOf('function boot() {');
+  assert.ok(bootStart > -1, 'boot() is present');
+  const bootEnd = APP_JS.indexOf('\n  var api = {', bootStart);
+  assert.ok(bootEnd > bootStart, 'boot() is followed by the exported api');
+  const bootBody = APP_JS.slice(bootStart, bootEnd);
+  const initAt = bootBody.indexOf('i18nUI.init(');
+  const readyAt = bootBody.indexOf('Promise.resolve(i18nReady)');
+  const restoreAt = bootBody.indexOf('return restoreSession()');
+  assert.ok(initAt > -1, 'boot initialises the shared i18n UI');
+  assert.ok(readyAt > initAt, 'the first catalogue apply is tracked as a promise');
+  assert.ok(restoreAt > readyAt, 'restoreSession() runs only after that promise settles');
+  assert.match(bootBody, /i18nReady = i18nUI\.init\(/);
+  // The switcher path still re-renders an open panel when the locale changes.
+  assert.match(APP_JS, /if \(outlet && outlet\.innerHTML\) \{/);
+});
+
 // --- static serving ---------------------------------------------------------
 
 test('servable files resolve inside the app root', () => {
