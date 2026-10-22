@@ -3728,10 +3728,12 @@
 
   function boot() {
     var base = APP.APP_BASE + '/locales/';
+    /** Resolves when the first catalogue apply has finished (QA #49). */
+    var i18nReady = null;
     if (i18nUI && typeof i18nUI.init === 'function') {
       var mount = el('langSlot');
       i18n = null;
-      i18nUI.init({
+      i18nReady = i18nUI.init({
         mount: mount,
         base: base,
         navigatorLanguages: typeof navigator !== 'undefined' ? navigator.languages || navigator.language : null,
@@ -3755,31 +3757,38 @@
     }
     bindEvents();
     rememberIntent(currentPath());
-    return restoreSession().then(function (state) {
-      if (state.action === 'login') {
-        // A cold load on the public signup screen must show signup, not login
-        // (board task #86).
-        if (typeof APP.isSignupPath === 'function' && APP.isSignupPath(currentPath())) {
-          setPath(APP.SIGNUP_PATH, true);
-          showSignup(null);
-          return { action: 'signup' };
+    // QA #49: the first catalogue apply must finish before the session is
+    // restored. When `/api/auth/me` won that race the dashboard rendered
+    // un-translated, the apply re-rendered it and `/api/dashboard` was fetched a
+    // second time. A failed catalogue load is already `{}` (English fallback),
+    // so the catch only keeps boot alive if init itself throws.
+    return Promise.resolve(i18nReady).catch(function () { return null; }).then(function () {
+      return restoreSession().then(function (state) {
+        if (state.action === 'login') {
+          // A cold load on the public signup screen must show signup, not login
+          // (board task #86).
+          if (typeof APP.isSignupPath === 'function' && APP.isSignupPath(currentPath())) {
+            setPath(APP.SIGNUP_PATH, true);
+            showSignup(null);
+            return { action: 'signup' };
+          }
+          setPath(APP.LOGIN_PATH, true);
+          showLogin(null);
+          return { action: 'login' };
         }
-        setPath(APP.LOGIN_PATH, true);
-        showLogin(null);
-        return { action: 'login' };
-      }
-      if (state.action === 'expired') {
-        setPath(APP.LOGIN_PATH, true);
-        showLogin('error.sessionExpired');
-        return { action: 'expired' };
-      }
-      if (state.action === 'error') {
-        setPath(APP.LOGIN_PATH, true);
-        showLogin(null);
-        show('loginError', T('error.loadFailed'));
-        return { action: 'error' };
-      }
-      return route();
+        if (state.action === 'expired') {
+          setPath(APP.LOGIN_PATH, true);
+          showLogin('error.sessionExpired');
+          return { action: 'expired' };
+        }
+        if (state.action === 'error') {
+          setPath(APP.LOGIN_PATH, true);
+          showLogin(null);
+          show('loginError', T('error.loadFailed'));
+          return { action: 'error' };
+        }
+        return route();
+      });
     });
   }
 
