@@ -51,7 +51,11 @@
   .brand{font-family:var(--font-display);font-weight:600;font-size:19px;letter-spacing:.02em;text-transform:uppercase;line-height:1}
   .brand .tag{display:block;font-family:var(--font-body);font-size:11px;letter-spacing:.10em;color:var(--accent);font-weight:600}
   .appbar .spacer{flex:1}
-  .appbar a.ghost-link,.appbar button.ghost-link{color:var(--on-dark);font-size:13px;text-decoration:none;opacity:.9;padding:8px 2px;background:none;border:0;font-family:inherit;cursor:pointer}
+  /* Text controls are not <button>s, so they do not inherit the --tap height:
+     give them an explicit 44px target (QA ugry#21). */
+  .appbar a.ghost-link,.appbar button.ghost-link{color:var(--on-dark);font-size:13px;text-decoration:none;opacity:.9;
+    padding:8px 10px;display:inline-flex;align-items:center;min-height:44px;border-radius:8px;
+    background:none;border:0;font-family:inherit;cursor:pointer}
   .appbar .lang-slot label.lang{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.85}
   .appbar select.lang-switcher{font-family:inherit;font-size:13px;padding:6px 7px;border-radius:8px;border:1px solid var(--navy-950);
     min-height:44px;background:var(--on-dark);color:var(--ink)}
@@ -74,7 +78,7 @@
   input,select{width:100%;min-height:var(--tap);padding:10px 12px;border:1px solid var(--border);border-radius:9px;
     font-family:inherit;font-size:16px;background:var(--surface);color:var(--ink)}
   input:focus,select:focus{outline:none;box-shadow:0 0 0 3px oklch(0.80 0.165 82 / .55);border-color:var(--accent)}
-  input[type=file]{padding:9px;font-size:14px}
+  input[type=file]{padding:9px;font-size:16px}
   button{font-family:inherit;font-size:16px;font-weight:600;border:1px solid transparent;border-radius:10px;
     min-height:var(--tap);padding:10px 16px;cursor:pointer;touch-action:manipulation}
   button.primary{background:var(--accent);color:var(--on-accent)}
