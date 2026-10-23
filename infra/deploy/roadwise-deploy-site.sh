@@ -151,7 +151,11 @@ print(str(value).lower() if isinstance(value, bool) else value)
 PY
 }
 
-state_write() { # state_write key=value [key=value ...] (atomic)
+state_write() { # state_write key=value|-key [key=value|-key ...] (atomic)
+  # A bare `-key` argument REMOVES `key` from the file (it is not a value of
+  # ""). record_ready()/record_problem() use it to drop the pending_* keys a
+  # deferred window wrote, so the state file cannot keep reporting "pending"
+  # next to a successful (or failed-and-rolled-back) deploy — board #133 / R46.
   python3 - "$STATE_FILE" "$@" <<'PY'
 import datetime, json, os, sys
 path = sys.argv[1]
@@ -163,9 +167,13 @@ if os.path.exists(path):
     except Exception:
         data = {}
 for pair in sys.argv[2:]:
-    key, _, value = pair.partition("=")
-    if key:
-        data[key] = value
+    key, sep, value = pair.partition("=")
+    if not key:
+        continue
+    if not sep and key.startswith("-"):
+        data.pop(key[1:], None)
+        continue
+    data[key] = value
 data["updated_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 tmp = path + ".tmp"
 with open(tmp, "w") as fh:
@@ -299,14 +307,20 @@ EOF
 
 record_ready() { # record_ready <sha> <previous_sha>
   local sha="$1" prev="$2"
-  state_write "surface=site" "sha=$sha" "short_sha=${sha:0:7}" "previous_sha=$prev" \
+  # `-pending_sha` / `-pending_reason`: a successful deploy must not inherit the
+  # pending_* keys of an earlier deferred window (board #133 / R46).
+  state_write "surface=site" "-pending_sha" "-pending_reason" \
+    "sha=$sha" "short_sha=${sha:0:7}" "previous_sha=$prev" \
     "status=ready" "deployed_at=$(now_utc)" "url=$SITE_URL" "web_root=$WEB_ROOT" \
     "web_sync=$WEB_SYNC_RESULT" "notify=$NOTIFY_RESULT"
 }
 
 record_problem() { # record_problem <status> <live_sha> <failed_sha> <detail>
   local status="$1" live="$2" failed="$3" detail="$4"
-  state_write "surface=site" "status=$status" "sha=$live" "short_sha=${live:0:7}" \
+  # Same rule for a failed / rolled-back / down deploy: the recorded state is
+  # never simultaneously "problem" and "pending" (board #133 / R46).
+  state_write "surface=site" "-pending_sha" "-pending_reason" \
+    "status=$status" "sha=$live" "short_sha=${live:0:7}" \
     "previous_sha=$failed" "failed_sha=$failed" "detail=$detail" "web_root=$WEB_ROOT" \
     "web_sync=$WEB_SYNC_RESULT" \
     "failed_at=$(now_utc)" "url=$SITE_URL" "notify=$NOTIFY_RESULT"
@@ -604,6 +618,19 @@ if value is not None:
     print(value)
 PY
   }
+  has_key() { # has_key <key> — "present"/"absent": key PRESENCE, not emptiness
+    if [ ! -f "$tmp/state/deploy-site-state.json" ]; then echo absent; return 0; fi
+    python3 - "$tmp/state/deploy-site-state.json" "$1" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as fh:
+        data = json.load(fh)
+except Exception:
+    print("absent")
+    sys.exit(0)
+print("present" if sys.argv[2] in data else "absent")
+PY
+  }
   notified() { # notified <pattern> — occurrences in what the notifier was told
     if [ -f "$MAIL" ]; then grep -c -- "$1" "$MAIL" || true; else echo 0; fi
   }
@@ -709,6 +736,9 @@ PY
   run_deploy
   check "a non-CI-green commit is deferred (exit 0)" "$RC" "0"
   check "the state records status=pending" "$(state status)" "pending"
+  check "a deferral still records pending_reason (board #133)" "$(state pending_reason)" "ci-not-green"
+  check "a deferral still records the deferred commit as pending_sha (board #133)" \
+    "$(state pending_sha)" "$TARGET"
   check "the checkout did not move" "$(site_sha)" "$PREV"
   check "no notification is sent for a deferral" "$(notified '^ready ')" "0"
   check "no alert is sent for a deferral" "$(notified '^alert ')" "0"
@@ -743,6 +773,42 @@ PY
   check "the unit pins the same surface URL as the script default (board #92)" "$unit_value" "$script_default"
   check "the unit does not pin the retired /pilot/ surface (board #92)" \
     "$(printf '%s\n' "$unit_value" | grep -c '/pilot/' || true)" "0"
+
+  # --- 8. board #133 / R46: a later outcome clears the stale pending_* keys --
+  # state_write() merges into the existing JSON, so before this fix a deferred
+  # window's pending_reason/pending_sha survived the NEXT successful deploy: the
+  # live file read status=ready + sha=<new> *and* pending_reason=ci-not-green +
+  # pending_sha=<previous>. Drive a real deferred window, then the same commit
+  # CI-green, and assert the keys are GONE rather than empty.
+  reset_fixture; HEALTH_FAIL_CALLS=0; PNPM_FAIL=""; CI_FAIL=1
+  run_deploy                                   # 1) defer: pending_* are written
+  check "a deferred window still writes pending_reason (R46 setup)" \
+    "$(state pending_reason)" "ci-not-green"
+  check "a deferred window still writes pending_sha (R46 setup)" "$(state pending_sha)" "$TARGET"
+  CI_FAIL=0
+  run_deploy                                   # 2) the same commit is now CI-green
+  check "the deploy after a deferred window succeeds (exit 0)" "$RC" "0"
+  check "the successful deploy records status=ready" "$(state status)" "ready"
+  check "the successful deploy records the applied sha" "$(state sha)" "$TARGET"
+  check "no stale pending_sha value survives a successful deploy (R46)" "$(state pending_sha)" ""
+  check "no stale pending_reason value survives a successful deploy (R46)" "$(state pending_reason)" ""
+  check "pending_sha is ABSENT from the state file, not empty (R46)" "$(has_key pending_sha)" "absent"
+  check "pending_reason is ABSENT from the state file, not empty (R46)" \
+    "$(has_key pending_reason)" "absent"
+
+  # 3) the same rule must hold for record_problem(): a failed deploy after a
+  #    deferral must not keep looking "pending" (a stale reason would disguise
+  #    the rollback as a deferral).
+  reset_fixture; HEALTH_FAIL_CALLS=0; PNPM_FAIL=""; CI_FAIL=1
+  run_deploy
+  check "the problem-path fixture starts from a deferred state (R46)" \
+    "$(state pending_reason)" "ci-not-green"
+  CI_FAIL=0; PNPM_FAIL="$tmp/pnpm-fail-133"; : > "$PNPM_FAIL"
+  run_deploy
+  check "a failed deploy after a deferral records status=rolled_back" "$(state status)" "rolled_back"
+  check "no stale pending_sha survives a failed deploy (R46)" "$(has_key pending_sha)" "absent"
+  check "no stale pending_reason survives a failed deploy (R46)" "$(has_key pending_reason)" "absent"
+  PNPM_FAIL=""
 
   rm -rf "$tmp"
   printf 'self-test: %d passed, %d failed\n' "$tests_pass" "$tests_fail"
