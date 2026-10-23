@@ -136,3 +136,47 @@ test('the driver sign-out is a button, not a link that only pretends to be one',
   assert.match(DRIVER, /<button id="logout"[^>]*type="button"/);
   assert.doesNotMatch(DRIVER, /<a[^>]*id="logout"/);
 });
+
+/**
+ * Resolve one declaration for a single selector in a stylesheet, honouring
+ * `var(--x)` custom properties and source order (the last matching rule wins).
+ * Values are returned as numbers (px) so the assertions can compare them.
+ */
+function declared(css, selector, property) {
+  const vars = new Map();
+  // Comments can sit in the selector prelude; strip them so the exact-match
+  // selector list is not polluted by prose (a harness bug, not a product one).
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const [, name, value] of source.matchAll(/--([\w-]+)\s*:\s*([^;}]+)/g)) vars.set(name, value.trim());
+  let value = null;
+  for (const [, prelude, body] of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!prelude.split(',').some((s) => s.trim() === selector)) continue;
+    const decl = body.match(new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+)`));
+    if (!decl) continue;
+    let raw = decl[1].trim();
+    const ref = raw.match(/^var\(--([\w-]+)\)$/);
+    if (ref) raw = vars.get(ref[1]) ?? '';
+    const num = Number.parseFloat(raw);
+    if (Number.isFinite(num)) value = num;
+  }
+  return value;
+}
+
+test('driver text controls keep a 44px tap target and 16px inputs (QA ugry#21)', () => {
+  // Buttons already inherit `--tap` (48px); the text-only appbar controls
+  // (`<a class="ghost-link">Home</a>`) do NOT inherit it, so they need an
+  // explicit rule — 13px text + 2x8px padding is only ~35px tall.
+  for (const selector of ['.appbar a.ghost-link', '.appbar button.ghost-link', 'button', 'button.small']) {
+    const min = declared(DRIVER, selector, 'min-height');
+    assert.ok(min >= 44, `${selector}: min-height ${min} is below the 44px tap target`);
+  }
+  // Non-vacuity: the resolver really can return nothing for a selector with no
+  // min-height, so the assertions above are not passing on a lucky default.
+  assert.equal(declared('<style>body{margin:0}</style>', '.appbar a.ghost-link', 'min-height'), null);
+  // iOS Safari zooms a focused field below 16px; the file input was the last
+  // 14px control on the page.
+  for (const selector of ['input', 'select', 'input[type=file]']) {
+    const size = declared(DRIVER, selector, 'font-size');
+    assert.ok(size >= 16, `${selector}: font-size ${size} would make iOS zoom the viewport`);
+  }
+});
