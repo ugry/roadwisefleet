@@ -3,6 +3,7 @@ package com.elilaltd.roadwisefleet.driver.ui.trips
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -72,6 +73,18 @@ class StartTripUiGateTest {
         }
     }
 
+    /**
+     * Board #134 — the trips list is a Room flow with `initial = emptyList()`, so
+     * the seeded card is composed in a later frame than the first composition.
+     * [androidx.compose.ui.test.junit4.ComposeTestRule.waitForIdle] only drains the
+     * main looper and returns before that emission, so wait for the card itself.
+     */
+    private fun waitForText(text: String, timeoutMs: Long = WAIT_TIMEOUT_MS) {
+        composeRule.waitUntil(timeoutMs) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
     @Test
     // Human label: an ASSIGNED trip shows Start trip and holds it until location is granted.
     // Underscored: D8 rejects space-containing names for the minSdk 24 DEX level.
@@ -79,7 +92,8 @@ class StartTripUiGateTest {
         runBlocking { container.database.tripDao().upsertAll(listOf(tripEntity("trip-assigned", "ASSIGNED"))) }
         render()
 
-        composeRule.waitForIdle()
+        // Board #134: wait for the seeded card, not for the looper to drain.
+        waitForText(TRIP_ROUTE_LABEL)
         val label = container.localeController.translator().t("driver.action.EN_ROUTE")
         composeRule.onNodeWithText(label).assertIsDisplayed()
 
@@ -98,8 +112,18 @@ class StartTripUiGateTest {
         runBlocking { container.database.tripDao().upsertAll(listOf(tripEntity("trip-delivered", "DELIVERED"))) }
         render()
 
-        composeRule.waitForIdle()
+        // Board #134: wait for the card so the absence check is not made against
+        // the flow's empty initial value.
+        waitForText(TRIP_ROUTE_LABEL)
         val label = container.localeController.translator().t("driver.action.EN_ROUTE")
         composeRule.onNodeWithText(label).assertDoesNotExist()
+    }
+
+    private companion object {
+        /** `Trip.routeLabel` of the seeded fixture (`origin → destination`). */
+        const val TRIP_ROUTE_LABEL = "QA origin → QA destination"
+
+        /** Generous but finite: the AVD is headless and slow to draw a frame. */
+        const val WAIT_TIMEOUT_MS = 5_000L
     }
 }

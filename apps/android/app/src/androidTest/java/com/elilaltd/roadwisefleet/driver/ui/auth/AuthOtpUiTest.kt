@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.elilaltd.roadwisefleet.driver.di.AppContainer
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -103,6 +105,23 @@ class AuthOtpUiTest {
         composeRule.onAllNodes(hasSetTextAction())[0].performTextInput(address)
     }
 
+    /**
+     * Board #134 — [waitForIdle] only drains the main looper; it does not wait for
+     * a coroutine result that posts a node in a later frame. Wait for the node
+     * itself instead of asserting straight after draining.
+     */
+    private fun waitForText(text: String, timeoutMs: Long = WAIT_TIMEOUT_MS) {
+        composeRule.waitUntil(timeoutMs) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun waitForTextGone(text: String, timeoutMs: Long = WAIT_TIMEOUT_MS) {
+        composeRule.waitUntil(timeoutMs) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
     @Test
     // Human label: the default build does not compose the WhatsApp button.
     fun the_whatsapp_button_is_absent_at_the_composable_default() {
@@ -138,15 +157,16 @@ class AuthOtpUiTest {
     @Test
     // Human label: the button requests a code for the address the driver typed.
     fun the_email_code_button_requests_a_code_for_the_typed_address() {
-        var requested: String? = null
-        renderLogin(onRequestCode = { address -> requested = address; null })
+        val requested = AtomicReference<String?>(null)
+        renderLogin(onRequestCode = { address -> requested.set(address); null })
 
         composeRule.waitForIdle()
         typeEmail("driver@example.com")
         composeRule.onNodeWithText(translator.t("auth.otp.useEmailCode")).performClick()
-        composeRule.waitForIdle()
+        // Board #134: the request runs in a coroutine — wait for its result.
+        composeRule.waitUntil(WAIT_TIMEOUT_MS) { requested.get() != null }
 
-        assertEquals("driver@example.com", requested)
+        assertEquals("driver@example.com", requested.get())
     }
 
     @Test
@@ -176,7 +196,11 @@ class AuthOtpUiTest {
 
         composeRule.onAllNodes(hasSetTextAction())[0].performTextInput("123456")
         composeRule.onNodeWithText(translator.t("auth.otp.submit")).performClick()
-        composeRule.waitForIdle()
+        // Board #134: submit() posts errorKey from a coroutine, so the error text
+        // lands after the looper drains. Wait for it (and for the label it puts
+        // back) before asserting.
+        waitForText(translator.t("auth.otp.error.code"))
+        waitForText(translator.t("auth.otp.submit"))
 
         composeRule.onNodeWithText(translator.t("auth.otp.error.code")).assertIsDisplayed()
         composeRule.onNodeWithText(translator.t("auth.otp.submit")).assertIsDisplayed()
@@ -217,13 +241,21 @@ class AuthOtpUiTest {
 
         composeRule.onAllNodes(hasSetTextAction())[0].performTextInput("123456")
         composeRule.onNodeWithText(translator.t("auth.otp.submit")).performClick()
-        composeRule.waitForIdle()
+        // Board #134: `loading` is set inside the submit coroutine, so wait for the
+        // label to be swapped out rather than draining the looper once.
+        waitForTextGone(translator.t("auth.otp.submit"))
 
         // The submit label is replaced by the progress indicator while awaiting.
         composeRule.onNodeWithText(translator.t("auth.otp.submit")).assertDoesNotExist()
 
         pending.complete("auth.otp.error.code")
-        composeRule.waitForIdle()
+        // Board #134: the await resumes in a coroutine — wait for the error node.
+        waitForText(translator.t("auth.otp.error.code"))
         composeRule.onNodeWithText(translator.t("auth.otp.error.code")).assertIsDisplayed()
+    }
+
+    private companion object {
+        /** Generous but finite: the AVD is headless and slow to draw a frame. */
+        const val WAIT_TIMEOUT_MS = 5_000L
     }
 }
