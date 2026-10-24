@@ -139,6 +139,68 @@ test('orderRow shapes the created order for the app', () => {
   assert.equal(fleet.orderRow(null), null);
 });
 
+/* ----------------------------------------------------------- list paging --- */
+
+test('parseCustomerListQuery defaults to the historical page size and reads the cursor', () => {
+  assert.deepEqual(fleet.parseCustomerListQuery({}), { ok: true, value: { limit: 200, cursor: null } });
+  assert.deepEqual(fleet.parseCustomerListQuery({ limit: '50', cursor: ' cus_9 ' }), {
+    ok: true,
+    value: { limit: 50, cursor: 'cus_9' },
+  });
+  assert.equal(fleet.parseCustomerListQuery({ limit: '1' }).value.limit, 1, 'the smallest page is allowed');
+  assert.equal(fleet.parseCustomerListQuery({ limit: '200' }).value.limit, 200, 'the maximum is allowed');
+  assert.equal(fleet.parseCustomerListQuery({ cursor: '' }).value.cursor, null, 'an empty cursor is the first page');
+});
+
+test('parseCustomerListQuery refuses a bad page size or cursor instead of guessing', () => {
+  const bad = [
+    [{ limit: '0' }, 'limit'],
+    [{ limit: '201' }, 'limit'],
+    [{ limit: 'abc' }, 'limit'],
+    [{ limit: '1.5' }, 'limit'],
+    [{ limit: '-5' }, 'limit'],
+    [{ cursor: 'x'.repeat(65) }, 'cursor'],
+  ];
+  for (const [query, field] of bad) {
+    const res = fleet.parseCustomerListQuery(query);
+    assert.equal(res.ok, false, JSON.stringify(query));
+    assert.equal(res.field, field, JSON.stringify(query));
+    assert.equal(res.error, field === 'cursor' ? 'invalid_cursor' : 'invalid_limit');
+    assert.ok(res.messageKey.startsWith('customers.error.'), 'the refusal maps to a catalogue key');
+  }
+});
+
+test('customerListWhere is a keyset after (name, id), never an offset', () => {
+  assert.deepEqual(fleet.customerListWhere('org1', null), { orgId: 'org1' });
+  const where = fleet.customerListWhere('org1', { id: 'c2', name: 'ACME' });
+  assert.deepEqual(where, {
+    orgId: 'org1',
+    OR: [{ name: { gt: 'ACME' } }, { AND: [{ name: 'ACME' }, { id: { gt: 'c2' } }] }],
+  });
+  // Equal names are the trap: a bare `name > lastName` would drop every tie.
+  assert.equal(JSON.stringify(where).includes('"skip"'), false);
+  assert.equal(JSON.stringify(where).includes('"take"'), false);
+});
+
+test('customerListPage reports a next cursor only while rows remain', () => {
+  const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  assert.deepEqual(fleet.customerListPage(rows, 2), { rows: [{ id: 'a' }, { id: 'b' }], nextCursor: 'b' });
+  assert.deepEqual(fleet.customerListPage(rows, 3), { rows, nextCursor: null });
+  assert.deepEqual(fleet.customerListPage(rows, 5), { rows, nextCursor: null });
+  assert.deepEqual(fleet.customerListPage([], 2), { rows: [], nextCursor: null });
+});
+
+test('201 rows at the default size: the last row is on a reachable second page', () => {
+  const many = Array.from({ length: 201 }, (_, i) => ({ id: 'c' + String(i).padStart(3, '0') }));
+  // The route fetches `limit + 1` rows; here is that one-page-at-a-time view.
+  const first = fleet.customerListPage(many.slice(0, 201), 200);
+  assert.equal(first.rows.length, 200);
+  assert.equal(first.nextCursor, 'c199', 'the cursor is the last row RETURNED, so page 2 starts exactly after it');
+  const second = fleet.customerListPage(many.slice(200), 200);
+  assert.deepEqual(second.rows.map((r) => r.id), ['c200'], 'the 201st customer is reachable, not silently cut');
+  assert.equal(second.nextCursor, null, 'the last page says so');
+});
+
 /* -------------------------------------------------- source guards --- */
 
 test('the lane is registered, org-scoped and gated by the dispatch capability', () => {
@@ -152,4 +214,18 @@ test('the lane is registered, org-scoped and gated by the dispatch capability', 
   assert.match(app, /fleetCustomerRoutes/, 'the routes are registered');
   // The old 404s are the defect: no route may be missing again.
   assert.doesNotMatch(route, /orgId: body/, 'tenancy never comes from the body');
+});
+
+test('the customer list is paged, so the 200-row cap can never be silent again', () => {
+  const route = readFileSync(resolve(repoRoot, 'apps/api/src/routes/fleet-customers.ts'), 'utf8');
+  assert.match(route, /parseCustomerListQuery\(/, 'the query is validated, not read ad hoc');
+  assert.match(route, /customerListWhere\(orgId, cursorCustomer\)/, 'the page is a keyset, scoped to the caller org');
+  assert.match(route, /customerListPage\(rows, limit\)/, 'the page decides nextCursor in one place');
+  assert.match(route, /nextCursor: page\.nextCursor/, 'the response tells the client there is more');
+  assert.match(route, /total,/, 'the response carries the real list size');
+  assert.match(route, /take: limit \+ 1/, 'one extra row decides hasMore without a second query');
+  assert.doesNotMatch(route, /take: 200\b/, 'the hard-coded cap is the defect (board task #126)');
+  // A cursor from another fleet is a flat 400: never an existence leak.
+  assert.match(route, /where: \{ id: cursor, orgId \}/);
+  assert.match(route, /'invalid_cursor'/);
 });

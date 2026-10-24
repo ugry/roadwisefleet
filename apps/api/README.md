@@ -218,7 +218,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /api/drivers` | bearer, `trip:create` | active org drivers (`id`, `name`, `phone`) |
 | `GET /api/trucks` | bearer, `trip:create` | org trucks (`id`, `plate`, `dimensions`, `euroClass`) |
 | `GET /api/customers` | bearer, `trip:create` | org customers (`id`, `name`) |
-| `GET /api/fleet/customers` | bearer, `trip:create` | the `/app/customers` list: the org's customers with `email`, `whatsappId`, `lang`, `orderCount`, `portalAccounts` and `createdAt`, plus the `equipment` vocabulary the order form offers (board task #120) |
+| `GET /api/fleet/customers` | bearer, `trip:create` | the `/app/customers` list: the org's customers with `email`, `whatsappId`, `lang`, `orderCount`, `portalAccounts` and `createdAt`, plus the `equipment` vocabulary the order form offers (board task #120). Paged: `?cursor=&limit=` (1–200, default 200) → `{ customers, equipment, nextCursor, total, limit }`; `400 invalid_limit` / `400 invalid_cursor` instead of a silently truncated page (board task #126) |
 | `POST /api/fleet/customers` | bearer, `trip:create` | quick-add a customer in the caller's org (`name` required; optional `email`, `whatsappId`/`phone`, `lang` en/de/pl/tr) → `201 { customer }`; validation is a `400` naming the field, never a `500` (board task #120) |
 | `POST /api/fleet/customers/:id/invite` | bearer, `user:manage` | invite an existing fleet customer to the shipper portal: `{ email?, password }` (the email defaults to the customer row; the fleet manager sets an 8–200 char temporary password) → `201 { member }`; creates the customer-role `User` + `CustomerAccount` pair, never returns the password, `409 email_taken` on a duplicate address and a flat `404` for a foreign customer (board task #120) |
 | `POST /api/orders` | bearer, `trip:create` | create the fleet's own manual order for one of its customers: `{ customerId, origin, destination, cargo?, plannedAt?, equipment?, notes? }` → `201 { order }` with an `OrderBooking` (`supplyChoice: "fleet"`), status `BOOKED`; with `repeatOf` it copies that order into a **new** order (optional field overrides). A customer/order from another org is a flat `404` (board task #120) |
@@ -709,11 +709,21 @@ Behaviour:
   out of band — **no mailer is invented and no provider is involved**, so the
   `#75`/`#79` owner gates stay untouched. The customer row's `portalAccounts`
   count is what makes the screen hide the invite once access exists.
+  The list is **paged** (board task #126): `?cursor=<lastId>&limit=<1..200>` with
+  `nextCursor` (null on the last page) and `total` in the response. The page is a
+  keyset over `name asc, id asc` — `name` is not unique, so the id is the
+  tiebreak and equal names are neither skipped nor duplicated. A bad `limit`
+  (non-numeric, 0, >200) is a `400 invalid_limit`, an unknown or other-fleet
+  cursor is a flat `400 invalid_cursor` (never an existence leak, never another
+  tenant's page). `/app/customers` shows "showing N of M" and a **load more**
+  control, so the 200-row cap can never be silent again.
 
 Tests: `src/fleet-customers.test.js` + `src/customers-view.test.js` run in the
 no-install CI job; `test/fleet-customer-lane.test.ts` adds the HTTP +
 database checks (201/4xx, auth, role, **tenant isolation**, repeat, the portal
 invite + a real login with the temporary password) under `pnpm test:router`;
+`test/fleet-customer-pagination.test.ts` seeds a 201-customer fleet and proves
+the second page is reachable and that paging terminates without duplicates;
 `scratch/verify-customers-view.js` drives the rendered screen.
 
 Tests: `src/app-core.test.js` + `src/app-shell.test.js` + `src/menus.test.js` +
