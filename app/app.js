@@ -1822,7 +1822,7 @@
    * reads the DOM and the network. Tenant scoping is the server's job — the
    * client never sends an org.
    */
-  var customersState = { rows: [], equipment: [], orders: [], token: 0, canInvite: false };
+  var customersState = { rows: [], equipment: [], orders: [], token: 0, canInvite: false, nextCursor: null, total: null, loadingMore: false };
 
   var CUSTOMER_LANGS = [
     { value: 'en', label: 'English' },
@@ -1854,6 +1854,9 @@
     customersState.rows = [];
     customersState.equipment = [];
     customersState.orders = [];
+    customersState.nextCursor = null;
+    customersState.total = null;
+    customersState.loadingMore = false;
     // Creating a login is `user:manage` (owner), exactly like the fleet-driver
     // invite; granting portal access is never offered to a role the server
     // would refuse anyway.
@@ -1910,6 +1913,10 @@
             '</tr></thead>' +
             '<tbody id="customersTableBody"></tbody>' +
           '</table>' +
+        '</div>' +
+        '<div class="form-actions" id="customersMore" hidden>' +
+          '<span class="helper" id="customersMoreText"></span>' +
+          '<button type="button" class="ghost" id="customersMoreBtn" hidden>' + escHtml(T('customers.loadMore')) + '</button>' +
         '</div>' +
       '</section>' +
 
@@ -2042,6 +2049,10 @@
         pickFleetCustomer(outlet, button.getAttribute('data-order-customer'));
       });
     }
+    var moreBtn = custNode(outlet, 'customersMoreBtn');
+    if (moreBtn) {
+      moreBtn.addEventListener('click', function () { loadMoreCustomers(outlet); });
+    }
     var ordersBody = custNode(outlet, 'ordersTableBody');
     if (ordersBody) {
       ordersBody.addEventListener('click', function (ev) {
@@ -2067,8 +2078,15 @@
         custMessage(outlet, 'ordersMessage', 'customers.loadFailed');
         return;
       }
-      customersState.rows = (list.data && list.data.customers) || [];
-      customersState.equipment = (list.data && list.data.equipment) || [];
+      // Paged list (board task #126): the first page plus the cursor for the
+      // rest and the org's real total, so the cap is visible, never silent.
+      var page = CUST.pageState
+        ? CUST.pageState(list.data, null)
+        : { rows: (list.data && list.data.customers) || [], equipment: [], nextCursor: null, total: null, shown: 0 };
+      customersState.rows = page.rows;
+      customersState.equipment = page.equipment.length ? page.equipment : ((list.data && list.data.equipment) || []);
+      customersState.nextCursor = page.nextCursor;
+      customersState.total = page.total;
       var orders = results[1];
       if (orders.status === 401) { handleExpired(); return; }
       customersState.orders = orders.ok && orders.data && orders.data.orders ? orders.data.orders : [];
@@ -2077,6 +2095,40 @@
       fillInviteOptions(outlet);
       renderCustomerRows(outlet);
       renderFleetOrders(outlet);
+    });
+  }
+
+  /**
+   * Fetch the next page of customers (board task #126). The list used to stop
+   * at 200 rows with no sign that more existed; `nextCursor` is the server's
+   * promise that there is another page, and this appends it.
+   */
+  function loadMoreCustomers(outlet) {
+    if (!customersState.nextCursor || customersState.loadingMore) return;
+    var loadToken = customersState.token;
+    var cursor = customersState.nextCursor;
+    customersState.loadingMore = true;
+    renderCustomersMore(outlet);
+    var path = CUST.nextPagePath ? CUST.nextPagePath(cursor) : '/api/fleet/customers?cursor=' + encodeURIComponent(cursor);
+    request(path, { token: session.token }).then(function (res) {
+      if (loadToken !== customersState.token) return;
+      customersState.loadingMore = false;
+      if (res.status === 401) { handleExpired(); return; }
+      if (!res.ok) {
+        renderCustomersMore(outlet);
+        custMessage(outlet, 'customerMessage', 'customers.loadMoreFailed');
+        return;
+      }
+      var page = CUST.pageState
+        ? CUST.pageState(res.data, customersState)
+        : { rows: (res.data && res.data.customers) || [], equipment: [], nextCursor: null, total: null, shown: 0 };
+      customersState.rows = page.rows;
+      if (page.equipment.length) customersState.equipment = page.equipment;
+      customersState.nextCursor = page.nextCursor;
+      customersState.total = page.total;
+      fillCustomerOptions(outlet);
+      fillInviteOptions(outlet);
+      renderCustomerRows(outlet);
     });
   }
 
@@ -2129,6 +2181,7 @@
       body.innerHTML = '';
       if (table) table.hidden = true;
       if (empty) empty.hidden = false;
+      renderCustomersMore(outlet);
       return;
     }
     if (table) table.hidden = false;
@@ -2160,6 +2213,33 @@
         '</tr>';
     }
     body.innerHTML = html;
+    renderCustomersMore(outlet);
+  }
+
+  /**
+   * The "showing N of M" line and the load-more control. Both are rendered from
+   * the server's `total`/`nextCursor`, never from a client-side guess, so the
+   * screen always states how much of the list it holds.
+   */
+  function renderCustomersMore(outlet) {
+    var more = custNode(outlet, 'customersMore');
+    var text = custNode(outlet, 'customersMoreText');
+    var btn = custNode(outlet, 'customersMoreBtn');
+    if (!more) return;
+    var hasRows = customersState.rows.length > 0;
+    more.hidden = !hasRows;
+    if (!hasRows) return;
+    if (text) {
+      var summary = CUST.countSummary
+        ? CUST.countSummary({ shown: customersState.rows.length, total: customersState.total })
+        : { key: 'customers.showingCountNoTotal', params: { shown: String(customersState.rows.length), total: '' } };
+      text.textContent = T(summary.key, summary.params);
+    }
+    if (btn) {
+      btn.hidden = !customersState.nextCursor;
+      btn.disabled = customersState.loadingMore;
+      btn.textContent = customersState.loadingMore ? T('customers.loadingMore') : T('customers.loadMore');
+    }
   }
 
   function renderFleetOrders(outlet) {

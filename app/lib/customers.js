@@ -110,6 +110,69 @@
   }
 
   /**
+   * The list URL for one page. `cursor` is the previous page's `nextCursor`
+   * (the last row it returned), so the next page starts exactly after it.
+   * Board task #126: the list is paged, never silently capped at 200 rows.
+   * @returns {string}
+   */
+  function nextPagePath(cursor) {
+    var value = str(cursor);
+    return '/api/fleet/customers' + (value ? '?cursor=' + encodeURIComponent(value) : '');
+  }
+
+  /**
+   * Fold a list response into the screen state. Pages are APPENDED, never
+   * replaced, and a row is never rendered twice: a customer added between two
+   * fetches shifts the keyset window, so the server can legitimately return an
+   * id the screen already has.
+   * @param {any} data the `GET /api/fleet/customers` body
+   * @param {{ rows?: any[] }|null} previous the state before this page
+   * @returns {{ rows: any[], equipment: string[], nextCursor: string|null, total: number|null, shown: number, hasMore: boolean }}
+   */
+  function pageState(data, previous) {
+    var prev = previous && Array.isArray(previous.rows) ? previous.rows : [];
+    var incoming = data && Array.isArray(data.customers) ? data.customers : [];
+    var seen = Object.create(null);
+    var rows = [];
+    var i;
+    for (i = 0; i < prev.length; i++) {
+      var row = prev[i];
+      if (!row || !row.id || seen[row.id]) continue;
+      seen[row.id] = true;
+      rows.push(row);
+    }
+    for (i = 0; i < incoming.length; i++) {
+      var next = incoming[i];
+      if (!next || !next.id || seen[next.id]) continue;
+      seen[next.id] = true;
+      rows.push(next);
+    }
+    var total = data && typeof data.total === 'number' && isFinite(data.total) ? data.total : null;
+    var nextCursor = data && typeof data.nextCursor === 'string' && data.nextCursor ? data.nextCursor : null;
+    return {
+      rows: rows,
+      equipment: data && Array.isArray(data.equipment) ? data.equipment.slice() : [],
+      nextCursor: nextCursor,
+      total: total,
+      shown: rows.length,
+      hasMore: nextCursor !== null
+    };
+  }
+
+  /**
+   * The "showing N of M" line, or '' when the total is unknown. This is the
+   * non-silent half of the fix: the screen always says how much of the list it
+   * is showing, whatever the page size.
+   * @returns {{ key: string, params: { shown: string, total: string } }}
+   */
+  function countSummary(state) {
+    var shown = state && typeof state.shown === 'number' ? state.shown : 0;
+    var total = state && typeof state.total === 'number' ? state.total : null;
+    if (total === null) return { key: 'customers.showingCountNoTotal', params: { shown: String(shown), total: '' } };
+    return { key: 'customers.showingCount', params: { shown: String(shown), total: String(total) } };
+  }
+
+  /**
    * Map an API error body to a catalogue key, mirroring `reasonFor` in the
    * shell: a `messageKey` first, then the server's `error`, then a generic key.
    */
@@ -118,6 +181,8 @@
     if (data && data.error === 'customer_not_found') return 'customers.error.customerNotFound';
     if (data && data.error === 'order_not_found') return 'customers.error.orderNotFound';
     if (data && data.error === 'email_taken') return 'customers.error.emailTaken';
+    if (data && data.error === 'invalid_cursor') return 'customers.error.cursorInvalid';
+    if (data && data.error === 'invalid_limit') return 'customers.error.limitInvalid';
     if (data && data.error === 'forbidden') return 'error.forbidden';
     if (data && data.error === 'no_org') return 'error.noOrg';
     return 'customers.error.requestFailed';
@@ -130,6 +195,9 @@
     hasPortalAccess: hasPortalAccess,
     customerLabel: customerLabel,
     orderSummary: orderSummary,
+    nextPagePath: nextPagePath,
+    pageState: pageState,
+    countSummary: countSummary,
     errorKey: errorKey
   };
 });

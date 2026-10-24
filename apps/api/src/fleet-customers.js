@@ -115,6 +115,97 @@ export function customerRow(customer) {
 }
 
 /**
+ * The list endpoint's page size. The default stays the historical cap (200) so
+ * an existing client keeps exactly the rows it used to see; the screen asks for
+ * the same page and follows `nextCursor` for the rest (board task #126).
+ */
+export const CUSTOMER_PAGE_DEFAULT_LIMIT = 200;
+export const CUSTOMER_PAGE_MAX_LIMIT = 200;
+
+/** A page-argument refusal keeps its own error code, never a generic 500. */
+function pageFail(field, messageKey, detail) {
+  return {
+    ok: false,
+    error: field === 'cursor' ? 'invalid_cursor' : 'invalid_limit',
+    field,
+    messageKey,
+    detail,
+  };
+}
+
+/**
+ * Read `?cursor=` / `?limit=` off the query string. An explicit bad value is a
+ * 400, never a silently different page: a truncated list the caller cannot
+ * detect is the defect this endpoint shipped with.
+ * @param {unknown} query
+ * @returns {{ ok: true, value: { limit: number, cursor: string|null } } | { ok: false, error: string, field: string, messageKey: string, detail: string }}
+ */
+export function parseCustomerListQuery(query) {
+  const q = isObject(query) ? /** @type {Record<string, any>} */ (query) : {};
+
+  let limit = CUSTOMER_PAGE_DEFAULT_LIMIT;
+  const rawLimit = q.limit;
+  if (rawLimit !== undefined && rawLimit !== null && String(rawLimit).trim() !== '') {
+    const value = String(rawLimit).trim();
+    if (!/^\d+$/.test(value)) {
+      return pageFail('limit', 'customers.error.limitInvalid', 'limit must be a positive integer');
+    }
+    limit = Number(value);
+    if (limit < 1 || limit > CUSTOMER_PAGE_MAX_LIMIT) {
+      return pageFail(
+        'limit',
+        'customers.error.limitInvalid',
+        'limit must be between 1 and ' + CUSTOMER_PAGE_MAX_LIMIT,
+      );
+    }
+  }
+
+  const rawCursor = q.cursor;
+  const cursor = typeof rawCursor === 'string' ? rawCursor.trim() : '';
+  if (cursor.length > 64) {
+    return pageFail('cursor', 'customers.error.cursorInvalid', 'cursor must be a customer id');
+  }
+  return { ok: true, value: { limit, cursor: cursor || null } };
+}
+
+/**
+ * The keyset condition for "rows after this customer". The list is ordered by
+ * `name asc, id asc`: `name` is not unique, so the id is the tiebreak and the
+ * condition is `name > lastName OR (name = lastName AND id > lastId)`. A
+ * `skip`-style offset (or a unique cursor under a non-unique sort) would skip
+ * or duplicate the rows that share a name.
+ * @param {string} orgId the caller's org, never a query parameter
+ * @param {{ id: string, name: string }|null} cursorCustomer the last row of the previous page
+ * @returns {Record<string, unknown>}
+ */
+export function customerListWhere(orgId, cursorCustomer) {
+  if (!cursorCustomer) return { orgId };
+  const name = String(cursorCustomer.name || '');
+  const id = String(cursorCustomer.id || '');
+  return {
+    orgId,
+    OR: [{ name: { gt: name } }, { AND: [{ name }, { id: { gt: id } }] }],
+  };
+}
+
+/**
+ * Split `limit + 1` fetched rows into the page and the cursor for the next one.
+ * Fetching one extra row is how `nextCursor` is decided without a second query;
+ * `nextCursor` is the last row actually returned, so the next page starts
+ * exactly after it.
+ * @param {any[]} rows rows fetched with `take: limit + 1`
+ * @param {number} limit the requested page size
+ * @returns {{ rows: any[], nextCursor: string|null }}
+ */
+export function customerListPage(rows, limit) {
+  const list = Array.isArray(rows) ? rows : [];
+  const size = Number.isInteger(limit) && limit > 0 ? limit : CUSTOMER_PAGE_DEFAULT_LIMIT;
+  const page = list.slice(0, size);
+  const more = list.length > size && page.length > 0;
+  return { rows: page, nextCursor: more ? String(page[page.length - 1].id || '') || null : null };
+}
+
+/**
  * Validate a manual order. `customer` is the row the route already resolved
  * inside the caller's org (null means "not found" — the route answers 404
  * before calling this).

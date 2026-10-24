@@ -11,10 +11,13 @@ import {
   EQUIPMENT_OPTIONS,
   FLEET_CUSTOMER_PERMISSION,
   buildFleetOrderRows,
+  customerListPage,
+  customerListWhere,
   customerRow,
   normalizeFleetCustomer,
   normalizeFleetOrder,
   orderRow,
+  parseCustomerListQuery,
   repeatOrderBody,
 } from '../fleet-customers.js';
 
@@ -23,7 +26,10 @@ import {
  *
  *   GET  /api/fleet/customers   bearer, `trip:create` — the org's customers with
  *                               their contact fields and order count, plus the
- *                               equipment vocabulary the order form offers
+ *                               equipment vocabulary the order form offers.
+ *                               Paged by `?cursor=&limit=` with `nextCursor`
+ *                               and `total`, so the 200-row page is never a
+ *                               silent truncation (board task #126)
  *   POST /api/fleet/customers   bearer, `trip:create` — quick-add a customer in
  *                               the caller's org (201 { customer })
  *   POST /api/orders            bearer, `trip:create` — a manual order for one of
@@ -88,24 +94,69 @@ export async function fleetCustomerRoutes(app: FastifyInstance) {
     const orgId = await authorize(req, reply);
     if (!orgId) return;
 
-    const rows = await prisma.customer.findMany({
-      where: { orgId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        whatsappId: true,
-        lang: true,
-        createdAt: true,
-        _count: { select: { orders: true, accounts: true } },
-      },
-      orderBy: { name: 'asc' },
-      take: 200,
-    });
+    // Paging is explicit (board task #126): the old fixed 200-row query
+    // truncated the list silently, so a fleet with 201 customers could not
+    // reach the 201st for an order or an invite. `nextCursor` is null only on
+    // the last page.
+    const query = parseCustomerListQuery(req.query ?? {});
+    if (!query.ok) {
+      return reply.code(400).send({
+        error: query.error,
+        field: query.field,
+        messageKey: query.messageKey,
+        detail: query.detail,
+      });
+    }
+    const { limit, cursor } = query.value;
+
+    let cursorCustomer: { id: string; name: string } | null = null;
+    if (cursor) {
+      // A cursor is another org's row id as far as this caller is concerned:
+      // a flat 400, never an existence leak and never a page of someone else.
+      cursorCustomer = await prisma.customer.findFirst({
+        where: { id: cursor, orgId },
+        select: { id: true, name: true },
+      });
+      if (!cursorCustomer) {
+        return reply.code(400).send({
+          error: 'invalid_cursor',
+          field: 'cursor',
+          messageKey: 'customers.error.cursorInvalid',
+          detail: 'cursor does not name a customer of this fleet',
+        });
+      }
+    }
+
+    const [rows, total] = await Promise.all([
+      prisma.customer.findMany({
+        where: customerListWhere(orgId, cursorCustomer),
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          whatsappId: true,
+          lang: true,
+          createdAt: true,
+          _count: { select: { orders: true, accounts: true } },
+        },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        take: limit + 1,
+      }),
+      prisma.customer.count({ where: { orgId } }),
+    ]);
+    const page = customerListPage(rows, limit);
 
     // `equipment` travels with the list so the order form can offer the same
     // vocabulary the server validates against, never a client-side copy.
-    return reply.send({ customers: rows.map(customerRow), equipment: [...EQUIPMENT_OPTIONS] });
+    // `total` is the org's real count: the screen can always say "N of M" and
+    // the cap can never be silent again.
+    return reply.send({
+      customers: page.rows.map(customerRow),
+      equipment: [...EQUIPMENT_OPTIONS],
+      nextCursor: page.nextCursor,
+      total,
+      limit,
+    });
   });
 
   app.post('/fleet/customers', { preHandler: auth }, async (req, reply) => {
