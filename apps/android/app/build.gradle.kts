@@ -31,8 +31,14 @@ android {
         // (Android 16 / API 36 is the Play target-API floor from 2026-08-31).
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-a1"
+        // Board #131: Play rejects an upload whose versionCode does not increase,
+        // and the owner could not tell builds apart on the phone when every
+        // handover carried 1 / "0.1.0-a1". Scheme: versionCode is a monotonic
+        // integer incremented once per handed-over build; versionName is
+        // <major>.<minor>.<patch>-a<build>, where a<n> tracks the same counter
+        // (a1 = the 2026-10-19 scaffold handover, a2 = this build).
+        versionCode = 2
+        versionName = "0.2.0-a2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // The API the driver app talks to. Overridable per build; never a secret.
