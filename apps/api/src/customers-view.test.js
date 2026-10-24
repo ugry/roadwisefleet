@@ -140,6 +140,52 @@ test('customerLabel and orderSummary never render a raw id', () => {
   assert.equal(customers.orderSummary(null), '');
 });
 
+// --- paged list (board task #126) ------------------------------------------
+
+test('pageState appends pages and never renders a customer twice', () => {
+  const first = customers.pageState(
+    { customers: [{ id: 'c1', name: 'A' }, { id: 'c2', name: 'B' }], equipment: ['reefer'], nextCursor: 'c2', total: 3 },
+    null,
+  );
+  assert.deepEqual(first.rows.map((r) => r.id), ['c1', 'c2']);
+  assert.equal(first.nextCursor, 'c2');
+  assert.equal(first.total, 3);
+  assert.equal(first.shown, 2);
+  assert.equal(first.hasMore, true);
+
+  // A customer added between pages shifts the window: the server can hand back
+  // an id the screen already holds, and it must not be duplicated.
+  const second = customers.pageState({ customers: [{ id: 'c2', name: 'B' }, { id: 'c3', name: 'C' }], nextCursor: null, total: 3 }, first);
+  assert.deepEqual(second.rows.map((r) => r.id), ['c1', 'c2', 'c3']);
+  assert.equal(second.hasMore, false);
+  assert.equal(second.total, 3);
+});
+
+test('pageState treats a missing total or cursor as unknown, never as zero', () => {
+  const page = customers.pageState({ customers: [{ id: 'c1', name: 'A' }] }, null);
+  assert.equal(page.total, null);
+  assert.equal(page.nextCursor, null);
+  assert.equal(page.hasMore, false);
+  assert.deepEqual(customers.pageState(null, null).rows, []);
+});
+
+test('the load-more URL carries the cursor and nothing else', () => {
+  assert.equal(customers.nextPagePath(null), '/api/fleet/customers');
+  assert.equal(customers.nextPagePath('c2'), '/api/fleet/customers?cursor=c2');
+  assert.equal(customers.nextPagePath('a b'), '/api/fleet/customers?cursor=a%20b');
+});
+
+test('countSummary always states how much of the list is shown', () => {
+  assert.deepEqual(customers.countSummary({ shown: 200, total: 201 }), {
+    key: 'customers.showingCount',
+    params: { shown: '200', total: '201' },
+  });
+  assert.deepEqual(customers.countSummary({ shown: 5, total: null }), {
+    key: 'customers.showingCountNoTotal',
+    params: { shown: '5', total: '' },
+  });
+});
+
 // --- error mapping ----------------------------------------------------------
 
 test('every API failure maps to a readable catalogue key, never a raw status', () => {
@@ -148,6 +194,8 @@ test('every API failure maps to a readable catalogue key, never a raw status', (
     [{ error: 'customer_not_found' }, 'customers.error.customerNotFound'],
     [{ error: 'order_not_found' }, 'customers.error.orderNotFound'],
     [{ error: 'email_taken', field: 'email' }, 'customers.error.emailTaken'],
+    [{ error: 'invalid_cursor' }, 'customers.error.cursorInvalid'],
+    [{ error: 'invalid_limit' }, 'customers.error.limitInvalid'],
     [{ error: 'forbidden' }, 'error.forbidden'],
     [{ error: 'no_org' }, 'error.noOrg'],
     [{ error: 'network' }, 'customers.error.requestFailed'],
