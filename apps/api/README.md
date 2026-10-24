@@ -1675,6 +1675,36 @@ Public entry point: a visitor registers a fleet and is signed in immediately.
   end-to-end run is the remaining A2 slice; this PR lands the backend contract,
   the client library and the threat model.
 
+## Login rate limiting — board task #130 (QA #128 finding O1)
+
+`POST /api/auth/login` is bounded per **(email, real client IP)** in addition to
+the nginx edge zone and the per-account lockout.
+
+- **Why.** The only 429 source for login was the edge zone (`rwf_api`, 30 r/s per
+  IP), so password spraying across many addresses was bounded only per IP — while
+  the per-account lockout (5 failures / 15 min, `423`) is remotely triggerable for
+  any known address. The new window narrows the spray without touching the lockout.
+- **Core.** `src/login-limit.js` (dependency-free): `loginLimitKey()` normalizes
+  the address (trim + lower-case, capped at 320 chars) and prefixes the resolved
+  client IP (`client-ip.js`, never `req.ip` — nginx forwards from loopback);
+  `createLoginLimiter()` wraps the shared fixed window in `rate-limit.js`.
+- **Route.** The check runs before the body validation and before the `User`
+  lookup, so a refused attempt never reaches the database:
+  `429 { error: "rate_limited", retryAfterSeconds }` plus a `retry-after` header —
+  the shape the Android client maps to `auth.error.rateLimited`
+  (`AuthRules.loginErrorKey`, `status == 429 || error == "rate_limited"`).
+- **Bounds.** Defaults: **10 attempts / 5 minutes** per (email, IP). Another
+  address from the same client, and the same address from another client, keep
+  their own window. Tune with `LOGIN_RATE_LIMIT_MAX` /
+  `LOGIN_RATE_LIMIT_WINDOW_SECONDS`. The short window keeps a retrying person out
+  of a long lockout; the 423 lockout and the `400`/`401` bodies are unchanged.
+- **Tests.** `src/login-limit.test.js` (dependency-free: key semantics, the
+  boundary, per-pair budgets, the window reset, the defaults, and a source guard
+  that pins the wiring and the untouched bodies) and
+  `test/login-rate-limit.test.ts` (HTTP-level: under-limit passes, the next
+  attempt is the 429 body/header, another address or another client keeps its
+  budget — no database needed, the refusal precedes the lookup).
+
 ## Background location ingest & realtime — board task #106 (AND1-A4)
 - **What it is.** The Android tracking window (board #105's `Trip.tracking`) samples
   a location every 10 minutes and uploads batches; the customer/FM surfaces read

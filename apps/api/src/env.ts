@@ -58,6 +58,14 @@ export const env = {
   // per 15 minutes. Raise the window/max only with a real shared limiter.
   REGISTER_RATE_LIMIT_MAX: Number(process.env.REGISTER_RATE_LIMIT_MAX || 10),
   REGISTER_RATE_LIMIT_WINDOW_SECONDS: Number(process.env.REGISTER_RATE_LIMIT_WINDOW_SECONDS || 15 * 60),
+  // Password login (board task #130, QA #128 O1): `POST /api/auth/login` is
+  // bounded per (email, real client IP) so password spraying across addresses is
+  // not limited only by the nginx edge zone. Defaults: 10 attempts per 5 minutes
+  // for one address from one client; the per-account lockout (5 tries / 15 min)
+  // is untouched. The window is short on purpose — a person retrying must not be
+  // locked out for long.
+  LOGIN_RATE_LIMIT_MAX: Number(process.env.LOGIN_RATE_LIMIT_MAX || 10),
+  LOGIN_RATE_LIMIT_WINDOW_SECONDS: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_SECONDS || 5 * 60),
   // Passwordless Android device auth (board task #104, AND1-A2). `challenge`
   // and `verify` are public but always rate-limited per real client IP; the
   // nonce TTL is short so a leaked nonce is useless almost immediately.
