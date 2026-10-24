@@ -6,6 +6,7 @@ import { hashPassword, verifyPassword } from '../auth/password.js';
 import { signToken } from '../auth/tokens.js';
 import { localePayload } from '../i18n.js';
 import { createRateLimiter } from '../rate-limit.js';
+import { createLoginLimiter } from '../login-limit.js';
 import { resolveClientIp } from '../client-ip.js';
 import { OWNER_ROLE, REGISTER_AUDIT_ACTION } from '../registration.js';
 import { createCustomerAccount, createFleetAccount, createSoloAccount } from '../registration-accounts.js';
@@ -31,7 +32,10 @@ const LOCKOUT_MS = 15 * 60 * 1000;
  *                            (`client-ip.js`): the API sits behind nginx on
  *                            loopback, so `req.ip` alone would be one shared
  *                            bucket for every visitor (PR #78 review, P1).
- *   POST /api/auth/login     email + password against the `User` rows.
+ *   POST /api/auth/login     email + password against the `User` rows. Bounded
+ *                            per (address, real client IP) before the lookup
+ *                            (board task #130), and still locked per account
+ *                            after 5 failures (`423`).
  *   GET  /api/auth/me        the signed-in principal.
  *
  * `register` is the public entry point the marketing site links to (the
@@ -46,6 +50,21 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 const registrationLimiter = createRateLimiter({
   windowMs: env.REGISTER_RATE_LIMIT_WINDOW_SECONDS * 1000,
   max: env.REGISTER_RATE_LIMIT_MAX,
+});
+
+/**
+ * `POST /auth/login` bound (board task #130, QA #128 finding O1).
+ *
+ * The edge zone already caps requests per IP, but password spraying across many
+ * addresses was bounded only there, and the per-account lockout is remotely
+ * triggerable for any known address. This window is keyed on the address being
+ * tried PLUS the real client (`login-limit.js`): one client gets `max` attempts
+ * per address per window, every other address keeps its own budget, and the
+ * lockout stays exactly as it was — this only refuses before the lookup.
+ */
+const loginLimiter = createLoginLimiter({
+  windowMs: env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000,
+  max: env.LOGIN_RATE_LIMIT_MAX,
 });
 
 export async function authRoutes(app: FastifyInstance) {
@@ -236,6 +255,17 @@ export async function authRoutes(app: FastifyInstance) {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const email = String(body.email ?? '').trim().toLowerCase();
     const password = String(body.password ?? '');
+    // Bound the attempt BEFORE validation and the database lookup (board task
+    // #130, same shape as `register`): a spent budget is a 429 with the existing
+    // `rate_limited` body, so the Android client's `auth.error.rateLimited`
+    // mapping is reached with real traffic. Keyed on this address AND the real
+    // client, so another person's address is never spent by someone else's
+    // spray; the 423 lockout below is unchanged.
+    const gate = loginLimiter.check(email, resolveClientIp(req));
+    if (!gate.allowed) {
+      reply.header('retry-after', String(gate.retryAfterSeconds));
+      return reply.code(429).send({ error: 'rate_limited', retryAfterSeconds: gate.retryAfterSeconds });
+    }
     if (!email || !password) {
       return reply.code(400).send({ error: 'invalid_credentials' });
     }
