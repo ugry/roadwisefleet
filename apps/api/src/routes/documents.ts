@@ -11,6 +11,7 @@ import {
   updateDocumentStatus,
   writeDocumentFile,
 } from '../documents.js';
+import { notifyDocumentUploaded } from '../notification-hooks.js';
 
 /*
  * Documents / POD API (board task #3).
@@ -68,6 +69,15 @@ export async function documentRoutes(app: FastifyInstance) {
     const document = await prisma.document.update({
       where: { id: result.document.id },
       data: { status: 'UPLOADED' },
+    });
+    // Board #135 (UXF-O2a): a POD upload is `pod_ready`, an invoice upload is
+    // `invoice_issued` (invoices are Document rows, §2). Both carry the existing
+    // guest share capability link, minted from the trip's live share window. Every
+    // other document type notifies nobody; best-effort and never throws.
+    await notifyDocumentUploaded(prisma, {
+      tripId: id,
+      document,
+      log: (line: string) => req.log?.warn?.(line),
     });
     return reply.code(201).send({ document: shapeDocument(document) });
   });

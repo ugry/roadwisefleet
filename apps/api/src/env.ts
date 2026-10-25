@@ -42,6 +42,12 @@ export const env = {
   // Optional absolute base for generated links (e.g. https://roadwisefleet.com).
   // Empty → origin-relative `/track/<token>`, correct for the same-origin pilot.
   PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || '',
+  // Customer notification spool (board #135, UXF-O2a). The emitter writes one
+  // envelope per lifecycle change here and the transport
+  // (`infra/scripts/pilot-notify-deliver.sh`) drains it. **Unset ⇒ the emitter is
+  // a no-op**: nothing is written and no customer query is made, so the pilot
+  // behaves exactly as before until ops installs the spool (#79 §4).
+  RWF_NOTIFY_SPOOL: process.env.RWF_NOTIFY_SPOOL || '',
   // Customer portal (board task #74): the carrier org a new customer signup is
   // attached to. The pilot has exactly one fleet, so an empty value falls back
   // to the oldest org — explicit here so a multi-fleet deployment can pin it
