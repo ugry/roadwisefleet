@@ -14,6 +14,7 @@ import { openGpsStream } from '../gps-sse.js';
 import { trackingSummary } from '../track-link.js';
 import { recordCompletedAction } from '../reviews.js';
 import { stripCredentialFields } from '../user-payload.js';
+import { notifyDriverAssigned, notifyStatusChange } from '../notification-hooks.js';
 
 /*
  * Trips API — real auth (signed bearer token) replaces the former `x-org-id`
@@ -122,6 +123,13 @@ export async function tripRoutes(app: FastifyInstance) {
         .code(statusForError(result.error))
         .send({ error: result.error, ...(result.detail ? { detail: result.detail } : {}) });
     }
+    // Board #135 (UXF-O2a): a trip created WITH a driver is a driver assignment
+    // — the customer is told from the moment the job exists. Best-effort: the
+    // hook is a no-op unless the notification spool is installed, and it never
+    // throws, so this can never change the create-trip response.
+    if (result.trip?.driverId) {
+      await notifyDriverAssigned(prisma, { tripId: result.trip.id, log: (line: string) => req.log?.warn?.(line) });
+    }
     return reply.code(201).send({ trip: result.trip });
   });
 
@@ -152,6 +160,17 @@ export async function tripRoutes(app: FastifyInstance) {
       } catch (err) {
         req.log?.warn?.({ err }, 'review sampling failed');
       }
+    }
+    // Board #135 (UXF-O2a): the customer milestones — AT_PICKUP, IN_TRANSIT and
+    // DELIVERED — are emitted here, where the state actually changes. Other
+    // statuses (disruption endings, back-office moves) are not customer
+    // notifications and the hook returns without a query. Best-effort.
+    if (result.trip) {
+      await notifyStatusChange(prisma, {
+        tripId: id,
+        to: String(body.status ?? ''),
+        log: (line: string) => req.log?.warn?.(line),
+      });
     }
     return reply.send({ trip: result.trip });
   });
@@ -258,6 +277,12 @@ export async function tripRoutes(app: FastifyInstance) {
         .code(statusForError(result.error))
         .send({ error: result.error, ...(result.detail ? { detail: result.detail } : {}) });
     }
+    // Board #135 (UXF-O2a): an assignment change notifies the customer once, with
+    // the driver and vehicle from the trip itself (never the request body).
+    await notifyDriverAssigned(prisma, {
+      tripId: id,
+      log: (line: string) => req.log?.warn?.(line),
+    });
     return reply.send({
       trip: result.trip,
       driver: result.driver,

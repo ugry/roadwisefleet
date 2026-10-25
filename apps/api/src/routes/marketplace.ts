@@ -7,6 +7,7 @@ import { statusForError } from '../http-errors.js';
 import { stripCredentialFields } from '../user-payload.js';
 import { sweepExpired } from '../marketplace-sweep.js';
 import * as market from '../marketplace.js';
+import { notifyAwarded, notifyOfferReceived } from '../notification-hooks.js';
 import { SOLO_ROLE } from '../../../../solo/lib/solo-core.js';
 
 /*
@@ -414,6 +415,10 @@ export async function marketplaceRoutes(app: FastifyInstance) {
       }
       return created;
     });
+    // Board #135 (UXF-O2a): the customer learns an offer arrived. One envelope per
+    // created offer; the hook is a no-op unless the notification spool is
+    // installed and never throws.
+    await notifyOfferReceived(prisma, { load, log: (line: string) => req.log?.warn?.(line) });
     return reply.code(201).send({ offer: market.offerCard(offer) });
   });
 
@@ -460,6 +465,9 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     });
 
     const fresh = await prisma.loadPosting.findUnique({ where: { id }, select: LOAD_SELECT });
+    // Board #135 (UXF-O2a): the award is the customer's "carrier chosen" moment.
+    // Best-effort, one envelope per award; nothing is sent from here.
+    await notifyAwarded(prisma, { load: fresh, offer: winner, trip, log: (line: string) => req.log?.warn?.(line) });
     // Both sides are notified (#78): the shipper that the load is awarded, the
     // winning carrier that the trip exists, and each declined rival. The notice
     // is the durable award state above — this is its client-readable projection.

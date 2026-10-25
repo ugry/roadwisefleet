@@ -101,7 +101,9 @@ repeat-order copy and its browser view-model — board task #120), the
 self-service registration
 rules and their fixed-window rate limiter (board task #86 — the same validation
 the browser and `POST /api/auth/register` share), locale
-resolution and the pilot i18n catalogues) runs on the
+resolution and the pilot i18n catalogues, the notification emitter (the eight
+lifecycle envelopes, the preference gate, the refusal paths and the atomic spool
+write — board #135)) runs on the
 Node.js native test runner with no install:
 
 ```bash
@@ -1783,6 +1785,62 @@ the nginx edge zone and the per-account lockout.
   (`GET /api/auth/otp/email/status` → `configured: false`). WhatsApp OTP is
   behind the Android build flag `-Proadwisefleet.whatsappOtp=true` and waits for
   the #124 provider.
+
+## Customer notifications — the emitter (board #135, UXF-O2a)
+
+The app-side half of UXF-O2. The transport (`infra/notifications.md`, board #79)
+sends; this emitter only records **what happened**, as one envelope per lifecycle
+change, in the contract's exact format (§3.1):
+
+```
+event=delivered
+channel=email
+recipient=customer@example.com
+customer_name=Ada
+trip_ref=RWF-1042
+link=https://roadwisefleet.com/track/…
+```
+
+- **Safe by default.** `RWF_NOTIFY_SPOOL` unset (the shipped default) ⇒ the
+  emitter returns before any database read and writes nothing. The service
+  behaves byte-for-byte as before; the switch is the ops install in #79 §4.
+- **The eight events and where they fire.** `offer_received` (marketplace
+  `POST /loads/:id/offers`), `awarded` (`POST /loads/:id/award`),
+  `driver_assigned` (`POST /trips` with a `driverId`, and
+  `POST /trips/:id/assign`), `at_pickup` / `in_transit` / `delivered`
+  (`POST /trips/:id/status`), `pod_ready` (a `pod`/`ecmr` document upload) and
+  `invoice_issued` (an `invoice` document upload — invoices are `Document` rows,
+  §2). Every other status change and document type notifies nobody.
+- **Envelope.** Exactly `event`, `channel`, `recipient` plus the variables the
+  event's template actually reads (`notifications.js#EVENT_VARIABLES`). A missing
+  variable, an unknown event, a bad channel or an unusable recipient refuses that
+  event: no file is written, and the log line carries only the event, the
+  redacted contact (§3.4) and the result. Values are single-line, so a variable
+  cannot forge a second key.
+- **File.** `<event>-<tripRef>-<timestamp>-<rand>.key`, mode `0600`, written to a
+  temp file and renamed into place — a reader never sees a partial envelope.
+- **Preferences, at emit time.** `Customer.profile.notifyPrefs` (the same
+  normaliser the portal account screen writes with) chooses the channel: the
+  first switched-on channel with a usable contact, in the order email → whatsapp
+  → sms, defaulting to email. Every channel off ⇒ **no envelope at all**; the
+  transport's own preferences file is a second, ops-level gate, not a substitute.
+- **`{{link}}` is an existing capability token**, never a new scheme: the trip's
+  tracking link (`track-link.js`) for `delivered`, and the guest document /
+  invoice share (`guest-share.js`) for `pod_ready` / `invoice_issued`. With no
+  live share window there is no link, so the event is refused rather than queued
+  with a link that cannot work.
+- **Reference.** The schema has no human trip ref, so `trip_ref` is derived from
+  the ORDER (`RWF-<suffix>`) — the same reference from `offer_received` through
+  `invoice_issued`.
+- **No send, no sender, no provider.** Nothing here contacts a network or reads
+  a transport setting. Real delivery stays owner-gated on #29 (email sender /
+  domain) and #24 (WhatsApp / SMS), and the drain timer is the ops install.
+- **Tests.** `src/notifications.test.js` (no-install CI job) covers the exact key
+  set of every event against the real templates, preference suppression, the
+  missing-variable refusal, the no-op without a spool, the atomic `0600` write,
+  redaction and both link builders; it also pins the emitter's catalogue to the
+  transport's `EVENTS`/`CHANNELS` and to every `infra/notifications/templates`
+  placeholder, so the two halves cannot drift.
 
 ## Deliberately missing (until the right phase)
 - password reset (board task #125 ships email verification and passwordless
