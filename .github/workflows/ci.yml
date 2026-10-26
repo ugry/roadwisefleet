@@ -128,18 +128,27 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # The suite reads SEED_PASSWORD from the repo .env in-process and never
-      # prints it; the API reads DATABASE_URL from the environment. The file is
-      # generated per run, is gitignored, is never uploaded, and the value is
-      # masked so it cannot reach a step log either.
+      # prints it; the API and the seed load the same file through
+      # apps/api/src/env.ts, which resolves AUTH_SECRET eagerly (the seed
+      # imports it), so a per-run signing secret is generated here too rather
+      # than taking the ALLOW_INSECURE_AUTH_SECRET hatch. The file is generated
+      # per run, is gitignored, is never uploaded, and both values are masked so
+      # they cannot reach a step log either.
       - name: Write the run's .env (runtime only, never printed)
         run: |
           set -euo pipefail
           SEED_PASSWORD="$(openssl rand -hex 16)"
+          AUTH_SECRET="$(openssl rand -hex 32)"
           echo "::add-mask::$SEED_PASSWORD"
-          echo "SEED_PASSWORD=$SEED_PASSWORD" >> "$GITHUB_ENV"
+          echo "::add-mask::$AUTH_SECRET"
+          {
+            echo "SEED_PASSWORD=$SEED_PASSWORD"
+            echo "AUTH_SECRET=$AUTH_SECRET"
+          } >> "$GITHUB_ENV"
           {
             printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
             printf 'SEED_PASSWORD=%s\n' "$SEED_PASSWORD"
+            printf 'AUTH_SECRET=%s\n' "$AUTH_SECRET"
           } > .env
           chmod 600 .env
 
@@ -195,16 +204,21 @@ jobs:
             done
           fi
 
-      # The log is published as an artifact, so fail closed if the run's
-      # password ever reached it: delete it and red the job rather than publish.
-      - name: Refuse to publish a log that carries the seed password
+      # The log is published as an artifact, so fail closed if any of the run's
+      # generated values ever reached it: delete it and red the job rather than
+      # publish.
+      - name: Refuse to publish a log that carries a generated secret
         if: always()
         run: |
           set -euo pipefail
           [ -f fa-acceptance.log ] || exit 0
-          [ -n "${SEED_PASSWORD:-}" ] || exit 0
-          if grep -qF -- "$SEED_PASSWORD" fa-acceptance.log; then
-            echo "::error::fa-acceptance.log contains SEED_PASSWORD — deleting it instead of uploading"
+          leaked=0
+          for value in "${SEED_PASSWORD:-}" "${AUTH_SECRET:-}"; do
+            [ -n "$value" ] || continue
+            if grep -qF -- "$value" fa-acceptance.log; then leaked=1; fi
+          done
+          if [ "$leaked" -eq 1 ]; then
+            echo "::error::fa-acceptance.log contains a generated secret — deleting it instead of uploading"
             rm -f fa-acceptance.log
             exit 1
           fi
