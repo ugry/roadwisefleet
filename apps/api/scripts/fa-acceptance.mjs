@@ -115,6 +115,12 @@ const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL || fil
 const ADMIN_EMAIL = 'admin@pilot.roadwisefleet.test';
 const DRIVER1_EMAIL = 'driver1@pilot.roadwisefleet.test';
 const DRIVER2_EMAIL = 'driver2@pilot.roadwisefleet.test';
+// F6/F7 need a driver who holds NO active trip: the seed assigns `pilot-trip-2`
+// to driver1 (ASSIGNED), and board #105 refuses to double-book a driver, so a
+// second trip for driver1 can never reach ASSIGNED. On a fresh migrated+seeded
+// database (CI, board eila/tasks#137) that is deterministic — driver3 is the
+// seeded driver with no trips, and driver1/driver2 stay the "other drivers".
+const DRIVER3_EMAIL = 'driver3@pilot.roadwisefleet.test';
 
 /* -------------------------------------------------------------- results --- */
 const criteria = [];
@@ -477,11 +483,11 @@ async function F5(admin, driver1, driver2) {
 }
 
 /* ================================================================ F6 ====== */
-async function F6(admin, driver1, driver2) {
+async function F6(admin, assigned, other) {
   crit('F6', 'F6_pod_gate_documents');
   const orders = (await call('GET', '/api/reference', { token: admin.token })).json?.reference?.orders || [];
   const trucks = (await call('GET', '/api/reference', { token: admin.token })).json?.reference?.trucks || [];
-  const d1 = driver1.user?.id;
+  const d1 = assigned.user?.id;
   const created = await call('POST', '/api/trips', { token: admin.token, body: { orderId: orders[0]?.id, driverId: d1, truckId: trucks[0]?.id, rateEur: 512 } });
   const tripId = created.json?.trip?.id;
   if (created.status !== 201 || !tripId) {
@@ -498,14 +504,14 @@ async function F6(admin, driver1, driver2) {
   }
   ok('POD flow can be exercised (trip created and moved to DELIVERED)', `${tripId}: DRAFT→ASSIGNED→LOADED→IN_TRANSIT→DELIVERED all 200`);
 
-  const gate = await call('POST', `/api/trips/${tripId}/status`, { token: driver1.token, body: { status: 'POD_UPLOADED' } });
+  const gate = await call('POST', `/api/trips/${tripId}/status`, { token: assigned.token, body: { status: 'POD_UPLOADED' } });
   if (gate.status === 400 && gate.json?.error === 'pod_required') ok('the POD gate holds before a document exists', `POD_UPLOADED -> 400 ${JSON.stringify(gate.json)}`);
   else bad('the POD gate holds before a document exists', `expected 400 pod_required, got ${gate.status} ${JSON.stringify(gate.json)}`);
 
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const capturedAt = new Date().toISOString();
   const upload = await call('POST', `/api/trips/${tripId}/documents`, {
-    token: driver1.token,
+    token: assigned.token,
     body: {
       docType: 'pod',
       filename: 'fa-pod.png',
@@ -530,27 +536,27 @@ async function F6(admin, driver1, driver2) {
   }
 
   const badType = await call('POST', `/api/trips/${tripId}/documents`, {
-    token: driver1.token,
+    token: assigned.token,
     body: { docType: 'pod', filename: 'notes.txt', mimeType: 'text/plain', dataBase64: PNG },
   });
   if (badType.status === 400) ok('an unsupported MIME type is rejected', `text/plain -> 400 ${JSON.stringify(badType.json)}`);
   else bad('an unsupported MIME type is rejected', `expected 400, got ${badType.status} ${JSON.stringify(badType.json)}`);
 
   const wrongDriver = await call('POST', `/api/trips/${tripId}/documents`, {
-    token: driver2.token,
+    token: other.token,
     body: { docType: 'pod', filename: 'fa-pod2.png', mimeType: 'image/png', dataBase64: PNG },
   });
   if (wrongDriver.status === 403) ok("another driver cannot upload to this trip", `driver2 -> 403 ${JSON.stringify(wrongDriver.json)}`);
   else bad("another driver cannot upload to this trip", `expected 403, got ${wrongDriver.status}`);
 
-  const list = await call('GET', `/api/trips/${tripId}/documents`, { token: driver1.token });
+  const list = await call('GET', `/api/trips/${tripId}/documents`, { token: assigned.token });
   const leaksList = (list.json?.documents || []).some((d) => d.storageKey !== undefined);
   if (list.status === 200 && !leaksList) ok('the document list is readable and leak-free', `200, ${list.json.documents.length} document(s), no storageKey`);
   else bad('the document list is readable and leak-free', `${list.status}, leaksStorageKey=${leaksList}`);
 
   if (docId) {
-    const selfVerify = await call('PATCH', `/api/documents/${docId}`, { token: driver1.token, body: { status: 'VERIFIED' } });
-    if (selfVerify.status === 403) ok('a driver cannot verify their own document', `PATCH as driver1 -> 403 ${JSON.stringify(selfVerify.json)}`);
+    const selfVerify = await call('PATCH', `/api/documents/${docId}`, { token: assigned.token, body: { status: 'VERIFIED' } });
+    if (selfVerify.status === 403) ok('a driver cannot verify their own document', `PATCH as the assigned driver -> 403 ${JSON.stringify(selfVerify.json)}`);
     else bad('a driver cannot verify their own document', `expected 403, got ${selfVerify.status} ${JSON.stringify(selfVerify.json)}`);
 
     const ownerVerify = await call('PATCH', `/api/documents/${docId}`, { token: admin.token, body: { status: 'VERIFIED' } });
@@ -558,9 +564,13 @@ async function F6(admin, driver1, driver2) {
     else bad('the owner verifies the document', `expected 200 VERIFIED, got ${ownerVerify.status} ${JSON.stringify(ownerVerify.json)}`);
   }
 
-  const gateAfter = await call('POST', `/api/trips/${tripId}/status`, { token: driver1.token, body: { status: 'POD_UPLOADED' } });
-  if (gateAfter.status === 200 && gateAfter.json?.trip?.status === 'POD_UPLOADED') ok('the gate opens once the POD is verified', `POD_UPLOADED -> 200 (trip POD_UPLOADED)`);
-  else bad('the gate opens once the POD is verified', `expected 200 POD_UPLOADED, got ${gateAfter.status} ${JSON.stringify(gateAfter.json)}`);
+  const gateAfter = await call('POST', `/api/trips/${tripId}/status`, { token: assigned.token, body: { status: 'POD_UPLOADED' } });
+  if (gateAfter.status === 200 && gateAfter.json?.trip?.status === 'POD_UPLOADED') {
+    ok('the gate opens once the POD is verified', `POD_UPLOADED -> 200 (trip POD_UPLOADED)`);
+    shared.f6PodUploaded = true;
+  } else {
+    bad('the gate opens once the POD is verified', `expected 200 POD_UPLOADED, got ${gateAfter.status} ${JSON.stringify(gateAfter.json)}`);
+  }
 
   shared.f6TripId = tripId;
   shared.f6DocId = docId;
@@ -568,22 +578,22 @@ async function F6(admin, driver1, driver2) {
 }
 
 /* ================================================================ F7 ====== */
-async function F7(admin, driver1, driver2) {
+async function F7(admin, assigned, other) {
   crit('F7', 'F7_driver_app');
   const tripId = shared.f6TripId;
   if (!tripId) {
     nb('a driver never sees another driver\'s trip (403)', 'no trip id from F6 in this run');
   } else {
-    const other = await call('GET', `/api/trips/${tripId}`, { token: driver2.token });
-    const blocked = other.status === 403 || other.status === 404;
-    if (blocked) ok("a driver never sees another driver's trip", `driver2 GET /api/trips/${tripId} -> ${other.status} ${JSON.stringify(other.json)}`);
-    else bad("a driver never sees another driver's trip", `expected 403/404, got ${other.status}`);
-    const move = await call('POST', `/api/trips/${tripId}/status`, { token: driver2.token, body: { status: 'ASSIGNED' } });
+    const otherView = await call('GET', `/api/trips/${tripId}`, { token: other.token });
+    const blocked = otherView.status === 403 || otherView.status === 404;
+    if (blocked) ok("a driver never sees another driver's trip", `driver2 GET /api/trips/${tripId} -> ${otherView.status} ${JSON.stringify(otherView.json)}`);
+    else bad("a driver never sees another driver's trip", `expected 403/404, got ${otherView.status}`);
+    const move = await call('POST', `/api/trips/${tripId}/status`, { token: other.token, body: { status: 'ASSIGNED' } });
     if (move.status === 403) ok("a driver cannot move another driver's trip", `driver2 POST /status -> 403 ${JSON.stringify(move.json)}`);
     else bad("a driver cannot move another driver's trip", `expected 403, got ${move.status} ${JSON.stringify(move.json)}`);
-    const own = await call('GET', '/api/driver/trips', { token: driver1.token });
+    const own = await call('GET', '/api/driver/trips', { token: assigned.token });
     const sees = own.json?.trips?.some((t) => t.id === tripId);
-    if (own.status === 200 && sees) ok("the assigned driver sees the trip in their app", `driver1 /api/driver/trips contains ${tripId}`);
+    if (own.status === 200 && sees) ok("the assigned driver sees the trip in their app", `driver3 /api/driver/trips contains ${tripId}`);
     else bad("the assigned driver sees the trip in their app", `status=${own.status} contains=${Boolean(sees)}`);
   }
 
@@ -599,7 +609,11 @@ async function F7(admin, driver1, driver2) {
   } else {
     nb('a capture carries GPS + timestamp', 'no document uploaded in this run (F6 did not reach the upload)');
   }
-  ok('a status advances without a raw status field (one action = one transition)', 'F6: driver1 POD_UPLOADED -> 200 on the assigned trip (state machine driven by the API)');
+  if (shared.f6PodUploaded) {
+    ok('a status advances without a raw status field (one action = one transition)', 'F6: the assigned driver POD_UPLOADED -> 200 on its trip (state machine driven by the API)');
+  } else {
+    nb('a status advances without a raw status field (one action = one transition)', 'F6 did not reach POD_UPLOADED in this run');
+  }
 
   const harness = path.join(HERE, 'pwa_driver_harness.py');
   if (!RUN_F7_HARNESS || !existsSync(harness)) {
@@ -804,20 +818,21 @@ async function main() {
     const admin = await login(ADMIN_EMAIL);
     const driver1 = await login(DRIVER1_EMAIL);
     const driver2 = await login(DRIVER2_EMAIL);
+    const driver3 = await login(DRIVER3_EMAIL);
     if (admin.status !== 200 || !admin.token) {
       console.error(`FATAL: owner login failed (${admin.status} ${JSON.stringify(admin.body)})`);
       process.exit(2);
     }
-    console.log(`# logins: owner=${admin.status} driver1=${driver1.status} driver2=${driver2.status}`);
-    const ctx = { admin, driver1, driver2 };
+    console.log(`# logins: owner=${admin.status} driver1=${driver1.status} driver2=${driver2.status} driver3=${driver3.status}`);
+    const ctx = { admin, driver1, driver2, driver3 };
     const plan = [
       ['F1', () => F1()],
       ['F2', () => F2(ctx.admin)],
       ['F3', () => F3(ctx.admin)],
       ['F4', () => F4(ctx.admin, ctx.driver1)],
       ['F5', () => F5(ctx.admin, ctx.driver1, ctx.driver2)],
-      ['F6', () => F6(ctx.admin, ctx.driver1, ctx.driver2)],
-      ['F7', () => F7(ctx.admin, ctx.driver1, ctx.driver2)],
+      ['F6', () => F6(ctx.admin, ctx.driver3, ctx.driver2)],
+      ['F7', () => F7(ctx.admin, ctx.driver3, ctx.driver2)],
       ['F8', () => F8(ctx.admin, ctx.driver1)],
       ['F9', () => F9()],
       ['F10', () => F10()],
