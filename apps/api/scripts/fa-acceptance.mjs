@@ -50,6 +50,7 @@
  *   FA_CRITERIA=F1,F6 node apps/api/scripts/fa-acceptance.mjs     # subset (used for the red-run proof)
  *   FA_REPO=/path/to/repo                         # repo under test (default: this script's repo root)
  *   FA_LIVE_BASE=https://roadwisefleet.com        # deployed environment (F9)
+ *   FA_NO_LIVE=1                                  # no deployed environment (CI): live-only rows are NOT_BUILT
  *   FA_F7_HARNESS=1                               # also run the separately-supplied pwa_driver_harness.py --flow pod
  *
  * Secret handling: SEED_PASSWORD is read from the repo `.env` in-process; it is
@@ -82,6 +83,11 @@ const ONLY = (process.env.FA_CRITERIA || '')
   .map((s) => s.trim().toUpperCase())
   .filter(Boolean);
 const RUN_F7_HARNESS = process.env.FA_F7_HARNESS === '1';
+// CI (board eila/tasks#137) has no deployed environment: the suite spawns the API
+// from the clone. The live-only rows (F9's deployment health/pages, F10's landing
+// page) must then be recorded NOT_BUILT with that reason — never PASS against a
+// stand-in, and never FAIL merely because a runner has no pilot to point at.
+const NO_LIVE = process.env.FA_NO_LIVE === '1';
 
 /* ------------------------------------------------------------------ env --- */
 function loadEnv(file) {
@@ -655,13 +661,17 @@ async function F9() {
   const healthPaths = [[LOCAL_PILOT, '/health'], [LIVE, '/api/health'], [LIVE, '/health']];
   let health = null;
   let healthWhere = '';
-  for (const [base, p] of healthPaths) {
-    const r = await call('GET', p, { base }).catch(() => null);
-    if (r && r.status === 200) { health = r; healthWhere = `${base}${p}`; break; }
-    if (!health) { health = r; healthWhere = `${base}${p}`; }
+  if (NO_LIVE) {
+    nb('the single pilot environment answers its health check', 'no deployed environment in this run (FA_NO_LIVE=1): the suite only reached the clone-spawned API on the runner');
+  } else {
+    for (const [base, p] of healthPaths) {
+      const r = await call('GET', p, { base }).catch(() => null);
+      if (r && r.status === 200) { health = r; healthWhere = `${base}${p}`; break; }
+      if (!health) { health = r; healthWhere = `${base}${p}`; }
+    }
+    if (health?.status === 200) ok('the single pilot environment answers its health check', `${healthWhere} -> 200 ${health.text.slice(0, 60)}${healthWhere.startsWith(LOCAL_PILOT) ? ' (loopback: the pilot service; not exposed publicly, by design)' : ''}`);
+    else bad('the single pilot environment answers its health check', `tried ${healthPaths.map(([b, p]) => `${b}${p}`).join(', ')} — last ${healthWhere} -> ${health ? health.status : 'unreachable'}`);
   }
-  if (health?.status === 200) ok('the single pilot environment answers its health check', `${healthWhere} -> 200 ${health.text.slice(0, 60)}${healthWhere.startsWith(LOCAL_PILOT) ? ' (loopback: the pilot service; not exposed publicly, by design)' : ''}`);
-  else bad('the single pilot environment answers its health check', `tried ${healthPaths.map(([b, p]) => `${b}${p}`).join(', ')} — last ${healthWhere} -> ${health ? health.status : 'unreachable'}`);
 
   const artifacts = ['deploy.sh', 'infra/deploy/roadwise-deploy.sh', 'infra/deploy/roadwise-promote.sh', 'infra/scripts/pilot-restore-drill.sh', 'infra/scripts/pilot-backup-verify.sh', 'infra/monitoring/runbook.md'];
   const missing = artifacts.filter((f) => !existsSync(path.join(REPO, f)));
@@ -677,6 +687,10 @@ async function F9() {
   // The deployed pages are part of "deployed on the single environment": a page
   // that logs a CSP violation or an Uncaught error is not functioning.
   for (const p of ['/pilot/', '/pilot/driver.html']) {
+    if (NO_LIVE) {
+      nb(`deployed ${p} loads without page-origin console errors`, 'no deployed environment in this run (FA_NO_LIVE=1)');
+      continue;
+    }
     const cons = browserRun(LIVE, ['console', `${LIVE}${p}`]);
     if (cons.err) {
       nb(`deployed ${p} loads without page-origin console errors`, `eila-browser unavailable: ${cons.err}`);
@@ -692,14 +706,16 @@ async function F9() {
 /* =============================================================== F10 ====== */
 async function F10() {
   crit('F10', 'F10_privacy_actor');
-  const landing = await call('GET', '/', { base: LIVE }).catch(() => null);
+  const landing = NO_LIVE ? null : await call('GET', '/', { base: LIVE }).catch(() => null);
   const shell = await call('GET', '/app/');
   const linkRe = /href="([^"]*(?:privacy|terms|imprint)[^"]*)"/gi;
   const found = new Set();
   for (const body of [landing?.text || '', shell?.text || '']) {
     for (const m of body.matchAll(linkRe)) found.add(m[1]);
   }
-  if (!found.size) {
+  if (NO_LIVE) {
+    nb('privacy/terms are reachable from the landing page and the app footer', 'no deployed environment in this run (FA_NO_LIVE=1): the published landing page was not fetched');
+  } else if (!found.size) {
     nb('privacy/terms are reachable from the landing page and the app footer', `no privacy/terms link in the landing page or the app shell (grep over ${landing ? landing.status : 'unreachable'} landing + ${shell.status} shell, 0 hits)`);
   } else {
     const results = [];
