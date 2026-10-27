@@ -163,7 +163,33 @@ export function shellHtml() {
   return cachedShell;
 }
 
-/** Test hook: forget the cached shell (not used in production paths). */
+/**
+ * The public help page path (board #138, UXF-DOC2 + FAv1-SUP2b).
+ *
+ * `/app/help` is a real page, not the SPA fallback: `servesShell('help', false)`
+ * would answer with the app shell (a 200 that renders the login screen and no
+ * help content), which is exactly the defect the board task was created for.
+ * The route in `routes/app.ts` therefore serves this file directly. It is a
+ * public page: a dispatcher must be able to read it before signing in.
+ */
+export const HELP_PATH = '/app/help';
+
+let cachedHelp = null;
+
+/**
+ * The help page HTML (`app/help.html`), read once per process. Same deploy
+ * reasoning as `shellHtml()`: the route sends `cache-control: no-store`.
+ * @returns {string}
+ */
+export function helpHtml() {
+  if (cachedHelp === null) {
+    cachedHelp = readFileSync(resolve(APP_ROOT, 'help.html'), 'utf8');
+  }
+  return cachedHelp;
+}
+
+/** Test hook: forget the cached shell and help page (not used in production paths). */
 export function resetShellCache() {
   cachedShell = null;
+  cachedHelp = null;
 }

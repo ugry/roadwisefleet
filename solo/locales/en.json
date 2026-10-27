@@ -264,5 +264,6 @@
   "solo.jobs.ending.BREAKDOWN": "Report breakdown",
   "solo.jobs.ending.DELAYED": "Report delay",
   "solo.jobs.ending.CUSTOMS_HOLD": "Put on customs hold",
-  "solo.jobs.resume": "Resume the trip"
+  "solo.jobs.resume": "Resume the trip",
+  "solo.help.link": "First run, beacon, offers and POD — read the help page"
 }
