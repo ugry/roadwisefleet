@@ -33,7 +33,9 @@
 #   --self-test  fixture assertions that prove this check FAILS on a reused
 #                pilot policy, on a no-'self' policy, on a relaxed lockdown, on a
 #                future inline <script>/<style> under a strict policy, and on a
-#                declared manifest the policy blocks (board #91).
+#                declared manifest the policy blocks (board #91) — and that a
+#                comment merely *mentioning* those tags is not inline code
+#                (board #139).
 #   --help
 #
 # Exit: 0 = the policy matches the surface's real needs, 1 = it does not.
@@ -96,6 +98,17 @@ eff() { # eff <policy> <directive...> -> first directive in the chain that is pr
 has() { # has <sources-string> <token>
   if [ -z "$1" ]; then return 1; fi
   printf '%s\n' "$1" | tr ' ' '\n' | grep -qx -- "$2"
+}
+
+strip_html_comments() { # strip_html_comments <file...> -> markup on stdout, comments gone
+  # Board #139: HTML comments are documentation, not markup. A comment that
+  # *explains* the rule ("no inline script or style element here") must not be
+  # counted as inline code and fail the check it exists to protect. Slurp each
+  # file (-0777) so multi-line comments are removed too, and never touch the
+  # repo files: this check is READ-ONLY by contract, the stripping happens in
+  # the pipe. An unterminated comment runs to end-of-file in HTML, so it is
+  # stripped as well (it could only ever produce a false positive).
+  perl -0777 -pe 's/<!--.*?(?:-->|\z)//gs' "$@"
 }
 
 check_surface() {
@@ -189,8 +202,19 @@ EOF
   # 2. inline <script> / <style> vs 'unsafe-inline' — checked in BOTH directions:
   #    inline present without 'unsafe-inline' is broken; 'unsafe-inline' present
   #    with no inline code is the board-#69 "reused pilot snippet" mistake.
-  inline_scripts="$(grep -ohE '<script[^>]*>' "${files[@]}" | grep -vc 'src=' || true)"
-  inline_styles="$(grep -ohE '<style[^>]*>' "${files[@]}" | wc -l | tr -d ' ')"
+  #    Count on the comment-stripped markup (board #139): a comment that only
+  #    mentions a script/style element is not inline code. If perl is missing we
+  #    count the raw markup instead (a stripper that silently produced nothing
+  #    would pass vacuously), and say so.
+  local markup
+  if command -v perl >/dev/null 2>&1; then
+    markup="$(strip_html_comments "${files[@]}")"
+  else
+    warn "perl not available — counting the raw markup, HTML comments are not stripped (board #139)"
+    markup="$(cat "${files[@]}")"
+  fi
+  inline_scripts="$(printf '%s\n' "$markup" | grep -ohE '<script[^>]*>' | grep -vc 'src=' || true)"
+  inline_styles="$(printf '%s\n' "$markup" | grep -ohE '<style[^>]*>' | wc -l | tr -d ' ')"
   if [ "${inline_scripts:-0}" -gt 0 ]; then
     if has "$e_script" "'unsafe-inline'"; then
       ok "$inline_scripts inline <script> tag(s) allowed (script-src 'unsafe-inline')"
@@ -301,7 +325,7 @@ self_test() {
   local tmp out rc passed=0 failed=0
   local policy_app policy_solo policy_pilot policy_noself policy_relaxed
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/app-csp-selftest.XXXXXX")" || return 2
-  mkdir -p "$tmp/html_clean" "$tmp/html_inline" "$tmp/html_manifest"
+  mkdir -p "$tmp/html_clean" "$tmp/html_inline" "$tmp/html_manifest" "$tmp/html_comment"
 
   cat > "$tmp/html_clean/index.html" <<'HTML'
 <!doctype html><html><head><link rel="stylesheet" href="/app/app.css"></head>
@@ -311,6 +335,19 @@ HTML
 <!doctype html><html><head><style>body{margin:0}</style></head>
 <body><script>boot();</script></body></html>
 HTML
+  # board #139: a CLEAN surface that documents the rule in an HTML comment
+  # (multi-line, and with a one-line comment too). The comment mentions a script
+  # and a style element; neither is markup, so this surface must be ACCEPTED.
+  cat > "$tmp/html_comment/index.html" <<'HTML'
+<!doctype html><html><head><link rel="stylesheet" href="/app/app.css">
+<!--
+  No inline script or style element here: the shell loads /app/app.js and
+  /app/app.css, so script-src/style-src stay 'self' (no 'unsafe-inline').
+-->
+<!-- the one-line form: no inline <script> or <style> tag on this page -->
+</head>
+<body><script src="/app/app.js"></script></body></html>
+HTML
   # board #91: the solo surface — same-origin stylesheet + module script, NO
   # inline code, and a declared PWA manifest.
   cat > "$tmp/html_manifest/index.html" <<'HTML'
@@ -318,7 +355,7 @@ HTML
 <link rel="manifest" href="/s/manifest.webmanifest" /></head>
 <body><script type="module" src="/s/solo.js"></script></body></html>
 HTML
-  for d in html_clean html_inline html_manifest; do
+  for d in html_clean html_inline html_manifest html_comment; do
     cat > "$tmp/$d/app.js" <<'JS'
 async function api(path) { return fetch(path, { credentials: 'same-origin' }); }
 JS
@@ -380,6 +417,10 @@ JS
   run_case "the strict policy with manifest-src accepts the solo manifest surface" "$tmp/solo.conf" "$tmp/html_manifest" 0 "manifest /s/manifest.webmanifest allowed"
   # 8. board #91: dropping manifest-src blocks the manifest fetch and must FAIL
   run_case "a policy without manifest-src is rejected on a manifest surface" "$tmp/app.conf" "$tmp/html_manifest" 1 "manifest /s/manifest.webmanifest is BLOCKED"
+  # 9. board #139: a comment that only *mentions* a script/style element is not
+  #    inline code — the clean surface stays ACCEPTED (it failed before the
+  #    comments were stripped, because the comment's text was counted).
+  run_case "a comment mentioning script/style elements is not inline code" "$tmp/app.conf" "$tmp/html_comment" 0 "no inline <script> and script-src is strict"
 
   rm -rf "$tmp"
   printf '\nself-test: %d passed, %d failed\n' "$passed" "$failed"
