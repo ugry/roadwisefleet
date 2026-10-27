@@ -331,8 +331,15 @@ test('every manifest icon exists and is a PNG of the declared size', () => {
 });
 
 test('the service worker caches the shell (i18n included) and never caches API data', () => {
-  assert.match(SW, /var CACHE_NAME = 'rwf-driver-shell-v2'/);
+  // Board #138 bumped the cache because the help page joined the shell; a
+  // stale name would keep serving the old, help-less shell from cache.
+  assert.match(SW, /var CACHE_NAME = 'rwf-driver-shell-v3'/);
+  assert.doesNotMatch(SW, /rwf-driver-shell-v2/, 'the pre-help cache name must be gone');
   assert.match(SW, /\.\/driver\.html/);
+  // Board #138: help must open offline, so it is part of the shell.
+  assert.match(SW, /\.\/help\.html/, 'the help page is cached with the shell');
+  assert.match(SW, /\.\/lib\/help-content\.js/, 'the help content table is cached');
+  assert.match(SW, /\.\/lib\/help-boot\.js/, 'the help boot script is cached');
   assert.match(SW, /\.\/lib\/driver-core\.js/);
   assert.match(SW, /\.\/lib\/i18n\.js/);
   assert.match(SW, /\.\/locales\/de\.json/, 'a driver must be able to switch language offline');

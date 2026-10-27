@@ -105,6 +105,10 @@ export function trackPageHtml() {
   .flag.yes{background:oklch(0.94 0.05 155);color:var(--ok-text)}
   .flag.no{background:oklch(0.95 0.01 258);color:var(--muted-text)}
   footer{margin-top:22px;font-size:12px;color:var(--muted)}
+  /* "What is this link?" (board #138): a plain disclosure, no script. */
+  .what summary{cursor:pointer;font-weight:600;font-size:14px}
+  .what p{margin:8px 0 0;font-size:14px;color:var(--text)}
+  .what a{color:var(--accent-text);font-weight:600}
 </style>
 </head>
 <body>
@@ -116,6 +120,19 @@ export function trackPageHtml() {
   <main id="app" aria-live="polite">
     <div class="card"><p class="muted">Loading shipment status…</p></div>
   </main>
+  <!-- Board #138 (UXF-DOC2): a customer who arrives from a link must be able to
+       find out what the link is and what it does not show, without calling
+       anyone. Static markup (no second script, no fetch) so it renders even
+       when the token is invalid. -->
+  <details class="card what">
+    <summary>What is this link?</summary>
+    <p>Your carrier sent you this link so you can follow the shipment. It shows the
+      route, the current status and the status history, as the carrier updates it —
+      it never shows prices, invoices or contact details.</p>
+    <p>You do not need an account, and nothing is installed on your phone. If a
+      proof of delivery is available, this page says so.</p>
+    <p><a href="/pilot/help.html#help-customer">Read the full guide</a></p>
+  </details>
   <footer>This is a private link shared by your carrier. It shows route and status only.</footer>
 </div>
 <script>

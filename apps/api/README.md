@@ -239,6 +239,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `GET /track/:token` | — | public tracking HTML page (self-contained, no build step) for the shared link; `x-robots-tag: noindex, nofollow` |
 | `GET /pilot/*` | — | pilot-only web surface from `<repo>/pilot` (same origin, no build step) |
 | `GET /app` | — | `302` to `/app/` (the Fleet Manager mount point) |
+| `GET /app/help` | — | the Fleet Manager help page (`app/help.html`), public: no session, no token, `x-robots-tag: noindex, nofollow`, `cache-control: no-store`; a real page with its own `<title>`, never the SPA shell (board #138) |
 | `GET /app/*` | — | Fleet Manager app from `<repo>/app`: a real file when it exists, otherwise the SPA shell for a deep link (a missing asset is a `404`, never HTML); `x-robots-tag: noindex, nofollow` |
 | `POST /api/waitlist` | — | landing-page waitlist (honeypot + validation) |
 | `POST /api/customer/signup` | — | create a customer login (`name`, `email`, `password`, optional `company`/`phone`/`notifyPrefs`); creates the `Customer` + `User` + `CustomerAccount` link and attaches them to the carrier org (`CUSTOMER_HOST_ORG_ID`, else the oldest org); `201` with a bearer token whose `org` is `null`; `409 email_taken`; `400` with `field` + `messageKey` (board task #74) |
@@ -1841,6 +1842,52 @@ link=https://roadwisefleet.com/track/…
   redaction and both link builders; it also pins the emitter's catalogue to the
   transport's `EVENTS`/`CHANNELS` and to every `infra/notifications/templates`
   placeholder, so the two halves cannot drift.
+
+## Help pages (board #138, UXF-DOC2 + FAv1-SUP2b)
+
+The wave's help content was written and accepted (#50 / #83) but nothing in the
+product pointed at it: `/app/help` answered 200 with the SPA shell (no help
+content) and `/pilot/help.html` was 404. This section is the wiring.
+
+- **`/app/help`** — a real page, served by `routes/app.ts` from `app/help.html`
+  (`shellHtml()`'s sibling `helpHtml()` in `src/app-shell.js`; the path is the
+  exported `HELP_PATH`). Public on purpose: a dispatcher must be able to read it
+  before signing in. It is a static-file route, so Fastify answers it before the
+  `/app/*` wildcard can fall back to the shell; a missing asset under `/app/*` is
+  still a real 404.
+- **`/pilot/help.html`** — the pilot mount of the same page, served by the pilot
+  static root and added to `pilot/sw.js`'s `SHELL`, so a driver can read it with
+  no signal (the cache name moved to `rwf-driver-shell-v3`).
+- **One content table.** `pilot/lib/help-content.js` holds the sections and their
+  i18n keys; `pilot/lib/help-boot.js` boots the shared i18n runtime against the
+  surface's own catalogue (`data-surface` / `data-locales` on `<html>`) and
+  renders `#helpBody`, re-rendering on a language switch. The status list is
+  rendered from the catalogue's existing `trips.status.*` (app) and `status.*`
+  (pilot) labels and mirrors `TRIP_STATUSES`, so a status cannot appear
+  unlabelled.
+- **Links** — Fleet Manager top bar on every authenticated screen plus the sign-in
+  and signup cards; pilot dashboard header, driver header and driver sign-in; the
+  solo first-run screen (`/pilot/help.html#help-solo`); and a "What is this link?"
+  disclosure on the public tracking page (`track-page.js`, static markup — the
+  page still has exactly one inline script) linking to `#help-customer`.
+- **i18n** — every new string is a catalogue key in all four languages
+  (`app/locales/*.json`, `pilot/locales/*.json`); the solo page's link label is in
+  `solo/locales/en.json` (the solo surface ships EN only).
+- **Copy rule (R50)** — no help string promises notifications, SMS or WhatsApp;
+  the one place those words appear says they are not part of the pilot.
+- **Tests** — `src/help-content.test.js` (no-install job) fails on a missing or
+  empty key in any catalogue of either surface, on a status list that drifts from
+  the state machine, on an unlabelled status, and on a copy promise; it also pins
+  the links on every surface above. `test/help-routes.test.ts` (in `test:router`)
+  proves status + size + a content marker, a title distinct from the shell, no
+  `Set-Cookie`, and that the help route no longer answers with the shell.
+
+**Content provenance.** The issue pointed at `pilot-docs/uxf-doc1/` in Charlene's
+workspace. Access isolation forbids me reading another agent's workspace, so this
+copy was written from the shipped surfaces (`trip-status.js`, `track-page.js`,
+`solo/*`, the app/pilot screens) and every statement is grounded there. If #83's
+editorial copy is landed in the repo later, it replaces the catalogue values —
+the page structure does not change.
 
 ## Deliberately missing (until the right phase)
 - password reset (board task #125 ships email verification and passwordless

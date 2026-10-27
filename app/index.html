@@ -42,6 +42,9 @@
       <button class="primary" id="loginSubmit" type="submit" data-i18n="login.submit">Sign in</button>
     </form>
     <a class="secondary" id="loginToSignup" href="/app/signup" data-i18n="login.createAccount">Register</a>
+    <!-- Board #138: a non-technical person who is stuck must reach help from the
+         sign-in screen, before they have an account. -->
+    <p class="helper"><a id="loginToHelp" href="/app/help" data-i18n="help.openNoSignIn"></a></p>
   </div>
 </section>
 
@@ -107,6 +110,8 @@
       <button class="primary" id="signupSubmit" type="submit" data-i18n="signup.submit">Register</button>
     </form>
     <p class="helper"><a id="signupToLogin" href="/app/login" data-i18n="signup.haveAccount"></a></p>
+    <!-- Board #138: the same help affordance on the public signup screen. -->
+    <p class="helper"><a id="signupToHelp" href="/app/help" data-i18n="help.openNoSignIn"></a></p>
   </div>
 </section>
 
@@ -127,6 +132,9 @@
     </p>
     <span class="spacer"></span>
     <span class="lang-slot" id="langSlot"></span>
+    <!-- Board #138: help is on every authenticated screen, without a session
+         round-trip — the page is public and self-contained. -->
+    <a class="ghost" id="helpTopbar" href="/app/help" data-i18n="help.open">Help</a>
     <button class="ghost" id="logout" type="button" data-i18n="common.signOut">Sign out</button>
   </header>
 

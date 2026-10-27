@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" data-surface="app" data-locales="/app/locales/">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title data-i18n="help.documentTitle">Help — RoadwiseFleet</title>
+<link rel="stylesheet" href="/app/app.css">
+</head>
+<body>
+<!-- =====================================================================
+     Help (board #138, UXF-DOC2 + FAv1-SUP2b).
+
+     A real page, not the SPA fallback: `/app/help` is served by
+     apps/api/src/routes/app.ts from this file, so it renders without a
+     session and without app.js. Served under the strict /app/ CSP, therefore
+     no inline script or style element here (infra/checks/app-csp-check.sh fails
+     the build if one appears) — the styles are in app.css and the behaviour
+     in /pilot/lib/help-boot.js.
+
+     Every string is an i18n key (EN/DE/PL/TR). The body is rendered by
+     /pilot/lib/help-content.js, the same table /pilot/help.html uses.
+     ===================================================================== -->
+<a class="skip-link" href="#helpMain" data-i18n="app.skipToContent">Skip to content</a>
+
+<header class="topbar">
+  <p class="brand-line">
+    <span class="brand" data-i18n="brand.name">RoadwiseFleet</span>
+    <span class="tag" data-i18n="brand.appTag">Fleet Manager</span>
+  </p>
+  <span class="spacer"></span>
+  <span class="lang-slot" id="langSlot"></span>
+  <a class="ghost" id="helpBack" href="/app/" data-i18n="help.backApp">Back to Fleet Manager</a>
+</header>
+
+<main class="content help" id="helpMain">
+  <h1 data-i18n="help.title">Help</h1>
+  <p class="lead" data-i18n="help.lead"></p>
+  <div id="helpBody"></div>
+  <p class="helper" data-i18n="help.contact"></p>
+</main>
+
+<!-- Shared i18n runtime + the one help-content table, then the boot that
+     renders it. All same-origin, so the strict CSP covers them. -->
+<script src="/pilot/lib/i18n.js"></script>
+<script src="/pilot/lib/i18n-ui.js"></script>
+<script src="/pilot/lib/help-content.js"></script>
+<script src="/pilot/lib/help-boot.js"></script>
+</body>
+</html>
