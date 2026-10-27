@@ -2,7 +2,9 @@ import { createReadStream } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import {
   APP_PREFIX,
+  HELP_PATH,
   contentTypeFor,
+  helpHtml,
   resolveAppFile,
   servesShell,
   shellHtml,
@@ -15,6 +17,7 @@ import {
  *   GET /app           -> 301 /app/
  *   GET /login         -> 302 /app/login   (public entry point, board #86)
  *   GET /signup        -> 302 /app/signup  (public entry point, board #86)
+ *   GET /app/help      -> the help page (app/help.html), public, board #138
  *   GET /app/*         -> the file under <repo>/app when it exists, otherwise
  *                         the shell (SPA fallback) so deep links work and the
  *                         client-side guard decides where the person goes.
@@ -41,6 +44,20 @@ export async function appRoutes(app: FastifyInstance) {
   // redirects into the app, which serves the shell and runs the client guard.
   app.get('/login', async (_req, reply) => reply.redirect('/app/login', 302));
   app.get('/signup', async (_req, reply) => reply.redirect('/app/signup', 302));
+
+  // The help page (board #138, UXF-DOC2 + FAv1-SUP2b). Public on purpose: a
+  // person must be able to read help before they can sign in, so this route
+  // takes no session and no token. It is served before the `/app/*` wildcard
+  // matters (a static route beats a wildcard in Fastify's router) and returns
+  // `app/help.html`, never the SPA shell — otherwise `/app/help` would answer
+  // 200 with the login screen, which is the defect this task exists to fix.
+  app.get(HELP_PATH, async (_req, reply) =>
+    reply
+      .header('x-robots-tag', 'noindex, nofollow')
+      .header('cache-control', 'no-store')
+      .type('text/html; charset=utf-8')
+      .send(helpHtml())
+  );
 
   app.get('/app/*', async (req, reply) => {
     const relPath = (req.params as Record<string, string>)['*'] ?? '';

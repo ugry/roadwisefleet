@@ -81,6 +81,13 @@
         <button id="showSignup" type="button" data-i18n="solo.login.createAccount">New here? Create a driver account</button>
         <button id="showLogin" type="button" hidden data-i18n="solo.signup.haveAccount">I already have an account</button>
         <p id="signupMsg" class="alert error" role="alert"></p>
+
+        <!-- Board #138 (UXF-DOC2): the first-run help, reachable before an
+             account exists — the solo driver guide and the customer tracking
+             guide live on the shared help page. -->
+        <p class="muted" id="soloHelpRow">
+          <a id="soloHelpLink" href="/pilot/help.html#help-solo" data-i18n="solo.help.link">First run, beacon, offers and POD — read the help page</a>
+        </p>
       </section>
 
       <section id="appView" hidden>

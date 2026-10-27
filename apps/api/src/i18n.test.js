@@ -37,7 +37,9 @@ const root = resolve(here, '../../..');
 const localesDir = resolve(root, 'pilot/locales');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 
-const PAGES = ['pilot/index.html', 'pilot/dashboard.html', 'pilot/driver.html'];
+// Board #138: the help page is a fourth pilot page whose chrome is translated
+// from the same catalogue; scanning it keeps its links and labels honest.
+const PAGES = ['pilot/index.html', 'pilot/dashboard.html', 'pilot/driver.html', 'pilot/help.html'];
 
 /** @type {Record<string, Record<string, string>>} */
 const CATALOGS = {};
@@ -421,7 +423,11 @@ test('the driver core ships keys, not English labels', () => {
 // renders that a catalogue does not carry, fails the build.
 
 const APP_LOCALES = 'app/locales';
-const APP_SOURCES = ['app/index.html', 'app/app.js', 'app/lib/app-core.js', 'app/lib/trips.js'];
+// Board #138: `app/help.html` is the app's second real page (the first that is
+// not the shell), so its chrome is covered by the same key-existence gate. The
+// help *body* is rendered from `pilot/lib/help-content.js`; its keys are gated
+// by `help-content.test.js`, which walks the table instead of the markup.
+const APP_SOURCES = ['app/index.html', 'app/help.html', 'app/app.js', 'app/lib/app-core.js', 'app/lib/trips.js'];
 
 /** @type {Record<string, Record<string, string>>} */
 const APP_CATALOGS = {};

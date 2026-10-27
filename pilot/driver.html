@@ -165,6 +165,8 @@
     <span class="lang-slot" id="langSlot"></span>
     <button id="installBtn" class="ghost small hidden" type="button" data-i18n="driver.install"></button>
     <a class="ghost-link" href="index.html" data-i18n="nav.pilotHome"></a>
+    <!-- Board #138: help from the driver header, on every screen of the app. -->
+    <a class="ghost-link" href="help.html" data-i18n="help.open"></a>
   </div>
   <div id="syncBar" class="syncbar state-synced" role="status" aria-live="polite">
     <span class="dot" aria-hidden="true"></span>
@@ -187,6 +189,9 @@
       <input id="password" name="password" type="password" required autocomplete="current-password">
       <div style="margin-top:16px"><button class="primary" type="submit" style="width:100%" data-i18n="common.signIn"></button></div>
     </form>
+    <!-- Board #138: a driver who cannot sign in needs the help page from here,
+         not from a screen behind the login. -->
+    <p class="muted"><a href="help.html" data-i18n="help.openNoSignIn"></a></p>
   </section>
 
   <section id="app" class="hidden">
