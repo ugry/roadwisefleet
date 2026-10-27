@@ -14,7 +14,7 @@
      A real page, not the SPA fallback: `/app/help` is served by
      apps/api/src/routes/app.ts from this file, so it renders without a
      session and without app.js. Served under the strict /app/ CSP, therefore
-     no inline <script> or <style> here (infra/checks/app-csp-check.sh fails
+     no inline script or style element here (infra/checks/app-csp-check.sh fails
      the build if one appears) — the styles are in app.css and the behaviour
      in /pilot/lib/help-boot.js.
 
