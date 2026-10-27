@@ -14,9 +14,14 @@
  */
 'use strict';
 
-var CACHE_NAME = 'rwf-driver-shell-v2';
+var CACHE_NAME = 'rwf-driver-shell-v3';
 var SHELL = [
   './driver.html',
+  // Board #138: the help page and its two shared scripts are part of the shell
+  // so a driver can read help with no signal.
+  './help.html',
+  './lib/help-content.js',
+  './lib/help-boot.js',
   './lib/driver-core.js',
   './lib/i18n.js',
   './lib/i18n-ui.js',

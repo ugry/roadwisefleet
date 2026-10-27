@@ -49,7 +49,9 @@ test('GET /pilot/sw.js is served as JavaScript (a service worker needs a JS MIME
   const res = await app.inject({ method: 'GET', url: '/pilot/sw.js' });
   assert.equal(res.statusCode, 200);
   assert.match(String(res.headers['content-type']), /javascript/);
-  assert.match(res.payload, /rwf-driver-shell-v2/);
+  // Board #138: the help page joined the shell, so the cache name moved on.
+  assert.match(res.payload, /rwf-driver-shell-v3/);
+  assert.doesNotMatch(res.payload, /rwf-driver-shell-v2/, 'the pre-help cache name must be gone');
   assert.match(res.payload, /addEventListener\('fetch'/);
 });
 
