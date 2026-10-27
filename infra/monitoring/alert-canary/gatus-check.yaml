@@ -1,0 +1,33 @@
+# Gatus check for the alert-drill canary (board eila/tasks#10).
+#
+# The `endpoints:` entry below is complete and safe to paste on its own. The
+# `alerts:` block is COMMENTED ON PURPOSE: the alert provider (relay) contract is
+# not in this repo yet (README.md §2 config-as-code gap), so writing it from
+# memory could produce an invalid Gatus config and take the whole status page
+# down on reload. Copy the provider block from an existing endpoint instead —
+# that is also what makes the drill prove the real relay -> #eila-alerts + ugur@
+# path rather than a private side channel.
+#
+# Steps (owner/orchestrator, elilavps1):
+#   1. paste the endpoint block into the live Gatus config, keeping the SAME
+#      `alerts:` provider block the neighbouring checks use;
+#   2. reload/restart Gatus; confirm "alert-drill canary" appears on
+#      https://status.elilaltd.com and evaluates green;
+#   3. install the canary unit (see eila-alert-canary.service header).
+#
+# failure-threshold 3 means ~3 x interval before it alerts, so one restart can
+# never page anyone; with a 30s interval the drill alerts in ~90-120s.
+#
+# Read the verdict as `results[-1].success` — the endpoint's top-level `success`
+# field is last-known state, not the health verdict this drill asserts on.
+
+- name: alert-drill canary
+  group: ops
+  url: "tcp://127.0.0.1:8099"
+  interval: 30s
+  conditions:
+    - "[CONNECTED] == true"
+  # alerts:
+  #   - type: <copy the provider block from an existing endpoint verbatim>
+  #     failure-threshold: 3
+  #     success-threshold: 1
