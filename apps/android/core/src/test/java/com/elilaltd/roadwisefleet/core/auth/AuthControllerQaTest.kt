@@ -85,6 +85,10 @@ class AuthControllerQaTest {
             ApiResult.HttpFailure(401, "invalid_code")
 
         override suspend fun emailOtpAvailable(): ApiResult<Boolean> = codeAvailableResult
+
+        // Board #142: this QA fake never exercises deletion; it must still
+        // satisfy the interface so the suite keeps compiling.
+        override suspend fun deleteAccount(): ApiResult<Unit> = ApiResult.Ok(Unit)
     }
 
     private class FakeKeys(private val available: Boolean = true) : DeviceKeyMaterial {

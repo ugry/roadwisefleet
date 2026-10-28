@@ -10,6 +10,7 @@ import { createLoginLimiter } from '../login-limit.js';
 import { resolveClientIp } from '../client-ip.js';
 import { OWNER_ROLE, REGISTER_AUDIT_ACTION } from '../registration.js';
 import { createCustomerAccount, createFleetAccount, createSoloAccount } from '../registration-accounts.js';
+import { isDeletedAccount } from '../account-deletion.js';
 // The account-type catalogue is shared with the browser (board task #111).
 import accountTypes from '../../../../app/lib/account-types.js';
 // The signup validation is shared with the browser. The file is UMD (a classic
@@ -328,6 +329,17 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.get('/auth/me', { preHandler: requireAuth(env.AUTH_SECRET) }, async (req, reply) => {
+    // A deleted account keeps no session (board #142): the stateless bearer
+    // token stays signature-valid until it expires, so the tombstone is checked
+    // wherever the account itself is read back. The app clears its stored token
+    // on a 401 and returns to the login screen.
+    const row = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { deletedAt: true, email: true, passwordHash: true },
+    });
+    if (!row || isDeletedAccount(row)) {
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
     return reply.send({ user: req.user });
   });
 }

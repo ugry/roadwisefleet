@@ -246,5 +246,15 @@
   "auth.signOut.body": "Das Gerät wird widerrufen. Beim nächsten Mal brauchen Sie Ihr Passwort.",
   "auth.role.driver": "Fahrer",
   "auth.role.solo": "Einzelfahrer",
-  "common.cancel": "Abbrechen"
+  "common.cancel": "Abbrechen",
+  "auth.deleteAccount.section": "Konto löschen",
+  "auth.deleteAccount.sectionBody": "Dieses Konto dauerhaft anonymisieren. Fahrten- und Lieferbelege bleiben ohne Ihren Namen erhalten.",
+  "auth.deleteAccount.open": "Konto löschen",
+  "auth.deleteAccount.title": "Dieses Konto löschen?",
+  "auth.deleteAccount.body": "Name, E-Mail, Telefonnummer, Passwort und Zwei-Faktor-Geheimnis werden gelöscht und jedes angemeldete Telefon wird gesperrt. Danach ist keine Anmeldung mehr möglich.",
+  "auth.deleteAccount.retained": "Ohne Ihren Namen erhalten: Fahrtendaten, Lieferbelege und bereits abgegebene oder erhaltene Bewertungen.",
+  "auth.deleteAccount.confirmLabel": "Zur Bestätigung DELETE eingeben",
+  "auth.deleteAccount.confirm": "Konto löschen",
+  "auth.deleteAccount.error": "Das Konto konnte nicht gelöscht werden. Bitte erneut versuchen.",
+  "auth.deleteAccount.done": "Ihr Konto wurde gelöscht. Eine Anmeldung ist nicht mehr möglich."
 }

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>Delete your account — RoadwiseFleet</title>
+<meta name="description" content="Request deletion of your RoadwiseFleet account without the mobile app. Your account is anonymised immediately; trip and delivery records are kept as the carrier's operational record.">
+<link rel="canonical" href="https://roadwisefleet.com/delete-account/">
+<!--
+  Account deletion, web half (board task #142, AND1-A3 — Play release blocker).
+
+  Google Play requires an app that lets people create accounts to offer BOTH an
+  in-app deletion path and a web deletion URL reachable WITHOUT the app. This is
+  that URL: https://roadwisefleet.com/delete-account/
+  It is served by the existing static root (web/ -> /var/www/roadwisefleet), so
+  it needs no new nginx location, and it is noindex on purpose.
+
+  It calls the same endpoint the Android app calls — DELETE /api/account — so the
+  two paths cannot drift. The page is self-contained (no CDN, no third-party
+  script) because it handles a password.
+-->
+<style>
+:root{
+  --navy:#0b1e33; --navy-2:#142a48; --ink:#142433; --ink-2:#3b4c5e;
+  --muted:#5c6b7f; --canvas:#f4f6f8; --surface:#ffffff;
+  --border:#e3e8ee; --border-strong:#ccd6e0;
+  --amber:#f5a623; --amber-soft:#fcf3e2; --amber-line:#f0dcb4;
+  --success:#16a05c; --danger:#c02f2f; --danger-soft:#fdf0ef;
+  --font-body:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --font-display:"Barlow Condensed","Barlow","Arial Narrow",sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none !important}
+body{
+  font-family:var(--font-body);font-size:16px;line-height:1.55;color:var(--ink);
+  background:var(--canvas);min-height:100vh;padding:0 16px 64px;
+}
+a{color:var(--navy-2)}
+a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:3px solid var(--navy-2);outline-offset:2px;
+}
+.site-header{background:var(--navy);color:#fff;margin:0 -16px 0;padding:14px 16px}
+.site-header .brand{
+  display:inline-flex;align-items:center;gap:10px;color:#fff;text-decoration:none;
+  font-family:var(--font-display);font-size:20px;letter-spacing:.04em;text-transform:uppercase;
+}
+.site-header .brand-dot{width:10px;height:10px;border-radius:50%;background:var(--amber);display:inline-block}
+main{max-width:720px;margin:32px auto 0}
+h1{font-family:var(--font-display);font-size:34px;line-height:1.15;letter-spacing:.01em;margin-bottom:12px}
+h2{font-size:19px;line-height:1.3;margin:28px 0 10px}
+p{margin-bottom:12px;color:var(--ink-2)}
+.lede{font-size:17px;color:var(--ink)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-top:24px}
+label{display:block;font-weight:600;font-size:14px;margin-bottom:6px;color:var(--ink)}
+.field{margin-bottom:18px}
+input[type="email"],input[type="password"],input[type="text"]{
+  width:100%;min-height:46px;padding:10px 12px;font:inherit;font-size:16px;
+  color:var(--ink);background:#fff;border:1px solid var(--border-strong);border-radius:8px;
+}
+input[type="email"]:focus,input[type="password"]:focus,input[type="text"]:focus{
+  border-color:var(--navy-2);
+}
+.hint{font-size:13px;color:var(--muted);margin-top:6px}
+.confirm{margin-bottom:18px}
+.confirm label{font-weight:600}
+.checkbox{display:flex;gap:10px;align-items:flex-start;font-size:15px;color:var(--ink-2)}
+.checkbox input{width:20px;height:20px;margin-top:2px;flex:0 0 auto;accent-color:var(--navy)}
+button{
+  min-height:48px;padding:12px 22px;font:inherit;font-weight:600;border-radius:8px;
+  border:1px solid transparent;cursor:pointer;
+}
+button[type="submit"]{background:var(--danger);color:#fff}
+button[type="submit"]:hover:not([disabled]){background:#a52626}
+button[type="submit"][disabled]{background:#d8b4b4;cursor:not-allowed}
+.status{margin-top:18px;border-radius:8px;padding:12px 14px;font-size:15px}
+.status.info{background:var(--amber-soft);border:1px solid var(--amber-line);color:#6b4a12}
+.status.error{background:var(--danger-soft);border:1px solid #f1c9c7;color:#8d2222}
+.status.success{background:#eefaf3;border:1px solid #bfe8d2;color:#0d6b3d}
+ul.retained{margin:8px 0 0 20px;color:var(--ink-2)}
+ul.retained li{margin-bottom:8px}
+.note{font-size:14px;color:var(--muted);margin-top:8px}
+footer{max-width:720px;margin:36px auto 0;font-size:14px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a class="brand" href="/"><span class="brand-dot" aria-hidden="true"></span>RoadwiseFleet</a>
+</header>
+
+<main>
+  <h1>Delete your RoadwiseFleet account</h1>
+  <p class="lede">
+    You can delete your account here, on the web, without the mobile app — or from
+    <strong>More → Delete account</strong> inside the app. Both paths do exactly the same thing.
+  </p>
+
+  <section class="card" id="startPanel">
+    <h2>What happens when you delete</h2>
+    <p>
+      Your account is <strong>anonymised immediately</strong>. Your name, e-mail address, phone
+      number, password and two-factor secret are erased, every phone that was signed in to your
+      account is revoked, and you are signed out everywhere.
+    </p>
+    <p>Some records have to stay, because they document work that was already carried out:</p>
+    <ul class="retained">
+      <li><strong>Trip records</strong> — routes, stops, status history and rates, kept as the carrier's operational record.</li>
+      <li><strong>Delivery evidence</strong> — proof of delivery, eCMR, invoice scans and photos.</li>
+      <li><strong>Reviews</strong> you already gave or received, shown against the carrier, not your name.</li>
+    </ul>
+    <p class="note">
+      Those records are no longer linked to your name. How long they are kept is set by the
+      carrier's accounting and legal obligations; we do not delete them on request because they
+      evidence work performed and amounts invoiced.
+    </p>
+
+    <h2>Confirm it is you</h2>
+    <form id="deleteForm" novalidate>
+      <div class="field">
+        <label for="email">Account e-mail</label>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="field confirm">
+        <label for="confirmText">Type DELETE to confirm</label>
+        <input id="confirmText" name="confirmText" type="text" autocomplete="off" spellcheck="false" required>
+        <p class="hint">This cannot be undone. There is no way to recover an anonymised account.</p>
+      </div>
+      <div class="field checkbox">
+        <input id="understand" name="understand" type="checkbox" required>
+        <label for="understand" style="font-weight:400;margin:0">
+          I understand that my account is anonymised permanently and that the trip and delivery
+          records listed above are kept.
+        </label>
+      </div>
+      <button type="submit" id="submitBtn">Delete my account</button>
+      <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    </form>
+  </section>
+
+  <section class="card" id="donePanel" hidden>
+    <h2>Your account has been deleted</h2>
+    <p id="doneText">
+      Your personal details have been erased and every device signed in to this account has been
+      revoked. You can no longer sign in with it, and you may register the same e-mail address
+      again if you choose.
+    </p>
+    <p>The following records were kept, without your name attached to them:</p>
+    <ul class="retained" id="retainedList"></ul>
+  </section>
+
+  <p class="note" id="fallbackNote">
+    Cannot sign in, or need help with a deletion request?
+    <a href="mailto:hello@roadwisefleet.com">Contact us</a>.
+  </p>
+</main>
+
+<footer>
+  <p>RoadwiseFleet · this page is the web deletion path required for the Android app.</p>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var form = document.getElementById('deleteForm');
+  var status = document.getElementById('status');
+  var donePanel = document.getElementById('donePanel');
+  var startPanel = document.getElementById('startPanel');
+  var submitBtn = document.getElementById('submitBtn');
+  var retainedList = document.getElementById('retainedList');
+
+  var RETENTION_COPY = {
+    trips: 'Trip records (routes, stops, status history, rates).',
+    documents: 'Delivery evidence (proof of delivery, eCMR, invoice scans, photos).',
+    reviews: 'Reviews you already gave or received.'
+  };
+
+  function say(kind, message) {
+    status.className = 'status ' + kind;
+    status.textContent = message;
+    status.hidden = false;
+  }
+
+  function clearStatus() {
+    status.hidden = true;
+    status.textContent = '';
+  }
+
+  function errorFor(res, payload) {
+    if (res.status === 401) return 'That e-mail and password do not match an active account.';
+    if (res.status === 400) return 'Please fill in your e-mail and password.';
+    if (res.status === 429) return 'Too many attempts. Please wait a minute and try again.';
+    if (payload && payload.error === 'unauthorized') return 'Your session expired. Please try again.';
+    return 'Something went wrong (' + res.status + '). Please try again, or e-mail us.';
+  }
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    clearStatus();
+
+    var email = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
+    var confirmation = document.getElementById('confirmText').value.trim();
+    var understood = document.getElementById('understand').checked;
+
+    if (!email || !password) {
+      say('error', 'Please enter your e-mail and password.');
+      return;
+    }
+    if (confirmation !== 'DELETE') {
+      say('error', 'Type DELETE in the confirmation box to continue.');
+      document.getElementById('confirmText').focus();
+      return;
+    }
+    if (!understood) {
+      say('error', 'Please confirm that you understand what is deleted and what is kept.');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    say('info', 'Signing you in…');
+
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ email: email, password: password })
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (payload) {
+        if (!res.ok || !payload.token) {
+          throw new Error(errorFor(res, payload));
+        }
+        return payload.token;
+      });
+    }).then(function (token) {
+      say('info', 'Deleting your account…');
+      return fetch('/api/account', {
+        method: 'DELETE',
+        headers: { accept: 'application/json', authorization: 'Bearer ' + token }
+      }).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (payload) {
+          if (!res.ok) throw new Error(errorFor(res, payload));
+          return payload;
+        });
+      });
+    }).then(function (payload) {
+      // Never keep the password or the session token around after success.
+      document.getElementById('password').value = '';
+      document.getElementById('confirmText').value = '';
+      retainedList.textContent = '';
+      (payload.retained || []).forEach(function (entry) {
+        var item = document.createElement('li');
+        item.textContent = RETENTION_COPY[entry.type] || entry.description || entry.type;
+        retainedList.appendChild(item);
+      });
+      startPanel.hidden = true;
+      donePanel.hidden = false;
+      donePanel.setAttribute('tabindex', '-1');
+      donePanel.focus();
+    }).catch(function (err) {
+      say('error', err && err.message ? err.message : 'Something went wrong. Please try again.');
+      submitBtn.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

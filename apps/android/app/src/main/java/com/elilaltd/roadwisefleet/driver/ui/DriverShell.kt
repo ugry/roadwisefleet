@@ -66,6 +66,7 @@ fun DriverShell(
     versionName: String,
     noticeKey: String?,
     onSignOut: suspend () -> Unit,
+    onDeleteAccount: suspend () -> String?,
 ) {
     val container = LocalAppContainer.current
     val navController = rememberNavController()
@@ -145,6 +146,7 @@ fun DriverShell(
                         versionName = versionName,
                         noticeKey = noticeKey,
                         onSignOut = { scope.launch { onSignOut() } },
+                        onDeleteAccount = onDeleteAccount,
                     )
                 }
                 }

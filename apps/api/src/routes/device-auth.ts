@@ -49,6 +49,11 @@ export async function deviceAuthRoutes(app: FastifyInstance) {
   // can only ever bind their OWN device, never somebody else's.
   app.post('/auth/device/register', { preHandler: auth }, async (req, reply) => {
     const user = req.user!;
+    // A deleted account never binds another device (board #142): its stateless
+    // token stays signature-valid until it expires, so the tombstone is re-checked
+    // here rather than trusting the token's claim alone.
+    const row = await prisma.user.findUnique({ where: { id: user.id }, select: { deletedAt: true } });
+    if (!row || row.deletedAt) return reply.code(401).send({ error: 'unauthorized' });
     const normalized = normalizeRegistration(req.body ?? {});
     if (!normalized.ok) {
       return reply
