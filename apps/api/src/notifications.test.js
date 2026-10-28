@@ -29,6 +29,7 @@ import {
   emitEvent,
   formatEta,
   formatMoney,
+  isAssignmentChange,
   lifecycleVars,
   logLine,
   normalizePrefs,
@@ -447,4 +448,36 @@ test('the transport catalogue lists the same eight events', () => {
   const channels = /^CHANNELS=\((.*)\)$/m.exec(script);
   assert.ok(channels, 'the transport must declare its CHANNELS list');
   assert.deepEqual(channels[1].trim().split(/\s+/).sort(), [...NOTIFY_CHANNELS].sort());
+});
+
+/* ------------------------------------------- assignment idempotency (#136) --- */
+
+test('isAssignmentChange: only a different driver is a change', () => {
+  assert.equal(isAssignmentChange('driver_a', 'driver_b'), true, 'a new driver is a change');
+  assert.equal(isAssignmentChange(null, 'driver_b'), true, 'first assignment is a change');
+  assert.equal(isAssignmentChange('driver_b', 'driver_b'), false, 'same driver is a no-op');
+  assert.equal(isAssignmentChange('driver_b', null), true, 'clearing the driver is a change');
+  assert.equal(isAssignmentChange(null, null), false, 'no driver either side is a no-op');
+  assert.equal(isAssignmentChange(undefined, null), false, 'undefined means "no driver" too');
+  assert.equal(isAssignmentChange(undefined, 'driver_b'), true);
+});
+
+test('the assign route hands the pre-assignment driver to the hook (board #136)', () => {
+  // The emitter cannot decide idempotency without the previous driver, and the
+  // envelope-level proof lives in `test/notification-hooks.test.ts` (it needs
+  // `tsx`); this guard keeps the CI-covered half honest: the route really
+  // passes the pre-assignment driver, and the create path does not.
+  const source = readFileSync(join(HERE, 'routes/trips.ts'), 'utf8');
+  const calls = [...source.matchAll(/notifyDriverAssigned\(prisma,\s*\{([\s\S]*?)\}\s*\)/g)].map(
+    (m) => m[1],
+  );
+  assert.ok(calls.length > 0, 'the trips route must call the driver-assigned hook');
+  const assignCall = calls.find((block) => block.includes('previousDriverId'));
+  assert.ok(assignCall, 'the assign route must pass the pre-assignment driver id');
+  assert.match(assignCall, /previousDriverId:\s*result\.previousDriverId/);
+  assert.match(assignCall, /trip:\s*result\.trip/);
+  // The create-trip call is a new assignment: it must NOT claim a previous driver.
+  const createCall = calls.find((block) => !block.includes('previousDriverId'));
+  assert.ok(createCall, 'the create-trip call must stay previous-driver-free');
+  assert.match(createCall, /tripId:\s*result\.trip\.id/);
 });
