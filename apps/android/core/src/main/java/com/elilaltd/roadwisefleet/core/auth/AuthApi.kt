@@ -49,4 +49,11 @@ interface AuthApi {
 
     /** `POST /api/auth/device/revoke` (bearer) — lost-phone / sign-out revoke. */
     suspend fun revokeDevice(credentialId: String): ApiResult<Unit>
+
+    /**
+     * `DELETE /api/account` (bearer) — the Play-required account deletion
+     * (board #142). Anonymises the account in place, revokes every device and
+     * leaves the trip/document records to the carrier's retention policy.
+     */
+    suspend fun deleteAccount(): ApiResult<Unit>
 }

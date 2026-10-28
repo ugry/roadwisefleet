@@ -252,5 +252,15 @@
   "auth.signOut.body": "To unieważni to urządzenie. Następnym razem potrzebne będzie hasło.",
   "auth.role.driver": "Kierowca",
   "auth.role.solo": "Kierowca solo",
-  "common.cancel": "Anuluj"
+  "common.cancel": "Anuluj",
+  "auth.deleteAccount.section": "Usuń konto",
+  "auth.deleteAccount.sectionBody": "Trwale anonimizuj to konto. Rekordy tras i dowody dostawy pozostają bez Twojego imienia.",
+  "auth.deleteAccount.open": "Usuń konto",
+  "auth.deleteAccount.title": "Usunąć to konto?",
+  "auth.deleteAccount.body": "Imię i nazwisko, e-mail, telefon, hasło i sekret dwuetapowy zostaną usunięte, a każdy zalogowany telefon odłączony. Po tej operacji nie będzie można się zalogować.",
+  "auth.deleteAccount.retained": "Zachowane bez Twojego imienia: rekordy tras, dowody dostawy oraz wystawione lub otrzymane opinie.",
+  "auth.deleteAccount.confirmLabel": "Wpisz DELETE, aby potwierdzić",
+  "auth.deleteAccount.confirm": "Usuń konto",
+  "auth.deleteAccount.error": "Nie udało się usunąć konta. Spróbuj ponownie.",
+  "auth.deleteAccount.done": "Twoje konto zostało usunięte. Nie można już się nim zalogować."
 }

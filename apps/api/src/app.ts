@@ -22,6 +22,7 @@ import { marketplaceRoutes } from './routes/marketplace.js';
 import { soloAppRoutes } from './routes/solo-app.js';
 import { soloRoutes } from './routes/solo.js';
 import { reviewRoutes } from './routes/reviews.js';
+import { accountRoutes } from './routes/account.js';
 import { serverOptions } from './server-options.js';
 import { createGpsHub } from './gps-stream.js';
 
@@ -65,6 +66,10 @@ export function buildServer(options: { emailSender?: any; otpSchedule?: (task: (
   // Email one-time codes (board task #125): passwordless sign-in codes and email
   // confirmation, delivered through the #124 SMTP contract.
   app.register(emailOtpRoutes, { prefix: '/api', sender: options.emailSender, schedule: options.otpSchedule });
+  // Account deletion (board task #142, AND1-A3 — Play release blocker):
+  // `DELETE /api/account` anonymises the signed-in account without touching
+  // trip/document records (retention stays the owner decision on #13/#46).
+  app.register(accountRoutes, { prefix: '/api' });
   app.register(waitlistRoutes, { prefix: '/api' });
   app.register(tripRoutes, { prefix: '/api' });
   app.register(dashboardRoutes, { prefix: '/api' });

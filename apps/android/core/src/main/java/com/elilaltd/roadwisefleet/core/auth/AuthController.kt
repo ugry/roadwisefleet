@@ -33,6 +33,10 @@ sealed interface AuthState {
  *   requestCode() / verifyCode() — the SAME gate and device registration, fed by
  *               an emailed one-time code instead of a password (board #125).
  *   signOut() — best-effort revoke -> clear session + credential -> login.
+ *   deleteAccount() — board #142: the Play-required deletion. The API call runs
+ *               with the CURRENT token, then the session and the device
+ *               credential are dropped and the login screen explains what
+ *               happened. A failure keeps the session so the driver can retry.
  *
  * Everything it calls is an interface, so the whole machine is unit-tested with
  * a fake API, a fake key material and an in-memory store.
@@ -189,6 +193,30 @@ class AuthController(
         }
         session.clear()
         _state.value = AuthState.SignedOut()
+    }
+
+    /**
+     * Delete the signed-in account (board #142). Returns `null` on success, else
+     * the catalogue key the screen shows.
+     *
+     * The server call happens FIRST: the route authenticates with the session
+     * token, and the local session must survive a failed call (a network blip
+     * must not silently look like a deletion). Only a confirmed 200 clears the
+     * session — and it clears the device credential with it, because the server
+     * has just revoked every credential of this account anyway.
+     */
+    suspend fun deleteAccount(): String? {
+        return when (val result = api.deleteAccount()) {
+            is ApiResult.Ok -> {
+                session.clear()
+                _state.value = AuthState.SignedOut(AuthRules.NOTICE_DELETED)
+                null
+            }
+            is ApiResult.NetworkFailure -> AuthRules.ERROR_NETWORK
+            is ApiResult.HttpFailure ->
+                if (result.status == 0) AuthRules.ERROR_NETWORK
+                else AuthRules.deleteErrorKey(result.status, result.error)
+        }
     }
 
     /**

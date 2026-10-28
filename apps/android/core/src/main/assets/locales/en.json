@@ -246,5 +246,15 @@
   "auth.signOut.body": "This revokes the device. You will need your password next time.",
   "auth.role.driver": "Driver",
   "auth.role.solo": "Solo driver",
-  "common.cancel": "Cancel"
+  "common.cancel": "Cancel",
+  "auth.deleteAccount.section": "Delete your account",
+  "auth.deleteAccount.sectionBody": "Permanently anonymise this account. Trip and delivery records are kept without your name.",
+  "auth.deleteAccount.open": "Delete account",
+  "auth.deleteAccount.title": "Delete this account?",
+  "auth.deleteAccount.body": "Your name, e-mail, phone, password and two-factor secret are erased, and every phone signed in to this account is revoked. You cannot sign in again after this.",
+  "auth.deleteAccount.retained": "Kept without your name: trip records, delivery evidence, and reviews you already gave or received.",
+  "auth.deleteAccount.confirmLabel": "Type DELETE to confirm",
+  "auth.deleteAccount.confirm": "Delete account",
+  "auth.deleteAccount.error": "Could not delete the account. Please try again.",
+  "auth.deleteAccount.done": "Your account has been deleted. You can no longer sign in with it."
 }
