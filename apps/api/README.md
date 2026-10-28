@@ -1863,6 +1863,13 @@ link=https://roadwisefleet.com/track/…
   (`POST /trips/:id/status`), `pod_ready` (a `pod`/`ecmr` document upload) and
   `invoice_issued` (an `invoice` document upload — invoices are `Document` rows,
   §2). Every other status change and document type notifies nobody.
+- **One envelope per real assignment change (board #136).** `notifyDriverAssigned`
+  takes the pre-assignment driver (`previousDriverId`) and skips the emit — before
+  the spool check and before any query — when it equals the trip's driver
+  (`notifications.js#isAssignmentChange`). An idempotent re-assign therefore never
+  queues a second `driver_assigned` envelope, whatever a future route does with
+  the current `already_assigned` refusal; the create-trip path passes no previous
+  driver and always emits.
 - **Envelope.** Exactly `event`, `channel`, `recipient` plus the variables the
   event's template actually reads (`notifications.js#EVENT_VARIABLES`). A missing
   variable, an unknown event, a bad channel or an unusable recipient refuses that
@@ -1892,7 +1899,11 @@ link=https://roadwisefleet.com/track/…
   missing-variable refusal, the no-op without a spool, the atomic `0600` write,
   redaction and both link builders; it also pins the emitter's catalogue to the
   transport's `EVENTS`/`CHANNELS` and to every `infra/notifications/templates`
-  placeholder, so the two halves cannot drift.
+  placeholder, so the two halves cannot drift. The assignment-idempotency rule
+  (`isAssignmentChange`) and the route wiring that feeds it are pinned there too;
+  `test/notification-hooks.test.ts` (`pnpm test:router`, temp spool + fake Prisma,
+  no DB) drives the real hook and proves one envelope per actual change, none for
+  an idempotent re-assign, and that the no-op path touches no database.
 
 ## Help pages (board #138, UXF-DOC2 + FAv1-SUP2b)
 
