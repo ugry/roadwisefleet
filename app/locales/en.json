@@ -95,6 +95,7 @@
   "account.type.soloDriver": "Solo truck driver",
   "account.type.soloDriverHint": "Drive on your own, free of charge.",
   "account.delete.done": "Your account has been deleted. You can no longer sign in with it.",
+  "account.delete.lastOwner": "This account is the only administrator of its fleet. Add another administrator or hand the fleet over before deleting it — contact support to arrange that.",
   "account.delete.retains.trips": "Trip records (routes, stops, status history, rates), kept as the carrier's operational record.",
   "account.delete.retains.documents": "Delivery evidence (proof of delivery, eCMR, invoice scans, photos).",
   "account.delete.retains.reviews": "Reviews you already gave or received, shown against the carrier.",

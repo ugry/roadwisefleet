@@ -256,5 +256,6 @@
   "auth.deleteAccount.confirmLabel": "Type DELETE to confirm",
   "auth.deleteAccount.confirm": "Delete account",
   "auth.deleteAccount.error": "Could not delete the account. Please try again.",
+  "auth.deleteAccount.lastOwner": "This account is the only administrator of its fleet. Add another administrator or hand the fleet over before deleting it — contact support to arrange that.",
   "auth.deleteAccount.done": "Your account has been deleted. You can no longer sign in with it."
 }

@@ -153,6 +153,59 @@ export function isDeletedAccount(user) {
 }
 
 /**
+ * The role that administers an org (board task #144, AND1-A3b).
+ *
+ * Role ids come from `prisma/schema.prisma`: `owner | dispatcher | accountant |
+ * driver | solo | customer`. Only `owner` can manage the fleet (users, plan,
+ * hand-over), so that is the role a deletion must not remove last. A solo
+ * carrier signs in as `solo` and a customer login carries no org at all, so
+ * neither is ever a "last owner".
+ * @type {string}
+ */
+export const ORG_ADMIN_ROLE = 'owner';
+
+/**
+ * The `User` filter that counts the org's LIVE administrators. Exported so the
+ * route and its test share one definition, and so `deletedAt: null` cannot be
+ * dropped by accident: a tombstoned co-owner must never count as an
+ * administrator the fleet can still be managed by.
+ * @param {string} orgId
+ * @returns {{ orgId: string, roleId: string, deletedAt: null }}
+ */
+export function activeAdminWhere(orgId) {
+  return { orgId, roleId: ORG_ADMIN_ROLE, deletedAt: null };
+}
+
+/**
+ * Decide whether an account deletion must be REFUSED because it would leave the
+ * org with no administrator (board task #144, AND1-A3b).
+ *
+ * The caller is the last administrator when their role is the org admin role AND
+ * the org has at most one live holder of it (them). Everything else — a driver,
+ * an accountant, a solo carrier, a customer with no org, an owner with a second
+ * admin — passes and deletes as before.
+ *
+ * Returns a stable refusal payload (machine code + catalogue key) or `null`.
+ * Deliberately PII-free: it never carries the address or the user id.
+ * @param {{ roleId?: string | null, orgId?: string | null, activeAdminCount?: number }} [input]
+ * @returns {{ error: string, messageKey: string } | null}
+ */
+export function lastOwnerRefusal(input = {}) {
+  const { roleId, orgId, activeAdminCount } = input;
+  // No tenant = a customer or an unaffiliated login: nothing to orphan.
+  if (typeof orgId !== 'string' || orgId.length === 0) return null;
+  if (roleId !== ORG_ADMIN_ROLE) return null;
+  // The caller's own row is part of the count, so 1 means "only me". A missing
+  // count is treated as the blocking answer (fail closed): a deletion must never
+  // orphan the fleet because a query result was absent.
+  if (Number(activeAdminCount) > 1) return null;
+  return Object.freeze({
+    error: 'last_owner',
+    messageKey: 'account.delete.lastOwner',
+  });
+}
+
+/**
  * Build the whole write plan for one account deletion. Pure: the route executes
  * it inside one transaction, so the rules are testable without a database.
  *
