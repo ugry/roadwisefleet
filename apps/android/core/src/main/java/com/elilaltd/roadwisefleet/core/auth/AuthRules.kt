@@ -30,6 +30,13 @@ object AuthRules {
     const val NOTICE_SIGN_IN_AGAIN = "auth.notice.signInAgain"
     const val NOTICE_CODE_SENT = "auth.otp.sent"
 
+    /** Board #142: the account-deletion path (Play requirement). */
+    const val ERROR_DELETE = "auth.deleteAccount.error"
+    const val NOTICE_DELETED = "auth.deleteAccount.done"
+
+    /** The word the driver must type to arm the delete button (Play flow). */
+    const val DELETE_CONFIRM_WORD = "DELETE"
+
     /** Board #125: the email-code path's error keys. */
     const val ERROR_CODE = "auth.otp.error.code"
     const val ERROR_CODE_EMAIL = "auth.otp.error.email"
@@ -101,6 +108,23 @@ object AuthRules {
         // the driver; never surface a machine code on the phone.
         else -> ERROR_INVALID
     }
+
+    /**
+     * Map a deletion failure. A 401 means the session is gone (expired, or the
+     * account is already deleted) and is shown as "sign in again", never as a
+     * scary server error; 429 and 5xx keep their own sentences.
+     */
+    fun deleteErrorKey(status: Int, error: String? = null): String = when {
+        status == 429 || error == "rate_limited" -> ERROR_RATE_LIMITED
+        status == 0 -> ERROR_NETWORK
+        status == 401 -> NOTICE_SIGN_IN_AGAIN
+        status >= 500 -> ERROR_SERVER
+        else -> ERROR_DELETE
+    }
+
+    /** Whether the typed confirmation word arms the destructive action. */
+    fun deleteConfirmationMatches(typed: String?): Boolean =
+        (typed ?: "").trim() == DELETE_CONFIRM_WORD
 
     /** `null` for success, else the catalogue key for the failure. */
     fun failureKey(result: ApiResult<*>): String? = when (result) {

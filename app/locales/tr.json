@@ -94,6 +94,10 @@
   "account.type.fleetHint": "Sürücüler ve araçlarla bir filo yönetin. 1 ücretsiz aydan sonra ayda 20 EUR.",
   "account.type.soloDriver": "Tek başına kamyon sürücüsü",
   "account.type.soloDriverHint": "Kendi hesabınıza sürün, ücretsiz.",
+  "account.delete.done": "Hesabınız silindi. Artık bu hesapla giriş yapamazsınız.",
+  "account.delete.retains.trips": "Taşıyıcının operasyon kaydı olarak sefer verileri (güzergâhlar, duraklar, durum geçmişi, ücretler).",
+  "account.delete.retains.documents": "Teslimat kanıtları (teslim belgesi, eCMR, fatura taramaları, fotoğraflar).",
+  "account.delete.retains.reviews": "Taşıyıcıya bağlı olarak verdiğiniz veya aldığınız değerlendirmeler.",
 
   "overview.title": "Genel bakış",
   "overview.body": "Filo Yöneticisi kabuğuna giriş yaptınız. Panel göstergeleri, sefer listesi ve sevk araçları, her işlev geldikçe bu düzene eklenir.",

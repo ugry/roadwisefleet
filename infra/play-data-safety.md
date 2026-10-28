@@ -77,9 +77,12 @@ changes; CI does the second half automatically (§8).
   `https://roadwisefleet.com`; the app targets SDK 35, where cleartext traffic is
   off by default, and no `usesCleartextTraffic` / network-security-config exception
   exists.
-- **You can request that data be deleted** — the *mechanism* must exist before
-  this can be answered "yes" (§5 B-P2). Today the answer would be **no**, which is
-  a submission blocker.
+- **You can request that data be deleted** — **yes**, the mechanism now exists
+  (board #142, §5 B-P2): in-app **More → Delete your account** and the web URL
+  `https://roadwisefleet.com/delete-account/`, both backed by
+  `DELETE /api/account`. The account is anonymised immediately; trip and delivery
+  records are retained under the accounting carve-out that still needs the
+  owner + legal answer on #46.
 - **Data is not transferred to other companies** — no third-party SDK; FCM is a
   service provider (see §2).
 - **Independent security review** — no.
@@ -99,14 +102,27 @@ https://roadwisefleet.com/privacy` → **404** (2026-10-18). Needs: owner/legal 
 a published URL, and that URL entered in the console. Also needed by the Data
 Safety form itself.
 
-**B-P2 — account deletion.** Play requires apps that let users create accounts to
-offer **in-app deletion** *and* a **web deletion-request URL**. Neither exists:
-`grep -rn "delete" apps/api/src/routes` finds address/bookmark/beacon/track-link
-deletion only — no user or account deletion route. Needs: Max (API endpoint +
-in-app entry point), owner (public request URL), and a retention carve-out that
-does not contradict #46 (documents/trip records may have to outlive the account;
-that is exactly the owner+legal decision on #46, and the deletion flow must state
-it).
+**B-P2 — account deletion — code delivered 2026-10-28 (board #142).** Play
+requires apps that let users create accounts to offer **in-app deletion** *and* a
+**web deletion-request URL**. Both now exist and share one endpoint:
+
+- `DELETE /api/account` (bearer) — anonymises the `User` row in place (name,
+  e-mail, phone, password hash and TOTP secret cleared, `deletedAt` stamped),
+  revokes every `DeviceCredential`, deletes the `CustomerAccount` link and
+  scrubs the solo profile; rules in `apps/api/src/account-deletion.js`.
+- In-app: Android **More → Delete your account**, with type-`DELETE` confirmation
+  (`MoreScreen.kt`).
+- Web: `https://roadwisefleet.com/delete-account/` (`web/delete-account/`),
+  noindex, published by the normal `web/` sync — no nginx change.
+
+The retention carve-out is **stated, not decided**: trips, documents/delivery
+evidence and reviews are kept and the response carries
+`retentionPolicy: "owner_decision_pending"`. The period itself remains the
+owner + legal answer on #46; the flow must be revisited if that answer forbids
+retention.
+
+Remaining operator step: enter the web URL in the Data Safety section of the
+Play Console when the release is submitted.
 
 **B-P3 — Data Safety sign-off.** The answers in §2 are derived from code but the
 declaration is a legal statement made by the developer account holder.

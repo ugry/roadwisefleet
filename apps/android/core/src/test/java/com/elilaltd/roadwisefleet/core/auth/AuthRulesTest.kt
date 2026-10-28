@@ -74,4 +74,23 @@ class AuthRulesTest {
         assertEquals("Android device", AuthRules.deviceLabel(" ", null))
         assertEquals(80, AuthRules.deviceLabel("M".repeat(60), "X".repeat(60)).length)
     }
+
+    @Test
+    fun `the delete confirmation arms only on the exact word`() {
+        assertTrue(AuthRules.deleteConfirmationMatches("DELETE"))
+        assertTrue(AuthRules.deleteConfirmationMatches(" DELETE "))
+        assertFalse(AuthRules.deleteConfirmationMatches("delete"))
+        assertFalse(AuthRules.deleteConfirmationMatches("DELET"))
+        assertFalse(AuthRules.deleteConfirmationMatches(""))
+        assertFalse(AuthRules.deleteConfirmationMatches(null))
+    }
+
+    @Test
+    fun `a failed deletion maps to a sentence a driver can act on`() {
+        assertEquals(AuthRules.ERROR_NETWORK, AuthRules.deleteErrorKey(0))
+        assertEquals(AuthRules.ERROR_RATE_LIMITED, AuthRules.deleteErrorKey(429, "rate_limited"))
+        assertEquals(AuthRules.NOTICE_SIGN_IN_AGAIN, AuthRules.deleteErrorKey(401, "unauthorized"))
+        assertEquals(AuthRules.ERROR_SERVER, AuthRules.deleteErrorKey(503))
+        assertEquals(AuthRules.ERROR_DELETE, AuthRules.deleteErrorKey(400, "invalid_input"))
+    }
 }

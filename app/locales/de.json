@@ -94,6 +94,10 @@
   "account.type.fleetHint": "Führen Sie eine Flotte mit Fahrern und Fahrzeugen. 20 EUR/Monat nach 1 kostenlosen Monat.",
   "account.type.soloDriver": "Selbstfahrender Lkw-Fahrer",
   "account.type.soloDriverHint": "Fahren Sie auf eigene Rechnung, kostenlos.",
+  "account.delete.done": "Ihr Konto wurde gelöscht. Eine Anmeldung ist nicht mehr möglich.",
+  "account.delete.retains.trips": "Fahrtendaten (Strecken, Stopps, Statusverlauf, Preise) als operativer Nachweis des Frachtführers.",
+  "account.delete.retains.documents": "Lieferbelege (Unterschrift, eCMR, Rechnungsscans, Fotos).",
+  "account.delete.retains.reviews": "Bereits abgegebene oder erhaltene Bewertungen, dem Frachtführer zugeordnet.",
 
   "overview.title": "Übersicht",
   "overview.body": "Sie sind in der Fleet-Manager-Oberfläche angemeldet. Dashboard-Kennzahlen, Tourenliste und Dispositionswerkzeuge werden in dieses Layout eingefügt, sobald die jeweilige Funktion verfügbar ist.",
