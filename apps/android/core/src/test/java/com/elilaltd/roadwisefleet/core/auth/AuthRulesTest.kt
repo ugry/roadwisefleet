@@ -93,4 +93,13 @@ class AuthRulesTest {
         assertEquals(AuthRules.ERROR_SERVER, AuthRules.deleteErrorKey(503))
         assertEquals(AuthRules.ERROR_DELETE, AuthRules.deleteErrorKey(400, "invalid_input"))
     }
+
+    @Test
+    fun `the last administrator refusal is its own sentence, not a generic retry`() {
+        // Board #144: `409 last_owner` is actionable (add/hand over an admin).
+        assertEquals(AuthRules.ERROR_LAST_OWNER, AuthRules.deleteErrorKey(409, "last_owner"))
+        // The machine code wins over the status, like the login mapper.
+        assertEquals(AuthRules.ERROR_LAST_OWNER, AuthRules.deleteErrorKey(409))
+        assertEquals("auth.deleteAccount.lastOwner", AuthRules.ERROR_LAST_OWNER)
+    }
 }

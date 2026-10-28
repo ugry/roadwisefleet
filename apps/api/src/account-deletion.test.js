@@ -17,11 +17,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ORG_ADMIN_ROLE,
   SCRUBBED_SOLO_FIELDS,
   SCRUBBED_USER_FIELDS,
   TOMBSTONE_EMAIL_DOMAIN,
   TOMBSTONE_NAME,
+  activeAdminWhere,
   isDeletedAccount,
+  lastOwnerRefusal,
   planAccountDeletion,
   retainedRecords,
   retentionNotice,
@@ -171,4 +174,68 @@ test('the deletion plan never touches a trip, document or delivery record', () =
   for (const forbidden of ['trip', 'document', 'statusEvent', 'invoice', 'settlement']) {
     assert.ok(!text.includes(forbidden.toLowerCase()), `plan must not mention ${forbidden}`);
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * Board task #144 (AND1-A3b): never leave a fleet without an owner.
+ * ------------------------------------------------------------------ */
+
+test('the administrator count filter is the org OWNER role and excludes tombstones', () => {
+  assert.equal(ORG_ADMIN_ROLE, 'owner');
+  const where = activeAdminWhere('org-1');
+  assert.equal(where.orgId, 'org-1');
+  assert.equal(where.roleId, 'owner');
+  // A tombstoned co-owner must never count: they cannot manage the fleet.
+  assert.equal(where.deletedAt, null);
+  // Exactly three keys: one org, one role, live rows only.
+  assert.deepEqual(Object.keys(where).sort(), ['deletedAt', 'orgId', 'roleId']);
+});
+
+test('the last administrator of an org is refused on delete', () => {
+  const refusal = lastOwnerRefusal({ roleId: 'owner', orgId: 'org-1', activeAdminCount: 1 });
+  assert.ok(refusal, 'a sole owner must be refused');
+  assert.equal(refusal.error, 'last_owner');
+  assert.equal(refusal.messageKey, 'account.delete.lastOwner');
+  // Frozen: a caller cannot mutate the payload the route sends.
+  assert.ok(Object.isFrozen(refusal));
+  // PII-free by construction: no address, no user id, no name.
+  assert.deepEqual(Object.keys(refusal).sort(), ['error', 'messageKey']);
+});
+
+test('an owner with another administrator may still leave', () => {
+  assert.equal(lastOwnerRefusal({ roleId: 'owner', orgId: 'org-1', activeAdminCount: 2 }), null);
+  assert.equal(lastOwnerRefusal({ roleId: 'owner', orgId: 'org-1', activeAdminCount: 7 }), null);
+});
+
+test('a non-administering role is never blocked, even as the only member', () => {
+  for (const roleId of ['driver', 'dispatcher', 'accountant', 'solo', 'customer']) {
+    assert.equal(
+      lastOwnerRefusal({ roleId, orgId: 'org-1', activeAdminCount: 1 }),
+      null,
+      `${roleId} must not be gated as the last owner`,
+    );
+  }
+});
+
+test('an account without an org is never gated (customer / unaffiliated login)', () => {
+  assert.equal(lastOwnerRefusal({ roleId: 'owner', orgId: null, activeAdminCount: 1 }), null);
+  assert.equal(lastOwnerRefusal({ roleId: 'owner', orgId: '', activeAdminCount: 1 }), null);
+});
+
+test('a missing administrator count fails closed', () => {
+  // An absent count must never be read as "there are others": refusing is the
+  // harmless answer, orphaning the fleet is not.
+  const refusal = lastOwnerRefusal({ roleId: 'owner', orgId: 'org-1' });
+  assert.ok(refusal);
+  assert.equal(refusal.error, 'last_owner');
+  assert.ok(lastOwnerRefusal({ roleId: 'owner', orgId: 'org-1', activeAdminCount: NaN }));
+});
+
+test('the refusal is the only new response shape and invents no retention claim', () => {
+  const refusal = lastOwnerRefusal({ roleId: 'owner', orgId: 'org-1', activeAdminCount: 1 });
+  const text = JSON.stringify(refusal);
+  // No PII, no guessed retention window, no "deleted" claim.
+  assert.ok(!/@|deleted\+/.test(text));
+  assert.ok(!/\b\d+\s*(day|days|month|months|year|years)\b/i.test(text));
+  assert.ok(!text.includes('anonymized'));
 });

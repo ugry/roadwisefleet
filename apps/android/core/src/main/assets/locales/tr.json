@@ -256,5 +256,6 @@
   "auth.deleteAccount.confirmLabel": "Onaylamak için DELETE yazın",
   "auth.deleteAccount.confirm": "Hesabı sil",
   "auth.deleteAccount.error": "Hesap silinemedi. Lütfen tekrar deneyin.",
+  "auth.deleteAccount.lastOwner": "Bu hesap filonun tek yöneticisidir. Silmeden önce başka bir yönetici ekleyin veya filoyu devredin — bunun için destek ekibiyle iletişime geçin.",
   "auth.deleteAccount.done": "Hesabınız silindi. Artık bu hesapla giriş yapamazsınız."
 }

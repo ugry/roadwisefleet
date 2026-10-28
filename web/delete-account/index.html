@@ -193,6 +193,12 @@ footer{max-width:720px;margin:36px auto 0;font-size:14px;color:var(--muted)}
   }
 
   function errorFor(res, payload) {
+    // Board #144: the server refuses to remove a fleet's only administrator.
+    // Say that plainly instead of the generic "something went wrong" — the
+    // person CAN keep using the account; only the deletion is blocked.
+    if (payload && payload.error === 'last_owner') {
+      return 'This account is the only administrator of its fleet. Add another administrator or hand the fleet over before deleting it — contact support to arrange that.';
+    }
     if (res.status === 401) return 'That e-mail and password do not match an active account.';
     if (res.status === 400) return 'Please fill in your e-mail and password.';
     if (res.status === 429) return 'Too many attempts. Please wait a minute and try again.';
