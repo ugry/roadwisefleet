@@ -94,6 +94,10 @@
   "account.type.fleetHint": "Prowadź flotę z kierowcami i pojazdami. 20 EUR/miesiąc po 1 bezpłatnym miesiącu.",
   "account.type.soloDriver": "Samodzielny kierowca ciężarówki",
   "account.type.soloDriverHint": "Jeźdź na własny rachunek, bezpłatnie.",
+  "account.delete.done": "Twoje konto zostało usunięte. Nie można już się nim zalogować.",
+  "account.delete.retains.trips": "Rekordy tras (odcinki, postoje, historia statusów, stawki) jako zapis operacyjny przewoźnika.",
+  "account.delete.retains.documents": "Dowody dostawy (potwierdzenie odbioru, eCMR, skany faktur, zdjęcia).",
+  "account.delete.retains.reviews": "Wystawione lub otrzymane opinie, przypisane do przewoźnika.",
 
   "overview.title": "Przegląd",
   "overview.body": "Jesteś zalogowany w powłoce Menedżera floty. Wskaźniki pulpitu, lista kursów i narzędzia dyspozytorni zostaną włączone do tego układu wraz z kolejnymi funkcjami.",

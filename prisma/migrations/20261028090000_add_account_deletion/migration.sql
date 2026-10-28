@@ -1,0 +1,11 @@
+-- Account deletion (board task #142, AND1-A3 — Play release blocker).
+--
+-- Additive only: one nullable column on "User". No existing column, index or
+-- constraint changes, and every pre-existing row keeps `deletedAt = NULL`.
+--
+-- Set by `DELETE /api/account`, which anonymises the row in place (name,
+-- e-mail, phone, password hash and 2FA material are scrubbed; the address
+-- becomes `deleted+<userId>@deleted.invalid`). No trip, document or delivery
+-- record is deleted: the retention question is the open owner + legal decision
+-- on #13/#46.
+ALTER TABLE "User" ADD COLUMN     "deletedAt" TIMESTAMP(3);

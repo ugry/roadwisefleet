@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
                             versionName = BuildConfig.VERSION_NAME,
                             noticeKey = state.noticeKey,
                             onSignOut = { container.auth.signOut() },
+                            onDeleteAccount = { container.auth.deleteAccount() },
                         )
                     }
                 }

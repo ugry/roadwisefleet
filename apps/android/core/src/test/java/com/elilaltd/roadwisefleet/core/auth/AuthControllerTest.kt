@@ -38,11 +38,13 @@ class AuthControllerTest {
         var requestCodeResult: ApiResult<Unit> = ApiResult.Ok(Unit)
         var verifyCodeResult: ApiResult<PasswordLogin> =
             ApiResult.HttpFailure(401, "invalid_code")
+        var deleteResult: ApiResult<Unit> = ApiResult.Ok(Unit)
 
         val logins = mutableListOf<Pair<String, String>>()
         val revoked = mutableListOf<String>()
         val codeRequests = mutableListOf<String>()
         val codeVerifications = mutableListOf<Pair<String, String>>()
+        var deleteCalls = 0
 
         override suspend fun login(email: String, password: String): ApiResult<PasswordLogin> {
             logins += email to password
@@ -79,6 +81,11 @@ class AuthControllerTest {
         }
 
         override suspend fun emailOtpAvailable(): ApiResult<Boolean> = ApiResult.Ok(true)
+
+        override suspend fun deleteAccount(): ApiResult<Unit> {
+            deleteCalls += 1
+            return deleteResult
+        }
     }
 
     private class FakeKeys(private val available: Boolean = true) : DeviceKeyMaterial {
@@ -419,5 +426,54 @@ class AuthControllerTest {
         assertNull(session.token)
         assertNull(session.credentialId)
         assertEquals(AuthState.SignedOut(), auth.state.value)
+    }
+
+    @Test
+    fun `deleting the account clears the session and returns to login with a notice`() = runTest {
+        val api = FakeApi().apply { loginResult = ApiResult.Ok(PasswordLogin("token-1", driver)) }
+        val session = MemorySession()
+        val auth = controller(api, session)
+        auth.signIn("dana@example.com", "secret")
+
+        val failure = auth.deleteAccount()
+
+        assertNull(failure)
+        assertEquals(1, api.deleteCalls)
+        // The device credential is gone with the session: the server revoked
+        // every credential of the account, so a local id would only be stale.
+        assertNull(session.token)
+        assertNull(session.credentialId)
+        assertEquals(AuthState.SignedOut(AuthRules.NOTICE_DELETED), auth.state.value)
+    }
+
+    @Test
+    fun `a failed deletion keeps the session so the driver can retry`() = runTest {
+        val api = FakeApi().apply {
+            loginResult = ApiResult.Ok(PasswordLogin("token-1", driver))
+            deleteResult = ApiResult.NetworkFailure("offline")
+        }
+        val session = MemorySession()
+        val auth = controller(api, session)
+        auth.signIn("dana@example.com", "secret")
+
+        val failure = auth.deleteAccount()
+
+        assertEquals(AuthRules.ERROR_NETWORK, failure)
+        assertEquals("token-1", session.token)
+        assertEquals(AuthState.SignedIn(driver), auth.state.value)
+    }
+
+    @Test
+    fun `an expired session is reported as sign in again, not a server error`() = runTest {
+        val api = FakeApi().apply {
+            loginResult = ApiResult.Ok(PasswordLogin("token-1", driver))
+            deleteResult = ApiResult.HttpFailure(401, "unauthorized")
+        }
+        val session = MemorySession()
+        val auth = controller(api, session)
+        auth.signIn("dana@example.com", "secret")
+
+        assertEquals(AuthRules.NOTICE_SIGN_IN_AGAIN, auth.deleteAccount())
+        assertEquals("token-1", session.token)
     }
 }
