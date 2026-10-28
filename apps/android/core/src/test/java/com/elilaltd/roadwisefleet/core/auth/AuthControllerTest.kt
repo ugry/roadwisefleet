@@ -476,4 +476,21 @@ class AuthControllerTest {
         assertEquals(AuthRules.NOTICE_SIGN_IN_AGAIN, auth.deleteAccount())
         assertEquals("token-1", session.token)
     }
+
+    @Test
+    fun `a refused last-administrator deletion keeps the session and explains why`() = runTest {
+        // Board #144: the fleet would be left without an administrator. The
+        // account still works, so the session must survive the refusal.
+        val api = FakeApi().apply {
+            loginResult = ApiResult.Ok(PasswordLogin("token-1", driver))
+            deleteResult = ApiResult.HttpFailure(409, "last_owner")
+        }
+        val session = MemorySession()
+        val auth = controller(api, session)
+        auth.signIn("dana@example.com", "secret")
+
+        assertEquals(AuthRules.ERROR_LAST_OWNER, auth.deleteAccount())
+        assertEquals("token-1", session.token)
+        assertEquals(AuthState.SignedIn(driver), auth.state.value)
+    }
 }

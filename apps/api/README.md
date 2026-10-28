@@ -205,7 +205,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/email/confirm/request` | bearer | mail a confirmation code to the caller's own address (same service, purpose `verify`) |
 | `POST /api/auth/email/confirm/verify` | bearer | redeem it; sets `User.emailVerifiedAt` and returns `{ ok, emailVerifiedAt }`. A sign-in code can never be used here (the purpose is bound into the HMAC) |
 | `GET /api/auth/otp/email/status` | — (public) | `{ configured, ttlSeconds, resendSeconds, maxAttempts }` — the app hides "Email me a code" when the server has no sender (#124). Never a secret |
-| `DELETE /api/account` | bearer | delete the caller's own account (board task #142, AND1-A3 — the Google Play requirement): **anonymises** the `User` row in place (`name` → `Deleted account`, e-mail → `deleted+<userId>@deleted.invalid`, phone / password hash / TOTP secret / verification timestamps / lockout counters cleared, `deletedAt` stamped), revokes every `DeviceCredential` and drops its challenges, deletes the `CustomerAccount` link, scrubs the solo profile's identifying fields and removes outstanding e-mail codes. **No trip, document or delivery-evidence row is deleted** — retention is the owner decision on #13/#46 — and the response states what remains: `{ deleted, alreadyDeleted, anonymized, anonymizedAt, retained: [{type, description}], retentionPolicy: 'owner_decision_pending', messageKey }`. Idempotent: a second call is a clean `200 alreadyDeleted` with no writes. After deletion the password login, `/api/auth/me` and device registration all fail for that account |
+| `DELETE /api/account` | bearer | delete the caller's own account (board task #142, AND1-A3 — the Google Play requirement): **anonymises** the `User` row in place (`name` → `Deleted account`, e-mail → `deleted+<userId>@deleted.invalid`, phone / password hash / TOTP secret / verification timestamps / lockout counters cleared, `deletedAt` stamped), revokes every `DeviceCredential` and drops its challenges, deletes the `CustomerAccount` link, scrubs the solo profile's identifying fields and removes outstanding e-mail codes. **No trip, document or delivery-evidence row is deleted** — retention is the owner decision on #13/#46 — and the response states what remains: `{ deleted, alreadyDeleted, anonymized, anonymizedAt, retained: [{type, description}], retentionPolicy: 'owner_decision_pending', messageKey }`. Idempotent: a second call is a clean `200 alreadyDeleted` with no writes. **`409 { error: 'last_owner', messageKey: 'account.delete.lastOwner' }`** when the caller is the org's only live `owner` (board #144) — nothing is written. After deletion the password login, `/api/auth/me` and device registration all fail for that account |
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); **a caller without `trip:*` (a driver) is narrowed to their own trips — a client-supplied `driverId` cannot widen it** (board task #68); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
@@ -552,6 +552,30 @@ already noted in `auth/tokens.js`.
 The endpoint is **idempotent**: a second call is a clean `200 { alreadyDeleted:
 true }` with no writes, so a retried app request or a double-submitted web form
 can never fail or anonymise twice.
+
+**The last administrator cannot leave (board task #144, AND1-A3b).** A fleet
+owner's deletion would anonymise the only person who can manage the org, invite
+users or hand it over — and the tombstone address cannot recover it. So when the
+caller holds the org admin role (`owner`) and is the **only live** holder of it
+in their org, `DELETE /api/account` answers
+`409 { error: "last_owner", messageKey: "account.delete.lastOwner" }` and writes
+nothing (the row, the password and any device credential are untouched, and no
+`account.deleted` audit entry is written). Both clients show that sentence: the
+Android dialog maps `error == "last_owner"` (or `409`) to
+`auth.deleteAccount.lastOwner` (`AuthRules.deleteErrorKey`), and the web page
+maps it in `errorFor()`. The count is taken inside the same transaction as the
+tombstone (`activeAdminWhere`, a literal `{ orgId, roleId: 'owner', deletedAt:
+null }` filter — tombstoned co-owners never count). Nothing else changes: a
+driver, dispatcher, accountant, customer or **solo carrier** (`solo` role) is
+never gated, so the Play-required deletion still works for them.
+
+Limits, stated rather than hidden: two owners deleting at the same moment are
+not serialised by READ COMMITTED (both reads see two admins), so closing that
+corner needs `SERIALIZABLE` + retry — out of scope here. And there is no
+in-app "transfer the fleet" flow yet, so the refusal's remedy is "add another
+administrator or hand the fleet over — contact support"; if the product wants
+transfer-then-delete instead of a hard block, that is an owner decision (#144
+acceptance item 4).
 
 Operator step for the release: enter `https://roadwisefleet.com/delete-account/`
 in the Play Console's Data Safety section. The page is published by the existing

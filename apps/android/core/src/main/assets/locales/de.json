@@ -256,5 +256,6 @@
   "auth.deleteAccount.confirmLabel": "Zur Bestätigung DELETE eingeben",
   "auth.deleteAccount.confirm": "Konto löschen",
   "auth.deleteAccount.error": "Das Konto konnte nicht gelöscht werden. Bitte erneut versuchen.",
+  "auth.deleteAccount.lastOwner": "Dieses Konto ist der einzige Administrator seiner Flotte. Fügen Sie zuerst einen weiteren Administrator hinzu oder übergeben Sie die Flotte — wenden Sie sich dafür an den Support.",
   "auth.deleteAccount.done": "Ihr Konto wurde gelöscht. Eine Anmeldung ist nicht mehr möglich."
 }

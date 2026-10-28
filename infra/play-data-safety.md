@@ -121,6 +121,14 @@ evidence and reviews are kept and the response carries
 owner + legal answer on #46; the flow must be revisited if that answer forbids
 retention.
 
+One exception to "deletion is always available" (board #144, AND1-A3b): a
+**fleet's only administrator** is refused with `409 last_owner` so the org is not
+left with nobody who can manage it. Both clients show that message and the
+account keeps working; the deletion completes once another administrator exists
+or the fleet has been handed over. The Data Safety answer stays truthful — the
+deletion path is offered to everyone, with a business-integrity guard for the
+last admin of a shared business account.
+
 Remaining operator step: enter the web URL in the Data Safety section of the
 Play Console when the release is submitted.
 
