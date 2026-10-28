@@ -232,12 +232,34 @@ export async function notifyAwarded(prisma: Db, { load, offer, trip, log }: any)
  * `driver_assigned` — a driver was put on the trip, either at creation
  * (`POST /trips` with a driverId) or by assignment/reassignment
  * (`POST /trips/:id/assign`). Exactly one envelope per assignment change.
+ *
+ * Board #136: an idempotent re-assign — the same driver id before and after — is
+ * not a change, so it is skipped before the spool check and before any query.
+ * The guard deliberately lives at this hook boundary rather than in the route:
+ * the assign route refuses a same-driver assign today (`already_assigned`), but
+ * a caller that treats one as a no-op update (or a retried request) must still
+ * not queue a second envelope for an unchanged state. Callers that do not pass
+ * `previousDriverId` are unaffected (the create-trip path is a new assignment by
+ * definition). The rule itself is the pure `isAssignmentChange` in
+ * `notifications.js`, so it is covered by the dependency-free suite too.
  * @param {Db} prisma
- * @param {{ tripId: string, log?: LogFn }} args
+ * @param {{ tripId?: string, trip?: any, previousDriverId?: string|null, log?: LogFn }} args
  * @returns {Promise<EmitResult>}
  */
-export async function notifyDriverAssigned(prisma: Db, { tripId, log }: any): Promise<EmitResult> {
-  return deliver(prisma, 'driver_assigned', { tripId, log });
+export async function notifyDriverAssigned(
+  prisma: Db,
+  { tripId, trip, previousDriverId, log }: any,
+): Promise<EmitResult> {
+  const id = tripId ?? trip?.id ?? null;
+  const driverId = trip?.driverId;
+  if (
+    previousDriverId !== undefined &&
+    driverId !== undefined &&
+    !notify.isAssignmentChange(previousDriverId, driverId)
+  ) {
+    return { ok: true, skipped: 'unchanged' };
+  }
+  return deliver(prisma, 'driver_assigned', { tripId: id, log });
 }
 
 /**
