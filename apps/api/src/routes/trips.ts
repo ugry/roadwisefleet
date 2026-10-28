@@ -279,8 +279,11 @@ export async function tripRoutes(app: FastifyInstance) {
     }
     // Board #135 (UXF-O2a): an assignment change notifies the customer once, with
     // the driver and vehicle from the trip itself (never the request body).
+    // Board #136: pass the pre-assignment driver so the hook can skip an
+    // idempotent re-assign instead of queuing a second envelope.
     await notifyDriverAssigned(prisma, {
-      tripId: id,
+      trip: result.trip,
+      previousDriverId: result.previousDriverId,
       log: (line: string) => req.log?.warn?.(line),
     });
     return reply.send({

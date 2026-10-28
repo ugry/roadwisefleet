@@ -227,6 +227,26 @@ export function isRecipient(channel, recipient) {
   return false;
 }
 
+/* ------------------------------------------------------------- assignment --- */
+
+/**
+ * Does this assignment actually change the driver? A re-assign that names the
+ * driver the trip already has — and a "clear the driver" on a trip that has
+ * none — is a no-op: nothing changed, so nothing is announced.
+ *
+ * This is the pure rule behind the `driver_assigned` hook (board #136): the
+ * route already refuses a same-driver assign (`already_assigned`), but the
+ * emitter must not depend on that refusal staying, because a retried assign
+ * must never queue a second envelope for an unchanged state. `null` and
+ * `undefined` both mean "no driver", so they compare equal.
+ * @param {unknown} previousDriverId
+ * @param {unknown} driverId
+ * @returns {boolean}
+ */
+export function isAssignmentChange(previousDriverId, driverId) {
+  return (previousDriverId ?? null) !== (driverId ?? null);
+}
+
 /* -------------------------------------------------------------- references --- */
 
 /**
