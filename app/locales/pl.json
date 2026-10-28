@@ -95,6 +95,7 @@
   "account.type.soloDriver": "Samodzielny kierowca ciężarówki",
   "account.type.soloDriverHint": "Jeźdź na własny rachunek, bezpłatnie.",
   "account.delete.done": "Twoje konto zostało usunięte. Nie można już się nim zalogować.",
+  "account.delete.lastOwner": "To konto jest jedynym administratorem swojej floty. Dodaj innego administratora lub przekaż flotę, zanim je usuniesz — skontaktuj się z pomocą techniczną.",
   "account.delete.retains.trips": "Rekordy tras (odcinki, postoje, historia statusów, stawki) jako zapis operacyjny przewoźnika.",
   "account.delete.retains.documents": "Dowody dostawy (potwierdzenie odbioru, eCMR, skany faktur, zdjęcia).",
   "account.delete.retains.reviews": "Wystawione lub otrzymane opinie, przypisane do przewoźnika.",

@@ -95,6 +95,7 @@
   "account.type.soloDriver": "Tek başına kamyon sürücüsü",
   "account.type.soloDriverHint": "Kendi hesabınıza sürün, ücretsiz.",
   "account.delete.done": "Hesabınız silindi. Artık bu hesapla giriş yapamazsınız.",
+  "account.delete.lastOwner": "Bu hesap filonun tek yöneticisidir. Silmeden önce başka bir yönetici ekleyin veya filoyu devredin — bunun için destek ekibiyle iletişime geçin.",
   "account.delete.retains.trips": "Taşıyıcının operasyon kaydı olarak sefer verileri (güzergâhlar, duraklar, durum geçmişi, ücretler).",
   "account.delete.retains.documents": "Teslimat kanıtları (teslim belgesi, eCMR, fatura taramaları, fotoğraflar).",
   "account.delete.retains.reviews": "Taşıyıcıya bağlı olarak verdiğiniz veya aldığınız değerlendirmeler.",
