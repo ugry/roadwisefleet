@@ -246,5 +246,15 @@
   "auth.signOut.body": "Bu işlem cihazı iptal eder. Bir dahaki sefere şifreniz gerekir.",
   "auth.role.driver": "Sürücü",
   "auth.role.solo": "Bağımsız sürücü",
-  "common.cancel": "İptal"
+  "common.cancel": "İptal",
+  "auth.deleteAccount.section": "Hesabı sil",
+  "auth.deleteAccount.sectionBody": "Bu hesabı kalıcı olarak anonimleştir. Sefer ve teslimat kayıtları adınız olmadan saklanır.",
+  "auth.deleteAccount.open": "Hesabı sil",
+  "auth.deleteAccount.title": "Bu hesap silinsin mi?",
+  "auth.deleteAccount.body": "Adınız, e-postanız, telefonunuz, parolanız ve iki adımlı doğrulama anahtarınız silinir; bu hesaba giriş yapmış tüm telefonların oturumu kapatılır. Bundan sonra giriş yapamazsınız.",
+  "auth.deleteAccount.retained": "Adınız olmadan saklanır: sefer kayıtları, teslimat kanıtları ve daha önce verdiğiniz veya aldığınız değerlendirmeler.",
+  "auth.deleteAccount.confirmLabel": "Onaylamak için DELETE yazın",
+  "auth.deleteAccount.confirm": "Hesabı sil",
+  "auth.deleteAccount.error": "Hesap silinemedi. Lütfen tekrar deneyin.",
+  "auth.deleteAccount.done": "Hesabınız silindi. Artık bu hesapla giriş yapamazsınız."
 }

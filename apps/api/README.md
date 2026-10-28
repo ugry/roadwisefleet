@@ -205,6 +205,7 @@ pnpm --filter @roadwisefleet/api smoke -- --password=...
 | `POST /api/auth/email/confirm/request` | bearer | mail a confirmation code to the caller's own address (same service, purpose `verify`) |
 | `POST /api/auth/email/confirm/verify` | bearer | redeem it; sets `User.emailVerifiedAt` and returns `{ ok, emailVerifiedAt }`. A sign-in code can never be used here (the purpose is bound into the HMAC) |
 | `GET /api/auth/otp/email/status` | — (public) | `{ configured, ttlSeconds, resendSeconds, maxAttempts }` — the app hides "Email me a code" when the server has no sender (#124). Never a secret |
+| `DELETE /api/account` | bearer | delete the caller's own account (board task #142, AND1-A3 — the Google Play requirement): **anonymises** the `User` row in place (`name` → `Deleted account`, e-mail → `deleted+<userId>@deleted.invalid`, phone / password hash / TOTP secret / verification timestamps / lockout counters cleared, `deletedAt` stamped), revokes every `DeviceCredential` and drops its challenges, deletes the `CustomerAccount` link, scrubs the solo profile's identifying fields and removes outstanding e-mail codes. **No trip, document or delivery-evidence row is deleted** — retention is the owner decision on #13/#46 — and the response states what remains: `{ deleted, alreadyDeleted, anonymized, anonymizedAt, retained: [{type, description}], retentionPolicy: 'owner_decision_pending', messageKey }`. Idempotent: a second call is a clean `200 alreadyDeleted` with no writes. After deletion the password login, `/api/auth/me` and device registration all fail for that account |
 | `GET /api/trips` | bearer, `trip:read` | trip list for the token's org; filterable by `status` (comma-separated), `driverId`, `from`/`to` (created-at window, `YYYY-MM-DD` or ISO) and `q` (free text over route/customer/driver); an invalid value is a `400 invalid_filter` naming the field, and the applied filters are echoed back as `filters` (board task #34); **a caller without `trip:*` (a driver) is narrowed to their own trips — a client-supplied `driverId` cannot widen it** (board task #68); driver objects never carry credential fields (board task #63) |
 | `GET /api/trips/:id` | bearer, `trip:read` | trip detail for the dashboard drawer: order/customer (with the promised `plannedAt`), driver, truck, status timeline (from/to/at/actor + `kind`), documents, expenses, settlement and P&L (`rateEur − Σ expenses`); the trip's `deliveredAt` is included (board tasks #33/#40); a timeline event with `kind: "reassignment"` (from === to) is a driver change, not a lifecycle move (board task #36); a trip in another org is `404`, never a leak; **a caller without `trip:*` reads only their own trip — somebody else's trip is `404`, never `403`** (board task #68) |
 | `GET /api/dashboard` | bearer, `reports:read` | the app-home payload: the KPI strip (active trips, on-time %, pending pay), the alerts strip and today's status-event feed — every number is a database aggregate over the token's org (board task #33); a driver holds no `reports:read` and gets a `403` |
@@ -505,6 +506,56 @@ Logic is in `src/guest-share.js` (pure: scope/type/status rules, headers, read
 model, `mintDocumentLink`) and `src/routes/guest-share.ts` (HTTP). Covered by
 `src/guest-share.test.js` (dependency-free — runs in the no-install CI job) and
 `test/guest-share.test.ts` (`pnpm test:router`: real bytes, real DB, `app.inject()`).
+
+### Account deletion (board task #142, AND1-A3 — Play release blocker)
+Google Play requires an app that lets people create accounts to offer **both** an
+in-app deletion path and a **web deletion-request URL** reachable without the
+app; the Data Safety form cannot answer "you can request that data be deleted"
+until the mechanism exists (`infra/play-data-safety.md` §5 B-P2). Both halves are
+one endpoint, so they cannot drift:
+
+| Surface | Where |
+| --- | --- |
+| API | `DELETE /api/account` (bearer) — `src/routes/account.ts` |
+| Rules | `src/account-deletion.js` (pure, unit-tested) |
+| In-app | Android **More → Delete your account** (`MoreScreen.kt`), type `DELETE` to arm |
+| Web | `web/delete-account/index.html` → `https://roadwisefleet.com/delete-account/` |
+
+**Anonymise, never delete business records.** The `User` row is tombstoned in
+place: `name` becomes `Deleted account`, the address becomes
+`deleted+<userId>@deleted.invalid` (RFC 2606 — it can never receive mail) which
+also frees the address for a future registration, and `phone`, `passwordHash`,
+`totpSecret`, the verification timestamps and the lockout counters are cleared.
+`deletedAt` is stamped. Every `DeviceCredential` is revoked and its outstanding
+challenges are dropped; the `CustomerAccount` link is deleted (the FK lives on
+that table); the solo profile's identifying fields (`phone`, OTP state,
+`truckPlate`) are scrubbed in place; outstanding `EmailOtp` rows for the old
+address are removed.
+
+**What is deliberately NOT deleted:** trips, documents and delivery evidence
+(POD / eCMR / invoice scans), reviews and marketplace records. The retention
+period is the open owner + legal decision on #13/#46, so the code invents none —
+the response says what remains
+(`{ deleted, anonymized, anonymizedAt, retained: [{type, description}], retentionPolicy: "owner_decision_pending" }`)
+and both clients show that statement before and after the deletion.
+
+**Sessions.** The pilot's session tokens are stateless HMAC tokens
+(`auth/tokens.js`): a token issued before the deletion stays signature-valid
+until it expires (`TOKEN_TTL_SECONDS`, 12 h by default). The account therefore
+cannot *authenticate* again — the password login fails (`401
+invalid_credentials`), `/api/auth/me` answers `401` for a tombstoned row, the
+device path is dead (every credential revoked, `403 credential_revoked`) and
+`/api/auth/device/register` refuses a tombstone — but an already-issued token is
+only invalidated by its TTL. A server-side session store is the later-phase fix
+already noted in `auth/tokens.js`.
+
+The endpoint is **idempotent**: a second call is a clean `200 { alreadyDeleted:
+true }` with no writes, so a retried app request or a double-submitted web form
+can never fail or anonymise twice.
+
+Operator step for the release: enter `https://roadwisefleet.com/delete-account/`
+in the Play Console's Data Safety section. The page is published by the existing
+`web/` sync (board #87) — no nginx change is needed.
 
 ## Pilot web surface (`/pilot/`)
 The API serves the static pilot pages from the repo-root `pilot/` directory via

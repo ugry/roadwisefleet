@@ -65,6 +65,14 @@ model User {
   totpSecret       String?
   createdAt        DateTime  @default(now())
 
+  // Account deletion (board task #142, AND1-A3 — Play release blocker). Set by
+  // `DELETE /api/account`, which ANONYMISES this row in place (name/e-mail/phone/
+  // password/2FA scrubbed, e-mail replaced by a `deleted+<id>@deleted.invalid`
+  // tombstone). The row itself is never removed: trips, status events and
+  // documents reference it, and the retention question is the owner decision on
+  // #13/#46. Nullable and additive, so the running pilot is unaffected.
+  deletedAt DateTime?
+
   tripsAsDriver Trip[]
   tripDrivers   TripDriver[]
   statusEvents  StatusEvent[]
@@ -260,7 +268,8 @@ model Trip {
   // clears it. Default false so every pre-existing trip keeps its behaviour.
   tracking          Boolean   @default(false)
   trackingStartedAt DateTime?
-  createdAt          DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
 
   documents    Document[]
   statusEvents StatusEvent[]

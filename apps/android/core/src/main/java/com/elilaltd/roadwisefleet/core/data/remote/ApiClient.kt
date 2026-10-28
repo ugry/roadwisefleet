@@ -179,6 +179,14 @@ class ApiClient(
      * current bearer token, so the caller must invoke it BEFORE clearing the
      * session.
      */
+    /**
+     * Delete the signed-in account (board #142, Play requirement). The route
+     * needs the CURRENT bearer token, so the caller must not clear the session
+     * first; it returns the retention statement, which the UI shows.
+     */
+    override suspend fun deleteAccount(): ApiResult<Unit> =
+        request("DELETE", "/api/account", null).map { }
+
     override suspend fun revokeDevice(credentialId: String): ApiResult<Unit> {
         val body = JSONObject().put("credentialId", credentialId)
         return request("POST", "/api/auth/device/revoke", body.toString()).map { }
