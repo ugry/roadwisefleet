@@ -2,12 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
 import { env } from '../env.js';
 import { requireAuth } from '../auth/guard.js';
-import {
-  isDeletedAccount,
-  planAccountDeletion,
-  retentionNotice,
-  soloProfileScrub,
-} from '../account-deletion.js';
+import { planAccountDeletion, retentionNotice, soloProfileScrub } from '../account-deletion.js';
 
 /*
  * Account deletion (board task #142, AND1-A3 — Play release blocker).
@@ -97,13 +92,4 @@ export async function accountRoutes(app: FastifyInstance) {
 
     return reply.send({ deleted: true, alreadyDeleted: false, ...retentionNotice({ anonymizedAt: now.toISOString() }) });
   });
-}
-
-/**
- * True when the account behind a bearer token has been deleted. Exported so the
- * identity surfaces that would otherwise hand a live session to a tombstoned
- * account (`/api/auth/me`, device registration) can refuse it.
- */
-export function isTombstoned(user: { deletedAt?: unknown; email?: unknown; passwordHash?: unknown } | null): boolean {
-  return isDeletedAccount(user);
 }
