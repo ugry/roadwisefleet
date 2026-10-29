@@ -284,6 +284,15 @@ jobs:
       - name: Check the auth-email env contract (board #124)
         run: bash infra/scripts/auth-email-send.sh --check-repo
 
+      # Board #10: the last acceptance clause is "a simulated failure produces an
+      # alert". The drill only runs on elilavps1 as root, so what CI can prove is
+      # the driver's behaviour — a dry run changes nothing, --apply touches ONLY
+      # the canary unit, a wrong unit is refused before any call, an already
+      # stopped canary is not "re-failed", and a failing systemctl is loud. Every
+      # assertion reads what the stub systemctl was actually asked to do.
+      - name: Self-test alert-drill.sh (board #10)
+        run: bash infra/scripts/alert-drill.sh --self-test
+
   restore-drill-selftest:
     name: Restore drill self-test (no host, no network)
     runs-on: ubuntu-latest
