@@ -62,6 +62,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The F2 matchers live in their own module (board eila/tasks#145) so they can be
+// proven to still go RED — inline assertions could be stubs again.
+import * as f2 from './fa-f2-kpi.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = (() => {
@@ -205,6 +208,44 @@ function loadAppCore() {
 }
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// The trips view model (app/lib/trips.js, board #34) is a UMD module with no
+// sibling requires — load it the same way as app-core so the CSV clause is
+// checked against the shipped code rather than proxied through the API.
+function loadTripView() {
+  const libDir = path.join(REPO, 'app', 'lib');
+  const src = readFileSync(path.join(libDir, 'trips.js'), 'utf8');
+  const mod = { exports: {} };
+  const req = createRequire(path.join(libDir, path.sep));
+  new Function('module', 'globalThis', 'require', src)(mod, {}, req);
+  return mod.exports;
+}
+// Minimal RFC-4180 reader: enough for the export contract (quoted cells with
+// doubled quotes; toCsv emits no multiline cell for these columns).
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQ = false;
+  const s = String(text);
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { cell += '"'; i++; } else { inQ = false; }
+      } else { cell += ch; }
+      continue;
+    }
+    if (ch === '"') { inQ = true; continue; }
+    if (ch === ',') { row.push(cell); cell = ''; continue; }
+    if (ch === '\r') continue;
+    if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+    cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  if (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') rows.pop();
+  return rows;
+}
+
 /* ----------------------------------------------------------- API spawn --- */
 let apiProc = null;
 async function startApi() {
@@ -315,31 +356,171 @@ async function F1() {
 }
 
 /* ================================================================ F2 ====== */
-async function F2(admin) {
+/**
+ * F2_kpi_reconciliation (board #33; re-scoped by board eila/tasks#145).
+ *
+ * The route answers `{ dashboard: { kpis, alerts, alertCounts, activity } }`.
+ * The first revision of this criterion read `r.json.kpis || r.json` and so
+ * reconciled the WRAPPER (`keys=dashboard`), and two of its three sub-checks were
+ * hardcoded NOT_BUILT rows that never probed anything — against a built F2 the
+ * criterion could never go green, which hides a real regression later and blocks
+ * #47's closure. It now unwraps the payload and re-derives every KPI from its own
+ * Prisma query (never by importing apps/api/src/dashboard.js, so a wrong
+ * definition on either side shows up as a mismatch instead of cancelling out).
+ *
+ * Two clauses cannot be exercised by the seeded data on its own: no Order carries
+ * `plannedAt` (so the on-time sample is empty) and nothing raises an alert. F2
+ * therefore creates disposable fixtures — an order with a promised time, a trip
+ * delivered 30 min before it, an unassigned trip and an expiring document — and
+ * removes them through `residue`/`cleanupResidue`. Without them a fresh CI
+ * database would report NOT_BUILT forever, which is the defect this fixes.
+ */
+async function F2(admin, driver) {
   crit('F2', 'F2_kpi_reconciliation');
-  const probes = ['/api/dashboard', '/api/kpis', '/api/metrics', '/api/reports/summary'];
-  const statuses = {};
-  for (const p of probes) statuses[p] = (await call('GET', p, { token: admin.token })).status;
-  const live = Object.entries(statuses).filter(([, s]) => s === 200);
-  if (!live.length) {
-    nb('a KPI surface exists to reconcile', `no KPI route: ${Object.entries(statuses).map(([p, s]) => `${p}=${s}`).join(', ')}`);
-    nb('every KPI equals a direct DB query', 'no KPI payload exists yet (F2 not built, §4b)');
+
+  // Honesty row: the matchers must still be able to go RED, or this criterion is
+  // a stub again (apps/api/scripts/fa-f2-kpi.mjs).
+  const st = f2.selfTest();
+  const stBad = st.rows.filter((r) => !r.ok);
+  if (st.ok) {
+    ok('the F2 matchers reject a wrong expectation (self-test)', `${st.rows.length}/${st.rows.length} cases discriminate, incl. activeTrips-vs-all-trips, a 0-sample on-time and a dead alert link`);
+  } else {
+    bad('the F2 matchers reject a wrong expectation (self-test)', `${stBad.length}/${st.rows.length} no longer discriminate: ${stBad.map((r) => `${r.name} (${r.evidence})`).join(' | ')}`);
+  }
+
+  // RBAC: the dashboard is a reports surface (`reports:read` = owner/dispatcher/
+  // accountant). A driver holds `trip:read` only and must be refused.
+  const unauth = await call('GET', '/api/dashboard');
+  if (unauth.status === 401) ok('the dashboard refuses an unauthenticated session', `GET /api/dashboard -> 401 ${JSON.stringify(unauth.json)}`);
+  else bad('the dashboard refuses an unauthenticated session', `expected 401, got ${unauth.status}`);
+  const asDriver = await call('GET', '/api/dashboard', { token: driver?.token });
+  const driverBody = JSON.stringify(asDriver.json || {});
+  if (asDriver.status === 403 && !/kpis|alerts/.test(driverBody)) {
+    ok('a driver is refused the KPI surface', `GET /api/dashboard as driver -> 403 ${driverBody} (no KPI payload)`);
+  } else {
+    bad('a driver is refused the KPI surface', `expected 403 without a payload, got ${asDriver.status} ${driverBody.slice(0, 120)}`);
+  }
+
+  const orgId = admin.user?.orgId;
+  const readPayload = () => call('GET', '/api/dashboard', { token: admin.token });
+  const first = await readPayload();
+  if (first.status !== 200) {
+    bad('the dashboard payload is readable', `GET /api/dashboard -> ${first.status} ${JSON.stringify(first.json).slice(0, 160)}`);
     return;
   }
-  const [p] = live[0];
-  const r = await call('GET', p, { token: admin.token });
-  const kpis = r.json?.kpis || r.json?.metrics || r.json?.summary || r.json || {};
-  const orgId = admin.user?.orgId;
-  const tripsTotal = Number(kpis.tripsTotal ?? kpis.trips?.total ?? NaN);
-  if (Number.isFinite(tripsTotal)) {
-    const db = await prisma.trip.count({ where: { orgId } });
-    if (tripsTotal === db) ok(`KPI tripsTotal equals the DB on ${p}`, `api=${tripsTotal}, prisma.trip.count=${db}`);
-    else bad(`KPI tripsTotal equals the DB on ${p}`, `api=${tripsTotal}, prisma.trip.count=${db}`);
+  const firstDash = f2.unwrapDashboard(first.json);
+  const kpiKeys = firstDash.kpis ? Object.keys(firstDash.kpis) : [];
+  if (kpiKeys.length) {
+    ok('the dashboard payload is an unwrapped KPI surface', `200, dashboard.kpis=[${kpiKeys.join(',')}] — the {dashboard} wrapper is unwrapped (the old suite reconciled keys=dashboard)`);
   } else {
-    nb('every KPI equals a direct DB query', `${p} has no reconcilable tripsTotal field; keys=${Object.keys(kpis).join(',')}`);
+    bad('the dashboard payload is an unwrapped KPI surface', `200 but no kpis: keys=${Object.keys(firstDash).join(',')}`);
+    return;
   }
-  nb('each alert links to the entity it names', 'no alert surface in the API or the shell yet');
-  nb("on-time % is computed from timestamps", 'no on-time metric surface yet');
+
+  // Disposable fixtures — never a seeded row, always removed by cleanupResidue.
+  const nowMs = Date.now();
+  const plannedAt = new Date(nowMs - 60 * 60 * 1000);
+  const deliveredAt = new Date(nowMs - 90 * 60 * 1000); // 30 min before the promise => on time
+  let fx = null;
+  const customer = await prisma.customer.findFirst({ where: { orgId }, select: { id: true } });
+  if (customer) {
+    const order = await prisma.order.create({
+      data: { customerId: customer.id, origin: 'QA F2 origin', destination: 'QA F2 destination', status: 'DISPATCHED', plannedAt },
+      select: { id: true },
+    });
+    residue.push({ kind: 'order', id: order.id });
+    const deliveredTrip = await prisma.trip.create({
+      data: { orgId, orderId: order.id, status: 'POD_UPLOADED', deliveredAt },
+      select: { id: true },
+    });
+    residue.push({ kind: 'trip', id: deliveredTrip.id });
+    const unassignedTrip = await prisma.trip.create({
+      data: { orgId, orderId: order.id, status: 'ASSIGNED' },
+      select: { id: true },
+    });
+    residue.push({ kind: 'trip', id: unassignedTrip.id });
+    const doc = await prisma.document.create({
+      data: {
+        tripId: deliveredTrip.id,
+        docType: 'insurance',
+        storageKey: `qa-f2/${deliveredTrip.id}.pdf`,
+        status: 'PENDING',
+        expiresAt: new Date(nowMs + 10 * 24 * 60 * 60 * 1000),
+      },
+      select: { id: true },
+    });
+    residue.push({ kind: 'document', id: doc.id });
+    fx = { orderId: order.id, deliveredTripId: deliveredTrip.id, unassignedTripId: unassignedTrip.id, docId: doc.id };
+  }
+
+  // Expected values, re-derived from the database (independent of the API code).
+  const dbActive = await prisma.trip.count({ where: { orgId, status: { notIn: f2.TERMINAL_STATUSES } } });
+  const dbPay = await prisma.trip.aggregate({
+    where: { orgId, status: f2.INVOICED_STATUS },
+    _sum: { rateEur: true },
+    _count: true,
+  });
+  const deliveredRows = await prisma.trip.findMany({
+    where: { orgId, status: { in: f2.DELIVERED_STATUSES }, deliveredAt: { not: null } },
+    select: { deliveredAt: true, order: { select: { plannedAt: true } } },
+  });
+  const expectedOnTime = f2.onTimeFromRows(
+    deliveredRows.map((r) => ({ deliveredAt: r.deliveredAt, plannedAt: r.order ? r.order.plannedAt : null })),
+  );
+  const expectedPay = { value: f2.round2(Number(dbPay._sum.rateEur ?? 0)), count: Number(dbPay._count ?? 0) };
+
+  const second = await readPayload();
+  if (second.status !== 200) {
+    bad('the KPI payload is readable after the fixtures exist', `GET /api/dashboard -> ${second.status} ${JSON.stringify(second.json).slice(0, 160)}`);
+    return;
+  }
+  const dash = f2.unwrapDashboard(second.json);
+
+  const activeRow = f2.reconcileActiveTrips(f2.kpiOf(dash, 'activeTrips'), dbActive);
+  if (activeRow.ok) ok('kpis.activeTrips equals a direct DB query', activeRow.evidence);
+  else bad('kpis.activeTrips equals a direct DB query', activeRow.evidence);
+
+  const onTimeRow = f2.reconcileOnTime(f2.kpiOf(dash, 'onTimePct'), expectedOnTime);
+  if (onTimeRow.ok && (!fx || expectedOnTime.sample > 0)) {
+    ok('kpis.onTimePct equals the timestamp-derived share', onTimeRow.evidence);
+  } else if (fx && expectedOnTime.sample === 0) {
+    bad('kpis.onTimePct equals the timestamp-derived share', `${onTimeRow.evidence} — the fixture delivery was not comparable, so the clause was not exercised`);
+  } else {
+    bad('kpis.onTimePct equals the timestamp-derived share', onTimeRow.evidence);
+  }
+
+  const payRow = f2.reconcilePendingPay(f2.kpiOf(dash, 'pendingPayEur'), expectedPay);
+  if (payRow.ok) ok('kpis.pendingPayEur equals a direct DB query', payRow.evidence);
+  else bad('kpis.pendingPayEur equals a direct DB query', payRow.evidence);
+
+  const alerts = Array.isArray(dash.alerts) ? dash.alerts : null;
+  if (!alerts) {
+    bad('every alert links to the trip it names', `no alerts array in the payload: keys=${Object.keys(dash).join(',')}`);
+    return;
+  }
+  const linkStatus = {};
+  for (const a of alerts.slice(0, 8)) {
+    const p = String((a && a.link) || '');
+    if (p.startsWith('/app/trips')) linkStatus[p] = (await call('GET', p, { token: admin.token })).status;
+  }
+  const orgTrips = await prisma.trip.findMany({ where: { orgId }, select: { id: true }, take: 400 });
+  const linkRow = f2.checkAlertLinks(alerts, { tripIds: orgTrips.map((t) => t.id), linkStatus, orgId });
+  const sawUnassigned = alerts.some((a) => a && a.kind === 'trip_unassigned' && String(a.tripId) === String(fx?.unassignedTripId));
+  const sawDoc = alerts.some((a) => a && /^document_/.test(String(a.kind)) && String(a.tripId) === String(fx?.deliveredTripId));
+  if (linkRow.ok && (!fx || (sawUnassigned && sawDoc))) {
+    ok('every alert links to the trip it names', `${linkRow.evidence}; fixture alerts seen: unassigned=${sawUnassigned} document=${sawDoc}`);
+  } else if (linkRow.ok) {
+    bad('every alert links to the trip it names', `${linkRow.evidence} but the fixture alerts are missing (unassigned=${sawUnassigned} document=${sawDoc}) — the alert queries did not pick up an unassigned trip / an expiring document`);
+  } else {
+    bad('every alert links to the trip it names', linkRow.evidence);
+  }
+
+  const counts = dash.alertCounts || {};
+  if (Number(counts.total) === alerts.length) {
+    ok('alertCounts.total equals the alerts returned', `alertCounts.total=${counts.total} == alerts.length=${alerts.length} kinds=[${[...new Set(alerts.map((a) => a && a.kind))].join(',')}]`);
+  } else {
+    bad('alertCounts.total equals the alerts returned', `alertCounts.total=${counts.total} vs alerts.length=${alerts.length}`);
+  }
 }
 
 /* ================================================================ F3 ====== */
@@ -388,21 +569,49 @@ async function F3(admin) {
     bad('P&L arithmetic equals DB values', `api expenses=${t.totals.expensesEur} pnl=${t.totals.pnlEur}; DB rate=${dbRate} expenses=${dbExpSum} pnl=${round2(dbRate - dbExpSum)}`);
   }
 
+  // The probe status is derived from live data. A hardcoded status with zero live
+  // rows is a fixture gap, not a product failure — and `0 rows == 0 rows` would be
+  // a vacuous PASS that also starves the CSV row-for-row clause below.
   const orgId = admin.user?.orgId;
   const all = await prisma.trip.count({ where: { orgId } });
-  const filteredDb = await prisma.trip.count({ where: { orgId, status: 'DELIVERED' } });
-  const filtered = await call('GET', '/api/trips?status=DELIVERED', { token: admin.token });
+  const allRows = (await call('GET', '/api/trips', { token: admin.token })).json?.trips || [];
+  const hist = {};
+  for (const r of allRows) hist[r.status] = (hist[r.status] || 0) + 1;
+  const probeStatus = Object.entries(hist).sort((x, y) => y[1] - x[1])[0]?.[0] || 'DELIVERED';
+  const filteredDb = await prisma.trip.count({ where: { orgId, status: probeStatus } });
+  const filtered = await call('GET', `/api/trips?status=${encodeURIComponent(probeStatus)}`, { token: admin.token });
   const got = filtered.json?.trips || [];
   if (filteredDb === all) nb('filters combine correctly', 'every trip in this org shares one status — filter indistinguishable from no filter');
-  else if (got.length === filteredDb && got.every((x) => x.status === 'DELIVERED')) ok('filters combine correctly', `status=DELIVERED -> ${got.length} rows == DB count`);
-  else if (got.length === all) nb('filters combine correctly', `GET /api/trips?status=DELIVERED ignored the query param: ${got.length} rows (org total), DB DELIVERED=${filteredDb}`);
-  else bad('filters combine correctly', `status=DELIVERED -> ${got.length} rows, DB DELIVERED=${filteredDb}; statuses=${[...new Set(got.map((x) => x.status))].join(',')}`);
+  else if (got.length === filteredDb && got.length > 0 && got.every((x) => x.status === probeStatus)) ok('filters combine correctly', `status=${probeStatus} (most-populated live status; live hist ${JSON.stringify(hist)}) -> ${got.length} rows == DB count`);
+  else if (got.length === all) bad('filters combine correctly', `GET /api/trips?status=${encodeURIComponent(probeStatus)} ignored the query param: ${got.length} rows (org total), DB ${probeStatus}=${filteredDb}`);
+  else bad('filters combine correctly', `status=${probeStatus} -> ${got.length} rows, DB ${probeStatus}=${filteredDb}; statuses=${[...new Set(got.map((x) => x.status))].join(',')}`);
 
-  const csv = {};
-  for (const p of ['/api/trips/export.csv', '/api/trips/export', '/api/export/trips']) csv[p] = (await call('GET', p, { token: admin.token })).status;
-  const csvLive = Object.values(csv).some((s) => s === 200);
-  if (csvLive) ok('CSV export exists', JSON.stringify(csv));
-  else nb('CSV export matches the filtered list row for row', `no export route: ${Object.entries(csv).map(([p, s]) => `${p}=${s}`).join(', ')}`);
+  // CSV export lives in the client view model (app/lib/trips.js#toCsv, board #34):
+  // the app builds the file from exactly the rows the table shows, so the
+  // row-for-row clause is checked against the SHIPPED module with the live
+  // filtered rows as input. FAv1 §3 names this clause under F3; no API export
+  // route exists or is expected (the three candidates are probed for the record).
+  const csvApi = {};
+  for (const p of ['/api/trips/export.csv', '/api/trips/export', '/api/export/trips']) csvApi[p] = (await call('GET', p, { token: admin.token })).status;
+  let TV = null;
+  try { TV = loadTripView(); } catch { TV = null; }
+  const filterRows = (await call('GET', `/api/trips?status=${encodeURIComponent(probeStatus)}`, { token: admin.token })).json?.trips || [];
+  if (TV && typeof TV.toCsv === 'function') {
+    const csv = TV.toCsv(filterRows);
+    const parsed = parseCsv(csv);
+    const headerOk = JSON.stringify(parsed[0]) === JSON.stringify(TV.CSV_COLUMNS);
+    const bodyRows = parsed.slice(1);
+    const idsOk = filterRows.length > 0 && bodyRows.length === filterRows.length && bodyRows.every((r, i) => r[0] === String(filterRows[i].id));
+    const statusOk = bodyRows.every((r, i) => r[1] === String(filterRows[i].status));
+    const crlfOk = /\r\n$/.test(csv);
+    if (headerOk && idsOk && statusOk && crlfOk) {
+      ok('CSV export matches the filtered list row for row', `app/lib/trips.js toCsv: ${TV.CSV_COLUMNS.length}-col header, ${bodyRows.length}/${filterRows.length} rows (id+status match), RFC4180 CRLF; no API route (${Object.entries(csvApi).map(([p, s]) => `${p}=${s}`).join(', ')})`);
+    } else {
+      bad('CSV export matches the filtered list row for row', `headerOk=${headerOk} idsOk=${idsOk} statusOk=${statusOk} crlf=${crlfOk}; rows=${bodyRows.length} expected=${filterRows.length}`);
+    }
+  } else {
+    nb('CSV export matches the filtered list row for row', `could not load app/lib/trips.js (loader error); API routes: ${Object.entries(csvApi).map(([p, s]) => `${p}=${s}`).join(', ')}`);
+  }
 }
 
 /* ================================================================ F4 ====== */
@@ -772,7 +981,10 @@ async function F10() {
 async function cleanupResidue() {
   const tripIds = residue.filter((r) => r.kind === 'trip').map((r) => r.id);
   const docIds = residue.filter((r) => r.kind === 'document').map((r) => r.id);
-  if (!tripIds.length && !docIds.length) {
+  // Orders created only to carry an F2 on-time fixture (board #145); deleted after
+  // their trips, because Trip.orderId is a required FK.
+  const orderIds = residue.filter((r) => r.kind === 'order').map((r) => r.id);
+  if (!tripIds.length && !docIds.length && !orderIds.length) {
     console.log('RESIDUE: none');
     return;
   }
@@ -793,6 +1005,10 @@ async function cleanupResidue() {
     if (docIds.length && !tripIds.length) {
       const dc = await prisma.document.deleteMany({ where: { id: { in: docIds } } });
       done.push(`${dc.count} documents`);
+    }
+    if (orderIds.length) {
+      const od = await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
+      done.push(`${od.count} orders`);
     }
   } catch (err) {
     console.log(`RESIDUE: cleanup FAILED (${err.message.slice(0, 120)}); left behind: ${residue.map((r) => `${r.kind} ${r.id}`).join(', ')}`);
@@ -827,7 +1043,7 @@ async function main() {
     const ctx = { admin, driver1, driver2, driver3 };
     const plan = [
       ['F1', () => F1()],
-      ['F2', () => F2(ctx.admin)],
+      ['F2', () => F2(ctx.admin, ctx.driver1)],
       ['F3', () => F3(ctx.admin)],
       ['F4', () => F4(ctx.admin, ctx.driver1)],
       ['F5', () => F5(ctx.admin, ctx.driver1, ctx.driver2)],
