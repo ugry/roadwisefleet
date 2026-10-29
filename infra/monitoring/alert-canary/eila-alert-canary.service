@@ -1,0 +1,43 @@
+# EILA alert-drill canary (board eila/tasks#10)
+#
+# Purpose: give the monitoring stack something that can be made to fail ON
+# PURPOSE, so "a simulated failure produces an alert" can be proven end to end
+# without touching a production service. It serves nothing but a directory
+# listing over HTTP on loopback; it holds no data and has no dependencies.
+#
+# Install (root, elilavps1 — with owner/TL approval):
+#   install -m 0644 eila-alert-canary.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now eila-alert-canary.service
+#   curl -sI http://127.0.0.1:8099/            # 200 = healthy canary
+#   # then add the check in gatus-check.yaml to the Gatus config and reload it
+#
+# Drill: infra/scripts/alert-drill.sh --fail --apply  (stop)  then
+#        infra/scripts/alert-drill.sh --recover --apply (start).
+#
+# Restart=no is deliberate: with Restart=always a stop would be undone by systemd
+# and the injected failure would never reach Gatus.
+
+[Unit]
+Description=EILA alert-drill canary (deliberate failure target; board eila/tasks#10)
+Documentation=https://github.com/ugry/roadwisefleet/blob/main/infra/monitoring/runbook.md
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=eila-alert-canary
+ExecStart=/usr/bin/python3 -m http.server 8099 --bind 127.0.0.1 --directory /var/lib/eila-alert-canary
+Restart=no
+# Hardening: this unit must be harmless if it is ever compromised.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=32M
+TasksMax=8
+
+[Install]
+WantedBy=multi-user.target

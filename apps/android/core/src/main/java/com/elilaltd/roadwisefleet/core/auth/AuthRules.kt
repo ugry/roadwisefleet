@@ -34,6 +34,13 @@ object AuthRules {
     const val ERROR_DELETE = "auth.deleteAccount.error"
     const val NOTICE_DELETED = "auth.deleteAccount.done"
 
+    /**
+     * Board #144 (AND1-A3b): the server refuses to delete the LAST administrator
+     * of a fleet — the org would be left with nobody who can manage it. The
+     * person can still use the account; only the deletion is blocked.
+     */
+    const val ERROR_LAST_OWNER = "auth.deleteAccount.lastOwner"
+
     /** The word the driver must type to arm the delete button (Play flow). */
     const val DELETE_CONFIRM_WORD = "DELETE"
 
@@ -113,8 +120,13 @@ object AuthRules {
      * Map a deletion failure. A 401 means the session is gone (expired, or the
      * account is already deleted) and is shown as "sign in again", never as a
      * scary server error; 429 and 5xx keep their own sentences.
+     *
+     * The machine code wins over the status: board #144's `409 last_owner` is a
+     * real, actionable refusal (the fleet has no other administrator), so it gets
+     * its own sentence instead of the generic "try again".
      */
     fun deleteErrorKey(status: Int, error: String? = null): String = when {
+        error == "last_owner" || status == 409 -> ERROR_LAST_OWNER
         status == 429 || error == "rate_limited" -> ERROR_RATE_LIMITED
         status == 0 -> ERROR_NETWORK
         status == 401 -> NOTICE_SIGN_IN_AGAIN

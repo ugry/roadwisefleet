@@ -95,6 +95,7 @@
   "account.type.soloDriver": "Selbstfahrender Lkw-Fahrer",
   "account.type.soloDriverHint": "Fahren Sie auf eigene Rechnung, kostenlos.",
   "account.delete.done": "Ihr Konto wurde gelöscht. Eine Anmeldung ist nicht mehr möglich.",
+  "account.delete.lastOwner": "Dieses Konto ist der einzige Administrator seiner Flotte. Fügen Sie zuerst einen weiteren Administrator hinzu oder übergeben Sie die Flotte — wenden Sie sich dafür an den Support.",
   "account.delete.retains.trips": "Fahrtendaten (Strecken, Stopps, Statusverlauf, Preise) als operativer Nachweis des Frachtführers.",
   "account.delete.retains.documents": "Lieferbelege (Unterschrift, eCMR, Rechnungsscans, Fotos).",
   "account.delete.retains.reviews": "Bereits abgegebene oder erhaltene Bewertungen, dem Frachtführer zugeordnet.",

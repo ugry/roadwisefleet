@@ -52,25 +52,69 @@ must be reflected in the config file that gets committed under `infra/monitoring
 once §2 of `README.md` is unblocked — otherwise the next config reload silently
 reverts the silence.
 
-## 3. Alert round-trip test
+## 3. Alert round-trip test (the "simulated failure" drill)
 
-Goal: prove an alert actually reaches `#eila-alerts` (Matrix) and `ugur@`
+Goal: prove an alert actually reaches `#eila-alerts` (Matrix) **and** `ugur@`
 (email). **Never** test by taking down a production service.
 
-1. Preferred: use the relay's own test path (a test alert payload) from
-   elilavps1 — owner/orchestrator runs it; the token stays on that host.
-2. Then verify: the message appears in `#eila-alerts:elilaltd.com` and the mail
-   lands in `ugur@`. Paste the timestamp (not the payload) into the board.
-3. After the stack configs are in git, add a scheduled synthetic check (a
-   deliberately failing endpoint on a non-production host) so the round-trip is
-   tested continuously rather than by hand.
-4. Record the result in `../pilot-observability.md` §3b / the board comment.
+Status 2026-10-27: the chain is wired and every check evaluates healthy, but
+**no alert has ever been delivered** (`/opt/monitoring/metric-alerts.log` holds
+only heartbeats, Gatus has no alert history). That is the acceptance gap on
+`eila/tasks#10` — a monitoring stack that has never fired is an untested one.
 
-**Alternative while the relay test is unavailable:** the in-host
-`../scripts/pilot-uptime-check.sh` mails `ugur@` on failure; once installed
-(`README.md` §3 T7), a *simulated* failure for it can be run in a change window
-by stopping a non-critical pilot unit — with explicit owner approval and the
-overseer watching.
+### 3.1 The canary (why not a real check)
+
+Stop a real unit and you are breaking production to test monitoring. Instead the
+drill flips a **dedicated canary** that serves nothing:
+
+| Piece | Path | What it is |
+|---|---|---|
+| Canary unit | `alert-canary/eila-alert-canary.service` | `python3 -m http.server` on `127.0.0.1:8099`, `DynamicUser`, hardened, `Restart=no` (so a stop stays stopped) |
+| Gatus check | `alert-canary/gatus-check.yaml` | `tcp://127.0.0.1:8099`, `[CONNECTED] == true`, failure-threshold 3 |
+| Drill driver | `../scripts/alert-drill.sh` | `--status` / `--fail` / `--recover` / `--apply` / `--self-test` |
+
+The alert travels the real path: Gatus evaluation → its configured provider
+(relay) → Matrix room + `ugur@`. No nginx, no database, no pilot unit is touched.
+
+### 3.2 Procedure (elilavps1, root — owner/orchestrator or Team Leader)
+
+I do not hold elilavps1 access, so **I cannot run these steps**; I own the
+artifacts, the CI proof that the driver behaves (`self-test`, `infra-scripts`
+job) and the recording of the result.
+
+1. Precondition: `bash infra/scripts/alert-drill.sh --status` → canary
+   `active (running)`, and the check green on the status page.
+2. Inject the failure: `bash infra/scripts/alert-drill.sh --fail --apply`
+   (a dry run without `--apply` changes nothing and exits 2).
+   The script refuses if the canary is **already** stopped — a second stop proves
+   nothing — and it refuses any unit other than the canary.
+3. Within ~90–120 s (3 × 30 s threshold) expect **one** alert in
+   `#eila-alerts:elilaltd.com` **and one** mail to `ugur@`, naming
+   `alert-drill canary` and the failing condition. Exactly one, not one per
+   interval — a repeated alert is a cooldown defect, record it as such.
+4. Recover: `bash infra/scripts/alert-drill.sh --recover --apply` → expect one
+   recovery notice (Gatus `success-threshold: 1`).
+5. Record on `eila/tasks#10`: the drill nonce printed by the script, the failure
+   timestamp, the recovery timestamp, the delivered **message text** (not the
+   payload's transport details, never a token) and **who** confirmed delivery in
+   the room and in the mailbox. Then mark the acceptance clause satisfied.
+
+### 3.3 What is NOT proven by this drill
+
+* Delivery to a mailbox other than `ugur@` (the relay routes one recipient).
+* The relay's own cooldown/escalation behaviour beyond "one message per
+  incident" — that needs a second drill with a longer outage; record it as its
+  own result rather than assuming it.
+* Anything about the `metric_alerts.py` cron path (disk/mem thresholds): those
+  thresholds are still proposed, not applied (`README.md` §3 T1–T13).
+
+### 3.4 If the canary cannot be installed
+
+The relay's own test path remains the fallback, and the in-host
+`../scripts/pilot-uptime-check.sh` mails `ugur@` on failure — but **neither is a
+substitute for an observed alert in the room**: until one has been seen, the
+clause is unsatisfied and the task stays open.
+
 
 ## 4. Rotate the relay's Matrix bot token
 

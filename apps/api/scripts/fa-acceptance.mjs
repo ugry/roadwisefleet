@@ -50,6 +50,7 @@
  *   FA_CRITERIA=F1,F6 node apps/api/scripts/fa-acceptance.mjs     # subset (used for the red-run proof)
  *   FA_REPO=/path/to/repo                         # repo under test (default: this script's repo root)
  *   FA_LIVE_BASE=https://roadwisefleet.com        # deployed environment (F9)
+ *   FA_NO_LIVE=1                                  # no deployed environment (CI): live-only rows are NOT_BUILT
  *   FA_F7_HARNESS=1                               # also run the separately-supplied pwa_driver_harness.py --flow pod
  *
  * Secret handling: SEED_PASSWORD is read from the repo `.env` in-process; it is
@@ -82,6 +83,11 @@ const ONLY = (process.env.FA_CRITERIA || '')
   .map((s) => s.trim().toUpperCase())
   .filter(Boolean);
 const RUN_F7_HARNESS = process.env.FA_F7_HARNESS === '1';
+// CI (board eila/tasks#137) has no deployed environment: the suite spawns the API
+// from the clone. The live-only rows (F9's deployment health/pages, F10's landing
+// page) must then be recorded NOT_BUILT with that reason — never PASS against a
+// stand-in, and never FAIL merely because a runner has no pilot to point at.
+const NO_LIVE = process.env.FA_NO_LIVE === '1';
 
 /* ------------------------------------------------------------------ env --- */
 function loadEnv(file) {
@@ -109,6 +115,12 @@ const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL || fil
 const ADMIN_EMAIL = 'admin@pilot.roadwisefleet.test';
 const DRIVER1_EMAIL = 'driver1@pilot.roadwisefleet.test';
 const DRIVER2_EMAIL = 'driver2@pilot.roadwisefleet.test';
+// F6/F7 need a driver who holds NO active trip: the seed assigns `pilot-trip-2`
+// to driver1 (ASSIGNED), and board #105 refuses to double-book a driver, so a
+// second trip for driver1 can never reach ASSIGNED. On a fresh migrated+seeded
+// database (CI, board eila/tasks#137) that is deterministic — driver3 is the
+// seeded driver with no trips, and driver1/driver2 stay the "other drivers".
+const DRIVER3_EMAIL = 'driver3@pilot.roadwisefleet.test';
 
 /* -------------------------------------------------------------- results --- */
 const criteria = [];
@@ -471,11 +483,11 @@ async function F5(admin, driver1, driver2) {
 }
 
 /* ================================================================ F6 ====== */
-async function F6(admin, driver1, driver2) {
+async function F6(admin, assigned, other) {
   crit('F6', 'F6_pod_gate_documents');
   const orders = (await call('GET', '/api/reference', { token: admin.token })).json?.reference?.orders || [];
   const trucks = (await call('GET', '/api/reference', { token: admin.token })).json?.reference?.trucks || [];
-  const d1 = driver1.user?.id;
+  const d1 = assigned.user?.id;
   const created = await call('POST', '/api/trips', { token: admin.token, body: { orderId: orders[0]?.id, driverId: d1, truckId: trucks[0]?.id, rateEur: 512 } });
   const tripId = created.json?.trip?.id;
   if (created.status !== 201 || !tripId) {
@@ -492,14 +504,14 @@ async function F6(admin, driver1, driver2) {
   }
   ok('POD flow can be exercised (trip created and moved to DELIVERED)', `${tripId}: DRAFT→ASSIGNED→LOADED→IN_TRANSIT→DELIVERED all 200`);
 
-  const gate = await call('POST', `/api/trips/${tripId}/status`, { token: driver1.token, body: { status: 'POD_UPLOADED' } });
+  const gate = await call('POST', `/api/trips/${tripId}/status`, { token: assigned.token, body: { status: 'POD_UPLOADED' } });
   if (gate.status === 400 && gate.json?.error === 'pod_required') ok('the POD gate holds before a document exists', `POD_UPLOADED -> 400 ${JSON.stringify(gate.json)}`);
   else bad('the POD gate holds before a document exists', `expected 400 pod_required, got ${gate.status} ${JSON.stringify(gate.json)}`);
 
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const capturedAt = new Date().toISOString();
   const upload = await call('POST', `/api/trips/${tripId}/documents`, {
-    token: driver1.token,
+    token: assigned.token,
     body: {
       docType: 'pod',
       filename: 'fa-pod.png',
@@ -524,27 +536,27 @@ async function F6(admin, driver1, driver2) {
   }
 
   const badType = await call('POST', `/api/trips/${tripId}/documents`, {
-    token: driver1.token,
+    token: assigned.token,
     body: { docType: 'pod', filename: 'notes.txt', mimeType: 'text/plain', dataBase64: PNG },
   });
   if (badType.status === 400) ok('an unsupported MIME type is rejected', `text/plain -> 400 ${JSON.stringify(badType.json)}`);
   else bad('an unsupported MIME type is rejected', `expected 400, got ${badType.status} ${JSON.stringify(badType.json)}`);
 
   const wrongDriver = await call('POST', `/api/trips/${tripId}/documents`, {
-    token: driver2.token,
+    token: other.token,
     body: { docType: 'pod', filename: 'fa-pod2.png', mimeType: 'image/png', dataBase64: PNG },
   });
   if (wrongDriver.status === 403) ok("another driver cannot upload to this trip", `driver2 -> 403 ${JSON.stringify(wrongDriver.json)}`);
   else bad("another driver cannot upload to this trip", `expected 403, got ${wrongDriver.status}`);
 
-  const list = await call('GET', `/api/trips/${tripId}/documents`, { token: driver1.token });
+  const list = await call('GET', `/api/trips/${tripId}/documents`, { token: assigned.token });
   const leaksList = (list.json?.documents || []).some((d) => d.storageKey !== undefined);
   if (list.status === 200 && !leaksList) ok('the document list is readable and leak-free', `200, ${list.json.documents.length} document(s), no storageKey`);
   else bad('the document list is readable and leak-free', `${list.status}, leaksStorageKey=${leaksList}`);
 
   if (docId) {
-    const selfVerify = await call('PATCH', `/api/documents/${docId}`, { token: driver1.token, body: { status: 'VERIFIED' } });
-    if (selfVerify.status === 403) ok('a driver cannot verify their own document', `PATCH as driver1 -> 403 ${JSON.stringify(selfVerify.json)}`);
+    const selfVerify = await call('PATCH', `/api/documents/${docId}`, { token: assigned.token, body: { status: 'VERIFIED' } });
+    if (selfVerify.status === 403) ok('a driver cannot verify their own document', `PATCH as the assigned driver -> 403 ${JSON.stringify(selfVerify.json)}`);
     else bad('a driver cannot verify their own document', `expected 403, got ${selfVerify.status} ${JSON.stringify(selfVerify.json)}`);
 
     const ownerVerify = await call('PATCH', `/api/documents/${docId}`, { token: admin.token, body: { status: 'VERIFIED' } });
@@ -552,9 +564,13 @@ async function F6(admin, driver1, driver2) {
     else bad('the owner verifies the document', `expected 200 VERIFIED, got ${ownerVerify.status} ${JSON.stringify(ownerVerify.json)}`);
   }
 
-  const gateAfter = await call('POST', `/api/trips/${tripId}/status`, { token: driver1.token, body: { status: 'POD_UPLOADED' } });
-  if (gateAfter.status === 200 && gateAfter.json?.trip?.status === 'POD_UPLOADED') ok('the gate opens once the POD is verified', `POD_UPLOADED -> 200 (trip POD_UPLOADED)`);
-  else bad('the gate opens once the POD is verified', `expected 200 POD_UPLOADED, got ${gateAfter.status} ${JSON.stringify(gateAfter.json)}`);
+  const gateAfter = await call('POST', `/api/trips/${tripId}/status`, { token: assigned.token, body: { status: 'POD_UPLOADED' } });
+  if (gateAfter.status === 200 && gateAfter.json?.trip?.status === 'POD_UPLOADED') {
+    ok('the gate opens once the POD is verified', `POD_UPLOADED -> 200 (trip POD_UPLOADED)`);
+    shared.f6PodUploaded = true;
+  } else {
+    bad('the gate opens once the POD is verified', `expected 200 POD_UPLOADED, got ${gateAfter.status} ${JSON.stringify(gateAfter.json)}`);
+  }
 
   shared.f6TripId = tripId;
   shared.f6DocId = docId;
@@ -562,22 +578,22 @@ async function F6(admin, driver1, driver2) {
 }
 
 /* ================================================================ F7 ====== */
-async function F7(admin, driver1, driver2) {
+async function F7(admin, assigned, other) {
   crit('F7', 'F7_driver_app');
   const tripId = shared.f6TripId;
   if (!tripId) {
     nb('a driver never sees another driver\'s trip (403)', 'no trip id from F6 in this run');
   } else {
-    const other = await call('GET', `/api/trips/${tripId}`, { token: driver2.token });
-    const blocked = other.status === 403 || other.status === 404;
-    if (blocked) ok("a driver never sees another driver's trip", `driver2 GET /api/trips/${tripId} -> ${other.status} ${JSON.stringify(other.json)}`);
-    else bad("a driver never sees another driver's trip", `expected 403/404, got ${other.status}`);
-    const move = await call('POST', `/api/trips/${tripId}/status`, { token: driver2.token, body: { status: 'ASSIGNED' } });
+    const otherView = await call('GET', `/api/trips/${tripId}`, { token: other.token });
+    const blocked = otherView.status === 403 || otherView.status === 404;
+    if (blocked) ok("a driver never sees another driver's trip", `driver2 GET /api/trips/${tripId} -> ${otherView.status} ${JSON.stringify(otherView.json)}`);
+    else bad("a driver never sees another driver's trip", `expected 403/404, got ${otherView.status}`);
+    const move = await call('POST', `/api/trips/${tripId}/status`, { token: other.token, body: { status: 'ASSIGNED' } });
     if (move.status === 403) ok("a driver cannot move another driver's trip", `driver2 POST /status -> 403 ${JSON.stringify(move.json)}`);
     else bad("a driver cannot move another driver's trip", `expected 403, got ${move.status} ${JSON.stringify(move.json)}`);
-    const own = await call('GET', '/api/driver/trips', { token: driver1.token });
+    const own = await call('GET', '/api/driver/trips', { token: assigned.token });
     const sees = own.json?.trips?.some((t) => t.id === tripId);
-    if (own.status === 200 && sees) ok("the assigned driver sees the trip in their app", `driver1 /api/driver/trips contains ${tripId}`);
+    if (own.status === 200 && sees) ok("the assigned driver sees the trip in their app", `driver3 /api/driver/trips contains ${tripId}`);
     else bad("the assigned driver sees the trip in their app", `status=${own.status} contains=${Boolean(sees)}`);
   }
 
@@ -593,7 +609,11 @@ async function F7(admin, driver1, driver2) {
   } else {
     nb('a capture carries GPS + timestamp', 'no document uploaded in this run (F6 did not reach the upload)');
   }
-  ok('a status advances without a raw status field (one action = one transition)', 'F6: driver1 POD_UPLOADED -> 200 on the assigned trip (state machine driven by the API)');
+  if (shared.f6PodUploaded) {
+    ok('a status advances without a raw status field (one action = one transition)', 'F6: the assigned driver POD_UPLOADED -> 200 on its trip (state machine driven by the API)');
+  } else {
+    nb('a status advances without a raw status field (one action = one transition)', 'F6 did not reach POD_UPLOADED in this run');
+  }
 
   const harness = path.join(HERE, 'pwa_driver_harness.py');
   if (!RUN_F7_HARNESS || !existsSync(harness)) {
@@ -655,13 +675,17 @@ async function F9() {
   const healthPaths = [[LOCAL_PILOT, '/health'], [LIVE, '/api/health'], [LIVE, '/health']];
   let health = null;
   let healthWhere = '';
-  for (const [base, p] of healthPaths) {
-    const r = await call('GET', p, { base }).catch(() => null);
-    if (r && r.status === 200) { health = r; healthWhere = `${base}${p}`; break; }
-    if (!health) { health = r; healthWhere = `${base}${p}`; }
+  if (NO_LIVE) {
+    nb('the single pilot environment answers its health check', 'no deployed environment in this run (FA_NO_LIVE=1): the suite only reached the clone-spawned API on the runner');
+  } else {
+    for (const [base, p] of healthPaths) {
+      const r = await call('GET', p, { base }).catch(() => null);
+      if (r && r.status === 200) { health = r; healthWhere = `${base}${p}`; break; }
+      if (!health) { health = r; healthWhere = `${base}${p}`; }
+    }
+    if (health?.status === 200) ok('the single pilot environment answers its health check', `${healthWhere} -> 200 ${health.text.slice(0, 60)}${healthWhere.startsWith(LOCAL_PILOT) ? ' (loopback: the pilot service; not exposed publicly, by design)' : ''}`);
+    else bad('the single pilot environment answers its health check', `tried ${healthPaths.map(([b, p]) => `${b}${p}`).join(', ')} — last ${healthWhere} -> ${health ? health.status : 'unreachable'}`);
   }
-  if (health?.status === 200) ok('the single pilot environment answers its health check', `${healthWhere} -> 200 ${health.text.slice(0, 60)}${healthWhere.startsWith(LOCAL_PILOT) ? ' (loopback: the pilot service; not exposed publicly, by design)' : ''}`);
-  else bad('the single pilot environment answers its health check', `tried ${healthPaths.map(([b, p]) => `${b}${p}`).join(', ')} — last ${healthWhere} -> ${health ? health.status : 'unreachable'}`);
 
   const artifacts = ['deploy.sh', 'infra/deploy/roadwise-deploy.sh', 'infra/deploy/roadwise-promote.sh', 'infra/scripts/pilot-restore-drill.sh', 'infra/scripts/pilot-backup-verify.sh', 'infra/monitoring/runbook.md'];
   const missing = artifacts.filter((f) => !existsSync(path.join(REPO, f)));
@@ -677,6 +701,10 @@ async function F9() {
   // The deployed pages are part of "deployed on the single environment": a page
   // that logs a CSP violation or an Uncaught error is not functioning.
   for (const p of ['/pilot/', '/pilot/driver.html']) {
+    if (NO_LIVE) {
+      nb(`deployed ${p} loads without page-origin console errors`, 'no deployed environment in this run (FA_NO_LIVE=1)');
+      continue;
+    }
     const cons = browserRun(LIVE, ['console', `${LIVE}${p}`]);
     if (cons.err) {
       nb(`deployed ${p} loads without page-origin console errors`, `eila-browser unavailable: ${cons.err}`);
@@ -692,14 +720,16 @@ async function F9() {
 /* =============================================================== F10 ====== */
 async function F10() {
   crit('F10', 'F10_privacy_actor');
-  const landing = await call('GET', '/', { base: LIVE }).catch(() => null);
+  const landing = NO_LIVE ? null : await call('GET', '/', { base: LIVE }).catch(() => null);
   const shell = await call('GET', '/app/');
   const linkRe = /href="([^"]*(?:privacy|terms|imprint)[^"]*)"/gi;
   const found = new Set();
   for (const body of [landing?.text || '', shell?.text || '']) {
     for (const m of body.matchAll(linkRe)) found.add(m[1]);
   }
-  if (!found.size) {
+  if (NO_LIVE) {
+    nb('privacy/terms are reachable from the landing page and the app footer', 'no deployed environment in this run (FA_NO_LIVE=1): the published landing page was not fetched');
+  } else if (!found.size) {
     nb('privacy/terms are reachable from the landing page and the app footer', `no privacy/terms link in the landing page or the app shell (grep over ${landing ? landing.status : 'unreachable'} landing + ${shell.status} shell, 0 hits)`);
   } else {
     const results = [];
@@ -788,20 +818,21 @@ async function main() {
     const admin = await login(ADMIN_EMAIL);
     const driver1 = await login(DRIVER1_EMAIL);
     const driver2 = await login(DRIVER2_EMAIL);
+    const driver3 = await login(DRIVER3_EMAIL);
     if (admin.status !== 200 || !admin.token) {
       console.error(`FATAL: owner login failed (${admin.status} ${JSON.stringify(admin.body)})`);
       process.exit(2);
     }
-    console.log(`# logins: owner=${admin.status} driver1=${driver1.status} driver2=${driver2.status}`);
-    const ctx = { admin, driver1, driver2 };
+    console.log(`# logins: owner=${admin.status} driver1=${driver1.status} driver2=${driver2.status} driver3=${driver3.status}`);
+    const ctx = { admin, driver1, driver2, driver3 };
     const plan = [
       ['F1', () => F1()],
       ['F2', () => F2(ctx.admin)],
       ['F3', () => F3(ctx.admin)],
       ['F4', () => F4(ctx.admin, ctx.driver1)],
       ['F5', () => F5(ctx.admin, ctx.driver1, ctx.driver2)],
-      ['F6', () => F6(ctx.admin, ctx.driver1, ctx.driver2)],
-      ['F7', () => F7(ctx.admin, ctx.driver1, ctx.driver2)],
+      ['F6', () => F6(ctx.admin, ctx.driver3, ctx.driver2)],
+      ['F7', () => F7(ctx.admin, ctx.driver3, ctx.driver2)],
       ['F8', () => F8(ctx.admin, ctx.driver1)],
       ['F9', () => F9()],
       ['F10', () => F10()],

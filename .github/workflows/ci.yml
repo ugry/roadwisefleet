@@ -81,6 +81,157 @@ jobs:
       - name: Run waitlist service tests
         run: node --test services/waitlist/
 
+  # Board eila/tasks#137 (FAv1-QA1b). The FAv1 acceptance suite
+  # (apps/api/scripts/fa-acceptance.mjs) landed in the repo long ago but nothing
+  # ever ran it, so every merge was gated on the host-side smoke alone. This job
+  # runs it end-to-end against a throwaway Postgres: migrated schema, the pilot
+  # seed, and the API spawned from this clone. It exists to raise a FAIL — the
+  # suite's NOT_BUILT/PARTIAL verdicts are legitimate output and the job's result
+  # is the script's own exit code (1 iff a criterion FAILs).
+  fa-acceptance:
+    name: FAv1 acceptance suite (postgres + spawned API)
+    runs-on: ubuntu-latest
+    # The board's acceptance row: runtime under 15 minutes.
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: roadwisefleet
+          POSTGRES_PASSWORD: roadwisefleet
+          POSTGRES_DB: roadwisefleet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U roadwisefleet -d roadwisefleet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Throwaway container credentials for this job only — not a production
+      # secret, and the service is reachable solely on the runner's loopback.
+      DATABASE_URL: "postgresql://roadwisefleet:roadwisefleet@127.0.0.1:5432/roadwisefleet?schema=public"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # apps/api's postinstall runs `prisma generate` (no database needed). The
+      # seed, the suite and the spawned API all resolve their deps from here.
+      - name: Install the workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The suite reads SEED_PASSWORD from the repo .env in-process and never
+      # prints it; the API and the seed load the same file through
+      # apps/api/src/env.ts, which resolves AUTH_SECRET eagerly (the seed
+      # imports it), so a per-run signing secret is generated here too rather
+      # than taking the ALLOW_INSECURE_AUTH_SECRET hatch. The file is generated
+      # per run, is gitignored, is never uploaded, and both values are masked so
+      # they cannot reach a step log either.
+      - name: Write the run's .env (runtime only, never printed)
+        run: |
+          set -euo pipefail
+          SEED_PASSWORD="$(openssl rand -hex 16)"
+          AUTH_SECRET="$(openssl rand -hex 32)"
+          echo "::add-mask::$SEED_PASSWORD"
+          echo "::add-mask::$AUTH_SECRET"
+          {
+            echo "SEED_PASSWORD=$SEED_PASSWORD"
+            echo "AUTH_SECRET=$AUTH_SECRET"
+          } >> "$GITHUB_ENV"
+          {
+            printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+            printf 'SEED_PASSWORD=%s\n' "$SEED_PASSWORD"
+            printf 'AUTH_SECRET=%s\n' "$AUTH_SECRET"
+          } > .env
+          chmod 600 .env
+
+      - name: Apply the Prisma migrations
+        run: pnpm --filter @roadwisefleet/api exec prisma migrate deploy
+
+      - name: Seed the pilot fixtures
+        run: pnpm --filter @roadwisefleet/api db:seed
+
+      # FA_BASE is deliberately NOT set: the suite then spawns the API from this
+      # clone on :8082 instead of pointing at the live pilot (script header).
+      # FA_NO_LIVE marks the run as "no deployed environment": F9's deployment
+      # health/pages and F10's landing page are recorded NOT_BUILT with that
+      # reason — never faked as a pass, never failed for lack of a host.
+      - name: Run the FAv1 acceptance suite
+        env:
+          FA_NO_LIVE: '1'
+        run: |
+          set -o pipefail
+          node apps/api/scripts/fa-acceptance.mjs 2>&1 | tee fa-acceptance.log
+
+      # The acceptance asks for the per-criterion table on the run itself, not
+      # buried in the log. Annotations name every failing criterion/sub-check.
+      - name: Per-criterion table and annotations
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f fa-acceptance.log ]; then
+            echo "::error::fa-acceptance.log is missing — the suite produced no verdict"
+            exit 0
+          fi
+          criteria="$(grep -E '^CRITERION ' fa-acceptance.log || true)"
+          {
+            echo '## FAv1 acceptance (eila/tasks#137)'
+            echo
+            echo '| criterion | verdict | name |'
+            echo '| --- | --- | --- |'
+            printf '%s\n' "$criteria" | awk 'NF >= 4 { name = $4; gsub(/[()]/, "", name); printf "| %s | %s | %s |\n", $2, $3, name }'
+            echo
+            echo '```'
+            grep -E '^(SUMMARY|RESIDUE|# mode)' fa-acceptance.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$criteria" ]; then
+            printf '%s\n' "$criteria" | grep -E ' FAIL ' | while IFS= read -r line; do
+              echo "::error title=FAv1 acceptance FAIL::$line"
+            done || true
+          fi
+          subs="$(grep -E '^  FAIL ' fa-acceptance.log || true)"
+          if [ -n "$subs" ]; then
+            printf '%s\n' "$subs" | while IFS= read -r line; do
+              echo "::error::${line#  }"
+            done
+          fi
+
+      # The log is published as an artifact, so fail closed if any of the run's
+      # generated values ever reached it: delete it and red the job rather than
+      # publish.
+      - name: Refuse to publish a log that carries a generated secret
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -f fa-acceptance.log ] || exit 0
+          leaked=0
+          for value in "${SEED_PASSWORD:-}" "${AUTH_SECRET:-}"; do
+            [ -n "$value" ] || continue
+            if grep -qF -- "$value" fa-acceptance.log; then leaked=1; fi
+          done
+          if [ "$leaked" -eq 1 ]; then
+            echo "::error::fa-acceptance.log contains a generated secret — deleting it instead of uploading"
+            rm -f fa-acceptance.log
+            exit 1
+          fi
+
+      - name: Upload the suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa-acceptance-log
+          path: fa-acceptance.log
+          if-no-files-found: warn
+          retention-days: 14
+
   shellcheck:
     name: Shellcheck (infra scripts)
     runs-on: ubuntu-latest
@@ -132,6 +283,15 @@ jobs:
 
       - name: Check the auth-email env contract (board #124)
         run: bash infra/scripts/auth-email-send.sh --check-repo
+
+      # Board #10: the last acceptance clause is "a simulated failure produces an
+      # alert". The drill only runs on elilavps1 as root, so what CI can prove is
+      # the driver's behaviour — a dry run changes nothing, --apply touches ONLY
+      # the canary unit, a wrong unit is refused before any call, an already
+      # stopped canary is not "re-failed", and a failing systemctl is loud. Every
+      # assertion reads what the stub systemctl was actually asked to do.
+      - name: Self-test alert-drill.sh (board #10)
+        run: bash infra/scripts/alert-drill.sh --self-test
 
   restore-drill-selftest:
     name: Restore drill self-test (no host, no network)
