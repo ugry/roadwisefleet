@@ -171,6 +171,6 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.elilaltd.roadwisefleet.driver
+          packageName: com.roadwisefleet
           releaseFiles: 'apps/android/**/build/outputs/bundle/**/*.aab'
           track: ${{ inputs.track }}
