@@ -62,6 +62,28 @@ Files required (value-free; strip tokens/passwords before pasting):
 is the risk this item exists to remove, and it is why the runbook
 ([`runbook.md`](./runbook.md)) says to record every manual change on the board.
 
+### 2.1 Alert proof — the one acceptance clause with no evidence (2026-10-27)
+
+Every check evaluates green, and **no alert has ever been delivered** (0 alerts in
+`/opt/monitoring/metric-alerts.log`, no Gatus alert history). "A simulated failure
+produces an alert" is therefore *unproven*, not satisfied — a monitor that has
+never fired is an untested monitor.
+
+Proving it without breaking production needs a failure target that is safe to
+break, so this repo now carries one:
+
+| Artifact | What it does |
+|---|---|
+| [`alert-canary/eila-alert-canary.service`](./alert-canary/eila-alert-canary.service) | a hardened `python3 -m http.server` on `127.0.0.1:8099` — serves nothing, `Restart=no` so a stop stays stopped |
+| [`alert-canary/gatus-check.yaml`](./alert-canary/gatus-check.yaml) | the Gatus `tcp://127.0.0.1:8099` check (provider block copied from a neighbour — the relay contract is not in git yet) |
+| [`../scripts/alert-drill.sh`](../scripts/alert-drill.sh) | `--status` / `--fail --apply` / `--recover --apply`, one-unit guard, no non-canary unit can ever be stopped |
+
+The drill and the recording of its result are described in
+[`runbook.md`](./runbook.md) §3. **I cannot execute it**: the canary and Gatus live
+on elilavps1, which I have no access to. Installing the unit + adding the check is
+an owner/TL change window; the drill itself is one command after that.
+
+
 ## 3. Thresholds & checks — owned by DevOps (proposed; **not applied**)
 
 "Present" = the value the owner reported as live. "Proposed" = my recommendation,
