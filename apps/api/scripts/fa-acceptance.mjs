@@ -374,6 +374,10 @@ async function F1() {
  * delivered 30 min before it, an unassigned trip and an expiring document — and
  * removes them through `residue`/`cleanupResidue`. Without them a fresh CI
  * database would report NOT_BUILT forever, which is the defect this fixes.
+ *
+ * Board #146: every alert in the payload has its link probed over HTTP — never a
+ * sampled prefix — because `checkAlertLinks` (fa-f2-kpi.mjs) treats an unprobed
+ * link as a problem. The payload is capped at ALERT_LIMIT = 20 by the product.
  */
 async function F2(admin, driver) {
   crit('F2', 'F2_kpi_reconciliation');
@@ -383,7 +387,7 @@ async function F2(admin, driver) {
   const st = f2.selfTest();
   const stBad = st.rows.filter((r) => !r.ok);
   if (st.ok) {
-    ok('the F2 matchers reject a wrong expectation (self-test)', `${st.rows.length}/${st.rows.length} cases discriminate, incl. activeTrips-vs-all-trips, a 0-sample on-time and a dead alert link`);
+    ok('the F2 matchers reject a wrong expectation (self-test)', `${st.rows.length}/${st.rows.length} cases discriminate, incl. activeTrips-vs-all-trips, a 0-sample on-time, a dead alert link and a sampled alert prefix`);
   } else {
     bad('the F2 matchers reject a wrong expectation (self-test)', `${stBad.length}/${st.rows.length} no longer discriminate: ${stBad.map((r) => `${r.name} (${r.evidence})`).join(' | ')}`);
   }
@@ -498,10 +502,17 @@ async function F2(admin, driver) {
     bad('every alert links to the trip it names', `no alerts array in the payload: keys=${Object.keys(dash).join(',')}`);
     return;
   }
+  // Probe EVERY alert the payload carries. `checkAlertLinks` fails any link it was
+  // not asked to verify, so sampling a prefix of the array would turn F2 red for a
+  // suite reason as soon as an org holds more alerts than the sample — the defect
+  // board #146 pins. The product already caps the list (ALERT_LIMIT = 20 in
+  // apps/api/src/dashboard.js), so walking the whole array is at most 20 GETs.
   const linkStatus = {};
-  for (const a of alerts.slice(0, 8)) {
+  for (const a of alerts) {
     const p = String((a && a.link) || '');
-    if (p.startsWith('/app/trips')) linkStatus[p] = (await call('GET', p, { token: admin.token })).status;
+    if (p.startsWith('/app/trips') && linkStatus[p] === undefined) {
+      linkStatus[p] = (await call('GET', p, { token: admin.token })).status;
+    }
   }
   const orgTrips = await prisma.trip.findMany({ where: { orgId }, select: { id: true }, take: 400 });
   const linkRow = f2.checkAlertLinks(alerts, { tripIds: orgTrips.map((t) => t.id), linkStatus, orgId });

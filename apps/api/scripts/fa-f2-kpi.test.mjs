@@ -13,6 +13,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   DELIVERED_STATUSES,
   TERMINAL_STATUSES,
@@ -91,6 +92,32 @@ test('an alert passes only when its link resolves AND names the trip it carries'
   assert.equal(checkAlertLinks([alert], { ...opts, linkStatus: {} }).ok, false);
   // empty list must not pass vacuously
   assert.equal(checkAlertLinks([], opts).ok, false);
+});
+
+test('every alert in the payload must be probed, not a sampled prefix (board #146)', () => {
+  const trips = Array.from({ length: 9 }, (_, i) => `t${i + 1}`);
+  const alerts = trips.map((tripId, i) => ({ id: `alert-${i + 1}`, kind: 'trip_unassigned', tripId, link: `/app/trips/${tripId}` }));
+  const probed = (...ids) => Object.fromEntries(ids.map((tripId) => [`/app/trips/${tripId}`, 200]));
+
+  // The payload carries up to ALERT_LIMIT (20) alerts, so 9 is an ordinary org.
+  const all = checkAlertLinks(alerts, { tripIds: trips, linkStatus: probed(...trips), orgId: 'org-1' });
+  assert.ok(all.ok);
+  assert.match(all.evidence, /9 alert\(s\).*9 link\(s\) probed/);
+
+  // A probe that stops after the first 8 must NOT pass: this is the exact case
+  // that made F2 red for a suite reason while the product was fine.
+  const eight = checkAlertLinks(alerts, { tripIds: trips, linkStatus: probed(...trips.slice(0, 8)), orgId: 'org-1' });
+  assert.equal(eight.ok, false);
+  assert.match(eight.problems.join(' | '), /not probed over HTTP/);
+});
+
+test('the F2 harness walks the whole alerts array when it probes links', async () => {
+  // The matcher requires every returned alert to be probed, so the harness must
+  // not sample the array: the two sides have to agree or the gate goes red for a
+  // suite reason (board #146). Guards the source, since the loop needs a DB.
+  const src = await readFile(new URL('./fa-acceptance.mjs', import.meta.url), 'utf8');
+  assert.match(src, /for \(const a of alerts\) \{/, 'the F2 alert probe must iterate every alert in the payload');
+  assert.doesNotMatch(src, /for \(const a of alerts\.slice\(/, 'a sampled prefix would fail checkAlertLinks for alerts it never probed');
 });
 
 test('DELIVERED_STATUSES matches the payload contract the suite reconciles against', () => {

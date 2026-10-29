@@ -230,5 +230,16 @@ export function selfTest() {
   const noAlerts = checkAlertLinks([], { tripIds: [] });
   t('an empty alert list does not pass vacuously', noAlerts.ok === false, noAlerts.evidence);
 
+  // Board #146: the payload can hold ALERT_LIMIT = 20 alerts, so a probe that
+  // walks a fixed prefix of 8 must be distinguishable from one that walks them
+  // all. Both rows below use the same 9-alert payload; only the probe map differs.
+  const nineTrips = Array.from({ length: 9 }, (_, i) => `t${i + 1}`);
+  const nineAlerts = nineTrips.map((tripId, i) => ({ id: `alert-${i + 1}`, kind: 'trip_unassigned', tripId, link: `/app/trips/${tripId}` }));
+  const linkFor = (tripId) => ({ [`/app/trips/${tripId}`]: 200 });
+  const nineProbed = checkAlertLinks(nineAlerts, { tripIds: nineTrips, linkStatus: Object.assign({}, ...nineTrips.map(linkFor)), orgId: 'qa-org' });
+  t('9 alerts with every link probed -> ok', nineProbed.ok === true, nineProbed.evidence);
+  const eightProbed = checkAlertLinks(nineAlerts, { tripIds: nineTrips, linkStatus: Object.assign({}, ...nineTrips.slice(0, 8).map(linkFor)), orgId: 'qa-org' });
+  t('9 alerts with the 9th link unprobed -> not ok', eightProbed.ok === false, eightProbed.evidence);
+
   return { ok: rows.every((r) => r.ok), rows };
 }
